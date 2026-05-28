@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "skills": {
+    "agentic-eval": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/agentic-eval/SKILL.md",
+      "computedHash": "40771d7d389c1542e6cb995d75e516893466f01c3b66bc040b158ceb793d4bed"
+    },
+    "design-taste-frontend": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/taste-skill/SKILL.md",
+      "computedHash": "899b84384f74f540ea5284d9b2e9234e050998b42eacc805410b518d4226c0b3"
+    },
+    "framer-motion-animator": {
+      "source": "patricio0312rev/skills",
+      "sourceType": "github",
+      "skillPath": "frontend/framer-motion-animator/SKILL.md",
+      "computedHash": "22a8401fab0cdf32d5c153b98aba5e95435a479810896879535dc7ac3710efbe"
+    },
+    "gsap-core": {
+      "source": "greensock/gsap-skills",
+      "sourceType": "github",
+      "skillPath": "skills/gsap-core/SKILL.md",
+      "computedHash": "b891c9ed42d9319685250231085ebe21538f2c844613b277b9dd2b3ff529a542"
+    },
+    "gsap-frameworks": {
+      "source": "greensock/gsap-skills",
+      "sourceType": "github",
+      "skillPath": "skills/gsap-frameworks/SKILL.md",
+      "computedHash": "08b3917649997d53f94a9831b5db21afafafc89ee3a9a020d2471c69c336bdd6"
+    },
+    "gsap-performance": {
+      "source": "greensock/gsap-skills",
+      "sourceType": "github",
+      "skillPath": "skills/gsap-performance/SKILL.md",
+      "computedHash": "da73dbf11663abb1a880e1796367f84b19877db4a16186b36d1dce96fe0ce983"
+    },
+    "gsap-plugins": {
+      "source": "greensock/gsap-skills",
+      "sourceType": "github",
+      "skillPath": "skills/gsap-plugins/SKILL.md",
+      "computedHash": "50a320904c3053a1a7d01ea95235944814d18c0b5958f17e38046504aa6078a8"
+    },
+    "gsap-react": {
+      "source": "greensock/gsap-skills",
+      "sourceType": "github",
+      "skillPath": "skills/gsap-react/SKILL.md",
+      "computedHash": "255206fb6a4a079ad73b4a12e7c63197dc451a8549c7ac4e852b50ff74ef3bd6"
+    },
+    "gsap-scrolltrigger": {
+      "source": "greensock/gsap-skills",
+      "sourceType": "github",
+      "skillPath": "skills/gsap-scrolltrigger/SKILL.md",
+      "computedHash": "358dd3381c74fc4be8db5a94e0cd008bf0fa7c1ccd45999671b0d61b9d9ffd9b"
+    },
+    "gsap-timeline": {
+      "source": "greensock/gsap-skills",
+      "sourceType": "github",
+      "skillPath": "skills/gsap-timeline/SKILL.md",
+      "computedHash": "e7c07909bb427f74e1bda1ff716bd97ae166269382f7abbd649c0d1ba8f6e0ec"
+    },
+    "gsap-utils": {
+      "source": "greensock/gsap-skills",
+      "sourceType": "github",
+      "skillPath": "skills/gsap-utils/SKILL.md",
+      "computedHash": "72af4a036d417d6eaef7478eca2f28e760631fb78db822ba34a9c706797aab62"
+    },
+    "instructor": {
+      "source": "davila7/claude-code-templates",
+      "sourceType": "github",
+      "skillPath": "cli-tool/components/skills/ai-research/prompt-engineering-instructor/SKILL.md",
+      "computedHash": "12a9ac7aade14bcc7b8ad707e8a3028c9b0e945600bfe170b0cc5ec2fc7d3c7d"
+    },
+    "nextjs": {
+      "source": "vercel-labs/vercel-plugin",
+      "sourceType": "github",
+      "skillPath": "skills/nextjs/SKILL.md",
+      "computedHash": "d3a48eada4dbae95856d643a0c9c54a38974ee7896a4d34f93aead13d26c343a"
+    },
+    "prompt-engineer": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/prompt-engineer/SKILL.md",
+      "computedHash": "1a7329788b65328b898834b89b3893624c824bffaebd9ce46e742981359d7d9b"
+    },
+    "python-backend": {
+      "source": "jiatastic/open-python-skills",
+      "sourceType": "github",
+      "skillPath": "skills/fastapi-design/SKILL.md",
+      "computedHash": "79043c6c790d2a68ea6da31db8be02a77e0f2946c64e5e20f4d540f76d80e0dc"
+    },
+    "shadcn-ui": {
+      "source": "giuseppe-trisciuoglio/developer-kit",
+      "sourceType": "github",
+      "skillPath": "plugins/developer-kit-typescript/skills/shadcn-ui/SKILL.md",
+      "computedHash": "5264d0399edb2e9cb517c722067fea44657a35ece43407a3aaa9e3ba9bd7f670"
+    },
+    "tool-ui": {
+      "source": "assistant-ui/tool-ui",
+      "sourceType": "github",
+      "skillPath": "packages/agent/plugin/skills/tool-ui/SKILL.md",
+      "computedHash": "39516e5417921ecba72cbf2a7c034361a245202a8d355e17a227d9e02bda2d0d"
+    },
+    "workflow-orchestrator": {
+      "source": "charon-fan/agent-playbook",
+      "sourceType": "github",
+      "skillPath": "skills/workflow-orchestrator/SKILL.md",
+      "computedHash": "be94469c713b96da0492957d2ca29f761fe2f30625e4ff4fd042a3321a92bac9"
+    }
+  }
+}
