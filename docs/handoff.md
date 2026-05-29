@@ -44,12 +44,12 @@ Implemented scope:
 ### GitHub issue #6 (2026-05-29)
 
 - App shell with responsive navigation (desktop links + mobile hamburger sheet).
-- Onboarding flow: account setup form (create/select demo identity) and member profile wizard (3-step: skills, availability, preferences).
-- Workspace flow: create workspace form, invite member panel with copy-link, workspace dashboard.
-- Project intake: project idea/deadline/deliverables form, resource input panel (text notes, links, file references), project dashboard.
+- Onboarding flow: account setup form with real-time validation, member profile wizard (3-step: basic info / skills & experience / availability) with completion bar and popular skill suggestions.
+- Workspace flow: 2-step wizard create workspace form (basic info + team context), invite member panel with copy-link feedback, workspace dashboard with EmptyState.
+- Project intake: card-section layout with project type selector (coursework/competition/startup/research), deliverable tag input, real-time validation, and localStorage draft auto-save. Resource input panel with collapsible animation.
 - Full domain types in `frontend/src/lib/types.ts` (User, Workspace, MemberProfile, Project, Stage, Task, Assignment, CheckIn, Risk, ActionCard, AgentEvent, etc.).
 - Full API layer in `frontend/src/lib/api.ts` (users, workspaces, invitations, profiles, projects, resources, agent, assignments, checkins, tasks, export).
-- shadcn/ui installed with 16 components (button, card, input, label, select, textarea, badge, separator, avatar, dialog, dropdown-menu, sheet, tabs, tooltip, progress).
+- shadcn/ui installed with 16 base components + 6 custom UI components (FormSection, TagInput, FormField, StepIndicator, CompletionBar, EmptyState).
 - Tailwind config updated with CSS variable colors for shadcn/ui compatibility.
 
 ### GitHub issue #7 (2026-05-29)
@@ -170,7 +170,7 @@ Frontend:
 - UI 语言统一中文。表单组件统一使用 shadcn/ui（Input、Select、Textarea）。
 - RiskPanel 支持状态过滤（全部/待处理/已接受/已忽略/已解决）。
 - localStorage 读取使用 `useSyncExternalStore` 避免 hydration mismatch。
-- UI components use shadcn/ui (base-nova style) with project color tokens (ink, paper, moss, citron, coral, harbor).
+- UI components use shadcn/ui with project color tokens. Form components unified through FormField wrapper (label + input + error + hint).
 
 ## Next Work
 
@@ -181,7 +181,7 @@ MVP Usable progress (see `.claude/epics/projectflow-mvp-usable-ready/`):
 - ✅ #20 Assignment, Push, Risk, and Replan Usability Pass (completed 2026-05-29)
 - ✅ #16 Real LLM Provider Readiness and Diagnostics (completed 2026-05-29)
 - ✅ #17 Agent Output Persistence and Confirmation (completed 2026-05-29)
-- 🔲 #19 Frontend Agent Status and Review UX
+- ✅ #19 Polish Project Intake, Workspace, and Member Profile UX (completed 2026-05-30)
 - 🔲 #21 Real-Provider Verification and MVP Usable Runbook
 
 Post-MVP: auth, deployment, collaboration permissions, broader UI hardening.
