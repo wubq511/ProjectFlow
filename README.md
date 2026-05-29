@@ -7,10 +7,11 @@ ProjectFlow is a local-first active project agent MVP for college project teams.
 - Phase 0 / GitHub issue #2 completed on 2026-05-28.
 - Phase 1 (models) / GitHub issue #3 completed on 2026-05-29.
 - Phase 2 (core APIs) / GitHub issue #4 completed on 2026-05-29.
+- Phase 4 (agent infrastructure) / GitHub issue #5 implemented on 2026-05-29.
 - GitHub issue #6 (Frontend Shell, Onboarding, Workspace, and Intake) implemented on 2026-05-29.
-- Implemented: FastAPI health API, all 18 domain models with SQLite persistence, full CRUD APIs for users/workspaces/invitations/member-profiles/projects/resources/stages/tasks, WorkspaceState assembly endpoint, service layer, Pydantic schemas, Next.js with app shell, onboarding flow, workspace creation, project intake, shadcn/ui components, full domain types and API layer, tests (21 backend), lint/build commands, and runtime ignore rules.
+- Implemented: FastAPI health API, all 18 domain models with SQLite persistence, full CRUD APIs for users/workspaces/invitations/member-profiles/projects/resources/stages/tasks, WorkspaceState assembly endpoint, service layer, Pydantic schemas, agent coordinator infrastructure, LLM provider adapter, structured agent output schemas, fallback/timeline logging, Next.js with app shell, onboarding flow, workspace creation, project intake, shadcn/ui components, full domain types and API layer, tests (51 backend), lint/build commands, and runtime ignore rules.
 - Frontend routes: `/`, `/onboarding`, `/onboarding/profile`, `/workspaces/new`, `/workspaces/[workspaceId]`, `/projects/new`, `/projects/[projectId]`
-- Next implementation target: agent infrastructure (issue #5).
+- Next implementation target: planning and assignment dashboard UI (issue #7).
 
 ## Stack
 

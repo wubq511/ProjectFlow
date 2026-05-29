@@ -7,6 +7,7 @@ Status: current as of 2026-05-29.
 Phase 0 / GitHub issue #2 is complete and closed.
 Phase 1 (models) / GitHub issue #3 is complete and closed.
 Phase 2 (core APIs) / GitHub issue #4 is complete and closed.
+Phase 4 (agent infrastructure) / GitHub issue #5 is implemented.
 
 Implemented scope:
 
@@ -26,6 +27,7 @@ Implemented scope:
 - WorkspaceState assembly endpoint: `GET /api/workspaces/{id}/state`.
 - Service layer for all CRUD domains in `backend/app/services/`.
 - Pydantic schemas for all CRUD domains in `backend/app/schemas/`.
+- Agent infrastructure in `backend/app/agent/`: coordinator, workflow, prompts, LLM client, structured output schemas, module request builders, JSON repair/retry/template fallback, and AgentEvent timeline logging.
 - 9 API smoke tests covering full demo path and list endpoints.
 
 ### GitHub issue #6 (2026-05-29)
@@ -57,7 +59,7 @@ npm run build
 
 Results:
 
-- Backend: 21 tests passed.
+- Backend: 51 tests passed.
 - Frontend: 1 test passed.
 - Frontend lint passed.
 - Frontend build passed (7 routes generated).
@@ -68,9 +70,11 @@ Backend:
 
 - Implemented routes: health, users (3), workspaces (4), invitations (2), member-profiles (4), projects (4), resources (2), stages (4), tasks (6), workspace-state (1). Total: 30 endpoints.
 - Domain models implemented (18 models, all enums).
+- AgentEvent now records `status` for success, repaired, fallback, or failed agent runs.
 - Service layer implemented for all CRUD domains.
 - Pydantic schemas implemented for all CRUD domains.
 - WorkspaceState endpoint returns members, project, stages, tasks for Agent consumption.
+- Agent infrastructure can run with `LLM_PROVIDER=mock` by default, or OpenAI-compatible chat-completions settings through environment variables.
 
 Frontend:
 
@@ -84,12 +88,12 @@ Frontend:
 
 Recommended next implementation target:
 
-1. Agent Infrastructure and Structured Outputs (issue #5) — LLM client, coordinator, output schemas, fallback pipeline.
-2. Planning and Assignment Dashboard UI (issue #7) — depends on #5 and #6.
+1. Planning and Assignment Dashboard UI (issue #7) — depends on #5 and #6.
+2. Assignment, active push, check-in, risk, replan backend flows (issue #8).
 
 Dependency note:
 
-- #5 depends on #3 (domain models) which is complete.
+- #5 depends on #3 (domain models) and is now implemented.
 - #6 (frontend) is now complete.
 - #7 depends on both #5 and #6.
 

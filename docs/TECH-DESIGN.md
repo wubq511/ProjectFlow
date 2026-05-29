@@ -20,11 +20,12 @@ Snapshot date: 2026-05-29.
 - Phase 0 / GitHub issue #2 is completed and closed.
 - Phase 1 (models) / GitHub issue #3 is completed and closed.
 - Phase 2 (core APIs) / GitHub issue #4 is completed and closed.
+- Phase 4 (agent infrastructure) / GitHub issue #5 is implemented.
 - GitHub issue #6 (Frontend Shell, Onboarding, Workspace, and Intake) is implemented.
-- Implemented: FastAPI scaffold, SQLite configuration skeleton, `GET /api/health`, all 18 domain models with full enum alignment and auto table creation on startup, full CRUD APIs (users, workspaces, invitations, member-profiles, projects, resources, stages, tasks), WorkspaceState assembly endpoint (`GET /api/workspaces/{id}/state`), service layer, Pydantic schemas, Next.js app shell with navigation, onboarding flow (account setup + member profile wizard), workspace creation + invite panel, project intake + resource input, full domain types and API layer, shadcn/ui components, smoke tests, lint/build/test scripts, README, and runtime ignore rules.
+- Implemented: FastAPI scaffold, SQLite configuration skeleton, `GET /api/health`, all 18 domain models with full enum alignment and auto table creation on startup, full CRUD APIs (users, workspaces, invitations, member-profiles, projects, resources, stages, tasks), WorkspaceState assembly endpoint (`GET /api/workspaces/{id}/state`), service layer, Pydantic schemas, agent coordinator infrastructure with structured output validation, mock/OpenAI-compatible LLM adapter, prompt boundaries, JSON repair/retry/template fallback, AgentEvent timeline logging with status, Next.js app shell with navigation, onboarding flow (account setup + member profile wizard), workspace creation + invite panel, project intake + resource input, full domain types and API layer, shadcn/ui components, smoke tests, lint/build/test scripts, README, and runtime ignore rules.
 - Frontend routes: `/`, `/onboarding`, `/onboarding/profile`, `/workspaces/new`, `/workspaces/[workspaceId]`, `/projects/new`, `/projects/[projectId]`.
-- Not implemented yet: Agent modules, assignment/checkin/risk/replan service flows, seed data, and complete demo flow.
-- Current verification baseline: backend pytest (21 tests), frontend test, frontend lint, frontend build, and frontend production dependency audit.
+- Not implemented yet: Agent HTTP routes, assignment/checkin/risk/replan service flows, seed data, and complete demo flow.
+- Current verification baseline: backend pytest (51 tests), frontend test, frontend lint, frontend build, and frontend production dependency audit.
 
 ---
 
@@ -1669,12 +1670,14 @@ MVP 可以使用轻量校验：
 ```text
 APP_ENV=development
 DATABASE_URL=sqlite:///./data/projectflow.sqlite
-LLM_PROVIDER=openai
-OPENAI_API_KEY=xxx
+LLM_PROVIDER=mock
+LLM_API_KEY=xxx
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o-mini
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
 ```
 
-`APP_ENV`、`DATABASE_URL`、`LLM_PROVIDER` 已由后端配置读取。`OPENAI_API_KEY` 是真实 LLM 接入后需要的后端密钥，必须放 `.env`。`NEXT_PUBLIC_API_BASE_URL` 是前端可选变量，不配置时默认 `http://localhost:8000/api`。
+`APP_ENV`、`DATABASE_URL`、`LLM_PROVIDER`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 已由后端配置读取。`LLM_PROVIDER` 默认 `mock`；真实 LLM 接入时设置为 `openai` 或 `openai-compatible`，并把 `LLM_API_KEY` 放在 `.env`。`NEXT_PUBLIC_API_BASE_URL` 是前端可选变量，不配置时默认 `http://localhost:8000/api`。
 
 ## 14.4 Git Ignore Rules
 
@@ -2156,7 +2159,7 @@ http://localhost:3000
 1. ~~初始化 / 修正数据模型：User、Workspace、Membership、Invitation、MemberProfile。~~ (done #3)
 2. ~~实现对应 schema、service、route 和 SQLite 初始化。~~ (done #4)
 3. ~~实现 Project + Resource + WorkspaceState API。~~ (done #4)
-4. 实现 Agent 输出 schema 和 LLM client。
+4. ~~实现 Agent 输出 schema 和 LLM client。~~ (done #5)
 5. 先用 seed data/mock LLM 跑通前端主路径。
 6. 再接真实 LLM。
 7. 优先完成 Assignment Flow 和 Check-in Flow，因为这是新版 PRD 的核心增量。

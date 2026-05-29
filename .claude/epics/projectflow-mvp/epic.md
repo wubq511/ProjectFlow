@@ -2,8 +2,8 @@
 name: projectflow-mvp
 status: in-progress
 created: 2026-05-28T13:58:36Z
-updated: 2026-05-29T10:30:00Z
-progress: 36%
+updated: 2026-05-29T00:36:48Z
+progress: 50%
 prd: .claude/prds/projectflow-mvp.md
 github: https://github.com/wubq511/ProjectFlow/issues/1
 ---
@@ -28,7 +28,7 @@ The technical target is not a full SaaS. The target is a reliable local demo tha
 6. Put the deterministic workflow in backend services and state transitions.
 7. Let the agent generate proposals only. Services finalize confirmed changes.
 8. Validate every agent output with Pydantic schemas.
-9. Store AgentEvent timeline records for inputs, outputs, fallback behavior, and reasoning summaries.
+9. Store AgentEvent timeline records for inputs, outputs, fallback behavior, status, and reasoning summaries.
 10. Keep frontend pages as composition layers; API calls and types stay in `frontend/src/lib`.
 
 ## Technical Approach
@@ -140,9 +140,9 @@ Parallelization:
 
 - [x] 2.md - Guardrails, Monorepo Bootstrap, and Health Checks (parallel: false)
 - [x] 3.md - Backend Domain Models and SQLite Persistence (parallel: true)
-- [ ] 4.md - Core Workspace and Project APIs (parallel: true)
-- [ ] 5.md - Agent Infrastructure and Structured Outputs (parallel: true)
-- [ ] 6.md - Frontend Shell, Onboarding, Workspace, and Intake (parallel: true)
+- [x] 4.md - Core Workspace and Project APIs (parallel: true)
+- [x] 5.md - Agent Infrastructure and Structured Outputs (parallel: true)
+- [x] 6.md - Frontend Shell, Onboarding, Workspace, and Intake (parallel: true)
 - [ ] 7.md - Planning and Assignment Dashboard UI (parallel: true)
 - [ ] 8.md - Assignment, Active Push, Check-in, Risk, Replan Backend Flows (parallel: true)
 - [ ] 9.md - Action Cards, Check-in, Risk, Timeline, and Export UI (parallel: true)

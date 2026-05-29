@@ -127,3 +127,10 @@ class AgentEventType(str, Enum):
     risk = "risk"
     replan = "replan"
     export = "export"
+
+
+class AgentEventStatus(str, Enum):
+    success = "success"
+    repaired = "repaired"
+    fallback = "fallback"
+    failed = "failed"

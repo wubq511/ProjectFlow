@@ -99,7 +99,7 @@ npm audit --omit=dev
 
 Expected baseline as of 2026-05-29:
 
-- Backend tests pass (21 tests: 1 health + 5 issue4 smoke + 3 workspace/project smoke + 12 model smoke).
+- Backend tests pass (51 tests: API/model smoke plus agent schema, module, provider, fallback, and timeline logging tests).
 - Frontend tests pass.
 - Frontend lint passes.
 - Frontend production build passes.
@@ -116,8 +116,11 @@ Known non-blocking warnings:
 |---|---|---:|---|
 | `APP_ENV` | backend | no | Defaults to `development`. |
 | `DATABASE_URL` | backend | no | Defaults to `sqlite:///./data/projectflow.sqlite`. |
-| `LLM_PROVIDER` | backend | no | Defaults to `openai`; real LLM integration is not implemented yet. |
-| `OPENAI_API_KEY` | backend future LLM | no | Required only after real OpenAI LLM calls are wired. Must stay in `.env`. |
+| `LLM_PROVIDER` | backend | no | Defaults to `mock`; set to `openai` or `openai-compatible` for a real compatible chat-completions provider. |
+| `LLM_API_KEY` | backend LLM | only for real LLM | Required when `LLM_PROVIDER=openai` or `openai-compatible`. Must stay in `.env`. |
+| `LLM_BASE_URL` | backend LLM | no | Defaults to `https://api.openai.com/v1`; override for OpenAI-compatible providers. |
+| `LLM_MODEL` | backend LLM | no | Defaults to `gpt-4o-mini`. |
+| `LLM_TIMEOUT_SECONDS` | backend LLM | no | Defaults to `30.0`. |
 | `NEXT_PUBLIC_API_BASE_URL` | frontend | no | Defaults to `http://localhost:8000/api`. |
 
 ## Runtime Files
