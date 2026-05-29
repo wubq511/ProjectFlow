@@ -11,9 +11,10 @@ ProjectFlow is a local-first active project agent MVP for college project teams.
 - GitHub issue #6 (Frontend Shell, Onboarding, Workspace, and Intake) implemented on 2026-05-29.
 - GitHub issue #7 (Planning and Assignment Dashboard UI) implemented on 2026-05-29.
 - GitHub issue #8 (Assignment, Active Push, Check-in, Risk, Replan Backend Flows) implemented on 2026-05-29.
-- Implemented: FastAPI health API, all 18 domain models with SQLite persistence, full CRUD APIs for users/workspaces/invitations/member-profiles/projects/resources/stages/tasks, WorkspaceState assembly endpoint, assignment/check-in/risk/action-card/replan backend services and APIs, agent HTTP endpoints, service layer, Pydantic schemas, agent coordinator infrastructure, LLM provider adapter, structured agent output schemas, fallback/timeline logging, Next.js with app shell, onboarding flow, workspace creation, project intake, planning and assignment dashboard UI, shadcn/ui components, full domain types and API layer, tests (54 backend, 3 frontend), lint/build commands, and runtime ignore rules.
+- GitHub issue #10 (Demo Seed, Reset, Runbook, and Review Export) implemented on 2026-05-29.
+- Implemented: FastAPI health API, all 18 domain models with SQLite persistence, full CRUD APIs for users/workspaces/invitations/member-profiles/projects/resources/stages/tasks, WorkspaceState assembly endpoint, assignment/check-in/risk/action-card/replan backend services and APIs, agent HTTP endpoints, demo seed data and reset, review summary export, service layer, Pydantic schemas, agent coordinator infrastructure, LLM provider adapter, structured agent output schemas, fallback/timeline logging, Next.js with app shell, onboarding flow, workspace creation, project intake, planning and assignment dashboard UI, shadcn/ui components, full domain types and API layer, tests (69 backend, 3 frontend), lint/build commands, and runtime ignore rules.
 - Frontend routes: `/`, `/onboarding`, `/onboarding/profile`, `/workspaces/new`, `/workspaces/[workspaceId]`, `/projects/new`, `/projects/[projectId]`
-- Next implementation target: wire the frontend dashboard to the new execution-loop backend APIs, then add seed/reset/demo polish.
+- Next implementation target: demo stability hardening, animation polish, and frontend seed/reset buttons.
 
 ## Stack
 
@@ -36,6 +37,18 @@ Health check:
 
 ```bash
 curl http://localhost:8000/api/health
+```
+
+Load demo seed data:
+
+```bash
+curl -X POST http://localhost:8000/api/seed/demo
+```
+
+Reset to empty state:
+
+```bash
+curl -X POST http://localhost:8000/api/seed/reset
 ```
 
 Backend tests:
@@ -74,6 +87,8 @@ npm audit --omit=dev
 - [Technical design](docs/TECH-DESIGN.md)
 - [API contract](docs/api-contract.md)
 - [Runbook](docs/runbook.md)
+- [Demo script](docs/demo-script.md)
+- [Seed scenarios](docs/seed-scenarios.md)
 - [Current handoff](docs/handoff.md)
 
 ## Runtime Files
