@@ -23,10 +23,11 @@ Snapshot date: 2026-05-29.
 - Phase 4 (agent infrastructure) / GitHub issue #5 is implemented.
 - GitHub issue #6 (Frontend Shell, Onboarding, Workspace, and Intake) is implemented.
 - GitHub issue #7 (Planning and Assignment Dashboard UI) is implemented.
-- Implemented: FastAPI scaffold, SQLite configuration skeleton, `GET /api/health`, all 18 domain models with full enum alignment and auto table creation on startup, full CRUD APIs (users, workspaces, invitations, member-profiles, projects, resources, stages, tasks), WorkspaceState assembly endpoint (`GET /api/workspaces/{id}/state`), service layer, Pydantic schemas, agent coordinator infrastructure with structured output validation, mock/OpenAI-compatible LLM adapter, prompt boundaries, JSON repair/retry/template fallback, AgentEvent timeline logging with status, Next.js app shell with navigation, onboarding flow (account setup + member profile wizard), workspace creation + invite panel, project intake + resource input, planning and assignment dashboard UI, client-side project state composition over implemented endpoints, full domain types and API layer, shadcn/ui components, smoke tests, lint/build/test scripts, README, and runtime ignore rules.
+- GitHub issue #8 (Assignment, active push, check-in, risk, and replan backend flows) is implemented.
+- Implemented: FastAPI scaffold, SQLite configuration skeleton, `GET /api/health`, all 18 domain models with full enum alignment and auto table creation on startup, full CRUD APIs (users, workspaces, invitations, member-profiles, projects, resources, stages, tasks), WorkspaceState assembly endpoint (`GET /api/workspaces/{id}/state`), service layer, Pydantic schemas, agent coordinator infrastructure with structured output validation, mock/OpenAI-compatible LLM adapter, prompt boundaries, JSON repair/retry/template fallback, AgentEvent timeline logging with status, assignment proposal/response/finalize/negotiation APIs, action card APIs, check-in cycle/response APIs, risk APIs, confirmed replan API, agent HTTP endpoints, Next.js app shell with navigation, onboarding flow (account setup + member profile wizard), workspace creation + invite panel, project intake + resource input, planning and assignment dashboard UI, client-side project state composition over implemented endpoints, full domain types and API layer, shadcn/ui components, smoke tests, lint/build/test scripts, README, and runtime ignore rules.
 - Frontend routes: `/`, `/onboarding`, `/onboarding/profile`, `/workspaces/new`, `/workspaces/[workspaceId]`, `/projects/new`, `/projects/[projectId]`.
-- Not implemented yet: Agent HTTP routes, assignment/checkin/risk/replan service flows, seed data, and complete demo flow.
-- Current verification baseline: backend pytest (51 tests), frontend tests (3 tests across 2 files), frontend lint, and frontend build.
+- Not implemented yet: frontend wiring for the issue #8 execution-loop APIs, seed/reset data, export, and complete demo flow.
+- Current verification baseline: backend pytest (54 tests), frontend tests (3 tests across 2 files), frontend lint, and frontend build.
 
 ---
 
@@ -1292,64 +1293,75 @@ MVP 不强制做文件解析。文件上传可先存 metadata。
 ### Run Clarification
 
 ```http
-POST /api/projects/{project_id}/agent/clarify
+POST /api/agent/clarify
 ```
 
 ### Generate Stage Plan
 
 ```http
-POST /api/projects/{project_id}/agent/plan
+POST /api/agent/plan
 ```
 
 ### Generate Task Breakdown
 
 ```http
-POST /api/projects/{project_id}/agent/breakdown
+POST /api/agent/breakdown
 ```
 
 ### Generate Assignment Recommendation
 
 ```http
-POST /api/projects/{project_id}/agent/assign
+POST /api/agent/assign
 ```
 
 ### Generate Active Push Cards
 
 ```http
-POST /api/projects/{project_id}/agent/push
+POST /api/agent/active-push
 ```
 
 ### Analyze Check-ins
 
 ```http
-POST /api/projects/{project_id}/agent/analyze-checkins
+POST /api/agent/check-in-analysis
 ```
 
 ### Run Risk Analysis
 
 ```http
-POST /api/projects/{project_id}/agent/risk-analysis
+POST /api/agent/risk-analysis
 ```
 
 ### Generate Replan Proposal
 
 ```http
-POST /api/projects/{project_id}/agent/replan
+POST /api/agent/replan
 ```
 
-All agent responses include:
+Request:
 
 ```json
 {
-  "data": {},
-  "timeline_event_id": "uuid",
-  "requires_confirmation": true
+  "workspace_id": "uuid"
+}
+```
+
+All agent responses include structured persistence metadata:
+
+```json
+{
+  "event_type": "assign",
+  "status": "success",
+  "attempts": 1,
+  "used_fallback": false,
+  "output": {},
+  "created_ids": ["uuid"]
 }
 ```
 
 ---
 
-## 11.9 Confirmation API
+## 11.9 Planned Generic Confirmation API
 
 ```http
 POST /api/projects/{project_id}/confirm
@@ -1370,10 +1382,28 @@ Request:
 
 ## 11.10 Assignment API
 
+### Create Assignment Proposal
+
+```http
+POST /api/assignment-proposals
+```
+
+### Get Assignment Proposal
+
+```http
+GET /api/assignment-proposals/{proposal_id}
+```
+
+### List Project Assignment Proposals
+
+```http
+GET /api/projects/{project_id}/assignment-proposals
+```
+
 ### Respond to Assignment Proposal
 
 ```http
-POST /api/assignment-proposals/{proposal_id}/response
+POST /api/assignment-proposals/{proposal_id}/responses
 ```
 
 Request:
@@ -1390,47 +1420,29 @@ Request:
 ### Start Assignment Negotiation
 
 ```http
-POST /api/projects/{project_id}/assignments/negotiate
+POST /api/assignment-negotiations
 ```
 
 Request:
 
 ```json
 {
-  "proposal_id": "uuid",
+  "project_id": "uuid",
+  "stage_id": "uuid",
   "from_user_id": "uuid",
-  "desired_task_id": "uuid"
+  "desired_task_id": "uuid",
+  "current_owner_user_id": "uuid | null",
+  "agent_message": "建议交换任务，因为..."
 }
 ```
 
-### Resolve Assignment Negotiation
+### Finalize Assignment Proposal
 
 ```http
-POST /api/assignment-negotiations/{negotiation_id}/resolve
+POST /api/assignment-proposals/{proposal_id}/finalize
 ```
 
-Request:
-
-```json
-{
-  "accepted": true,
-  "resolved_by": "uuid"
-}
-```
-
-### Finalize Stage Assignments
-
-```http
-POST /api/stages/{stage_id}/assignments/finalize
-```
-
-Request:
-
-```json
-{
-  "finalized_by": "uuid"
-}
-```
+No request body. The service only writes `task.owner_user_id` after the proposal is `owner_confirmed`.
 
 ---
 
@@ -1439,18 +1451,25 @@ Request:
 ### Create Check-in Cycle
 
 ```http
-POST /api/projects/{project_id}/checkin-cycles
+POST /api/checkin-cycles
 ```
 
 Request:
 
 ```json
 {
+  "project_id": "uuid",
   "stage_id": "uuid",
   "cadence_days": 2,
   "start_date": "2026-05-29",
   "created_by_user_id": "uuid"
 }
+```
+
+### List Project Check-in Cycles
+
+```http
+GET /api/projects/{project_id}/checkin-cycles
 ```
 
 ### Submit Check-in Response
@@ -1472,6 +1491,12 @@ Request:
 }
 ```
 
+### List Check-in Responses
+
+```http
+GET /api/checkin-cycles/{cycle_id}/responses
+```
+
 ---
 
 ## 11.12 Task API
@@ -1479,7 +1504,7 @@ Request:
 ### Update Task Status
 
 ```http
-POST /api/tasks/{task_id}/status
+POST /api/tasks/{task_id}/status-updates
 ```
 
 Request:
@@ -1496,7 +1521,51 @@ Request:
 
 ---
 
-## 11.13 Export API
+## 11.13 Action Card API
+
+### Create Action Card
+
+```http
+POST /api/action-cards
+```
+
+### List Project Action Cards
+
+```http
+GET /api/projects/{project_id}/action-cards
+```
+
+---
+
+## 11.14 Risk API
+
+### Create Risk
+
+```http
+POST /api/risks
+```
+
+### List Project Risks
+
+```http
+GET /api/projects/{project_id}/risks
+```
+
+---
+
+## 11.15 Replan API
+
+### Confirm Replan
+
+```http
+POST /api/replans/confirm
+```
+
+The confirm endpoint applies accepted task changes only after explicit confirmation.
+
+---
+
+## 11.16 Planned Export API
 
 ```http
 POST /api/projects/{project_id}/export/review-summary
@@ -1561,7 +1630,7 @@ Response:
 | `AgentLoadingPanel` | AI 生成过程可视化 |
 | `DemoResetButton` | 重置种子数据 |
 
-Current implementation note: GitHub issue #7 implements the first project dashboard slice with `ProjectDashboard`, `DirectionCardPanel`, `StagePlanBoard`, `TaskBreakdownBoard`, and `AssignmentFlowPanel`. This covers the current direction card, stage plan, task breakdown, assignment proposal, response, negotiation, and final confirmation UI. `ActionCardList`, `CheckInForm`, `RiskCard`, `ReplanDiff`, `AgentTimeline`, `AgentLoadingPanel`, and `DemoResetButton` remain planned.
+Current implementation note: GitHub issue #7 implements the first project dashboard slice with `ProjectDashboard`, `DirectionCardPanel`, `StagePlanBoard`, `TaskBreakdownBoard`, and `AssignmentFlowPanel`. GitHub issue #8 implements the backend routes and services for agent execution, assignment responses/finalization/negotiation, action cards, check-ins, risks, and confirmed replans. The dashboard still needs frontend wiring for `ActionCardList`, `CheckInForm`, `RiskCard`, `ReplanDiff`, `AgentTimeline`, `AgentLoadingPanel`, and `DemoResetButton`.
 
 ---
 
@@ -1893,6 +1962,7 @@ Current status:
 - Core CRUD APIs and WorkspaceState endpoint completed on 2026-05-29 via GitHub issue #4.
 - Frontend shell, onboarding, workspace, and project intake UI implemented on 2026-05-29 via GitHub issue #6.
 - Planning and assignment dashboard UI implemented on 2026-05-29 via GitHub issue #7.
+- Assignment, active push, check-in, risk, and replan backend flows implemented on 2026-05-29 via GitHub issue #8.
 
 ---
 
@@ -2165,11 +2235,12 @@ http://localhost:3000
 3. ~~实现 Project + Resource + WorkspaceState API。~~ (done #4)
 4. ~~实现 Agent 输出 schema 和 LLM client。~~ (done #5)
 5. ~~实现 planning and assignment dashboard UI。~~ (done #7)
-6. 优先完成 Assignment Flow 和 Check-in Flow 的后端服务/API，因为这是新版 PRD 的核心增量。
-7. 用 seed data/mock LLM 跑通完整前端主路径。
-8. 再接真实 LLM。
-9. 保持 `docs/api-contract.md`、`docs/runbook.md`、`docs/handoff.md` 与代码同步。
-10. 最后打磨 Action Cards、Risk & Replan、Agent Timeline。
+6. ~~完成 Assignment、Active Push、Check-in、Risk、Replan 的后端服务/API。~~ (done #8)
+7. 将项目 dashboard 接入 #8 后端 API，补齐 Action Cards、Check-in、Risk & Replan、Agent Timeline 的真实交互。
+8. 用 seed data/mock LLM 跑通完整前端主路径。
+9. 再接真实 LLM。
+10. 保持 `docs/api-contract.md`、`docs/runbook.md`、`docs/handoff.md` 与代码同步。
+11. 最后打磨 demo reset、Agent loading、review summary export。
 
 ---
 

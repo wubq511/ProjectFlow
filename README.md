@@ -10,9 +10,10 @@ ProjectFlow is a local-first active project agent MVP for college project teams.
 - Phase 4 (agent infrastructure) / GitHub issue #5 implemented on 2026-05-29.
 - GitHub issue #6 (Frontend Shell, Onboarding, Workspace, and Intake) implemented on 2026-05-29.
 - GitHub issue #7 (Planning and Assignment Dashboard UI) implemented on 2026-05-29.
-- Implemented: FastAPI health API, all 18 domain models with SQLite persistence, full CRUD APIs for users/workspaces/invitations/member-profiles/projects/resources/stages/tasks, WorkspaceState assembly endpoint, service layer, Pydantic schemas, agent coordinator infrastructure, LLM provider adapter, structured agent output schemas, fallback/timeline logging, Next.js with app shell, onboarding flow, workspace creation, project intake, planning and assignment dashboard UI, shadcn/ui components, full domain types and API layer, tests (51 backend, 3 frontend), lint/build commands, and runtime ignore rules.
+- GitHub issue #8 (Assignment, Active Push, Check-in, Risk, Replan Backend Flows) implemented on 2026-05-29.
+- Implemented: FastAPI health API, all 18 domain models with SQLite persistence, full CRUD APIs for users/workspaces/invitations/member-profiles/projects/resources/stages/tasks, WorkspaceState assembly endpoint, assignment/check-in/risk/action-card/replan backend services and APIs, agent HTTP endpoints, service layer, Pydantic schemas, agent coordinator infrastructure, LLM provider adapter, structured agent output schemas, fallback/timeline logging, Next.js with app shell, onboarding flow, workspace creation, project intake, planning and assignment dashboard UI, shadcn/ui components, full domain types and API layer, tests (54 backend, 3 frontend), lint/build commands, and runtime ignore rules.
 - Frontend routes: `/`, `/onboarding`, `/onboarding/profile`, `/workspaces/new`, `/workspaces/[workspaceId]`, `/projects/new`, `/projects/[projectId]`
-- Next implementation target: assignment, active push, check-in, risk, and replan backend flows (issue #8).
+- Next implementation target: wire the frontend dashboard to the new execution-loop backend APIs, then add seed/reset/demo polish.
 
 ## Stack
 

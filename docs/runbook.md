@@ -99,7 +99,7 @@ npm audit --omit=dev
 
 Expected baseline as of 2026-05-29:
 
-- Backend tests pass (51 tests: API/model smoke plus agent schema, module, provider, fallback, and timeline logging tests).
+- Backend tests pass (54 tests: API/model smoke plus agent schema, module, provider, fallback, timeline logging, assignment, action-card, check-in, risk, replan, and agent endpoint tests).
 - Frontend tests pass.
 - Frontend lint passes.
 - Frontend production build passes.
@@ -109,6 +109,16 @@ Known non-blocking warnings:
 
 - Backend pytest may show a FastAPI/Starlette `TestClient` deprecation warning.
 - Vitest may show a Vite CJS Node API deprecation warning.
+
+## Local SQLite Schema Drift
+
+`backend/data/` is ignored runtime state. Fresh databases are auto-created from SQLModel metadata on FastAPI startup.
+
+If an older local `projectflow.sqlite` was created before `AgentEvent.status` existed, back up the file first, then add the missing column:
+
+```sql
+ALTER TABLE agent_events ADD COLUMN status TEXT NOT NULL DEFAULT 'success';
+```
 
 ## Environment Variables
 

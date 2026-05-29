@@ -10,6 +10,7 @@ Phase 2 (core APIs) / GitHub issue #4 is complete and closed.
 Phase 4 (agent infrastructure) / GitHub issue #5 is implemented.
 GitHub issue #6 (Frontend Shell, Onboarding, Workspace, and Intake) is implemented.
 GitHub issue #7 (Planning and Assignment Dashboard UI) is implemented.
+GitHub issue #8 (Assignment, active push, check-in, risk, and replan backend flows) is implemented.
 
 Implemented scope:
 
@@ -31,6 +32,7 @@ Implemented scope:
 - Pydantic schemas for all CRUD domains in `backend/app/schemas/`.
 - Agent infrastructure in `backend/app/agent/`: coordinator, workflow, prompts, LLM client, structured output schemas, module request builders, JSON repair/retry/template fallback, and AgentEvent timeline logging.
 - 9 API smoke tests covering full demo path and list endpoints.
+- Backend execution-loop APIs for assignment proposals/responses/finalization/negotiation, action cards, check-in cycles/responses, risks, confirmed replans, and agent endpoints.
 
 ### GitHub issue #6 (2026-05-29)
 
@@ -51,6 +53,15 @@ Implemented scope:
 - `frontend/src/lib/types.ts` now includes assignment responses and negotiations in `ProjectState`.
 - Focused frontend tests cover empty, populated, and API-failure dashboard states.
 
+### GitHub issue #8 (2026-05-29)
+
+- Added backend routes and services for assignment proposals, member responses, finalization, and negotiation.
+- Added backend routes and services for action cards, check-in cycles/responses, risks, and confirmed replans.
+- Added agent HTTP endpoints for clarify, plan, breakdown, assign, active push, check-in analysis, risk analysis, and replan.
+- Extended task status updates with `available_hours_change`.
+- Added backend tests for assignment flow, check-in/risk/replan flow, and agent endpoints.
+- Local SQLite databases created before `AgentEvent.status` may need the runbook schema drift repair before agent timeline writes.
+
 ## Verification Baseline
 
 Commands run successfully on 2026-05-29:
@@ -69,7 +80,7 @@ npm run build
 
 Results:
 
-- Backend: 51 tests passed.
+- Backend: 54 tests passed.
 - Frontend: 3 tests passed across 2 test files.
 - Frontend lint passed.
 - Frontend build passed (7 routes generated).
@@ -78,13 +89,13 @@ Results:
 
 Backend:
 
-- Implemented routes: health, users (3), workspaces (4), invitations (2), member-profiles (4), projects (4), resources (2), stages (4), tasks (6), workspace-state (1). Total: 30 endpoints.
+- Implemented routes: health, users (3), workspaces (4), invitations (2), member-profiles (4), projects (4), resources (2), stages (4), tasks (6), workspace-state (1), agent (8), assignments (6), action-cards (2), check-ins (4), risks (2), replans (1). Total: 54 endpoints.
 - Domain models implemented (18 models, all enums).
 - AgentEvent now records `status` for success, repaired, fallback, or failed agent runs.
-- Service layer implemented for all CRUD domains.
-- Pydantic schemas implemented for all CRUD domains.
+- Service layer implemented for all CRUD domains plus assignment, action-card, check-in, risk, replan, and agent-flow orchestration.
+- Pydantic schemas implemented for all CRUD and execution-loop domains.
 - WorkspaceState endpoint returns members, project, stages, tasks for Agent consumption.
-- Agent infrastructure can run with `LLM_PROVIDER=mock` by default, or OpenAI-compatible chat-completions settings through environment variables.
+- Agent infrastructure can run with `LLM_PROVIDER=mock` by default, or OpenAI-compatible chat-completions settings through environment variables. Agent HTTP endpoints persist structured outputs and created entity IDs through service-layer writes.
 
 Frontend:
 
@@ -92,22 +103,23 @@ Frontend:
 - API base URL comes from `NEXT_PUBLIC_API_BASE_URL` or defaults to `http://localhost:8000/api`.
 - All API calls go through `frontend/src/lib/api.ts`.
 - All types defined in `frontend/src/lib/types.ts`.
-- Project dashboard composes project, workspace, resources, stages, tasks, users, and profiles from implemented endpoints; agent/assignment/check-in/risk/replan/export API calls remain typed wrappers for planned backend routes.
+- Project dashboard composes project, workspace, resources, stages, tasks, users, and profiles from implemented endpoints. The backend now provides agent/assignment/check-in/risk/replan routes, but dashboard wiring for action cards, check-ins, risks, replans, and timeline views remains pending. Export remains planned.
 - UI components use shadcn/ui (base-nova style) with project color tokens (ink, paper, moss, citron, coral, harbor).
 
 ## Next Work
 
 Recommended next implementation target:
 
-1. Assignment, active push, check-in, risk, replan backend flows (issue #8).
-2. Action cards, risk, timeline, and demo polish UI flows after backend support lands.
+1. Wire the project dashboard to the issue #8 backend APIs for action cards, check-ins, risks, replans, and agent timeline.
+2. Add seed/reset data and demo polish flows.
+3. Implement review-summary export.
 
 Dependency note:
 
 - #5 depends on #3 (domain models) and is now implemented.
 - #6 (frontend) is now complete.
 - #7 depends on both #5 and #6 and is now implemented.
-- #8 should provide real persistence and service flows for assignment responses, negotiations, active push, check-in, risk, and replanning.
+- #8 depends on #5 and is now implemented on the backend. Frontend wiring remains a follow-up.
 
 ## Local Cleanup Notes
 

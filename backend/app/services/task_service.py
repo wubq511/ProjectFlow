@@ -58,6 +58,7 @@ def create_status_update(session: Session, data: TaskStatusUpdateCreate) -> Task
         status=data.status,
         progress_note=data.progress_note,
         blocker=data.blocker,
+        available_hours_change=data.available_hours_change,
     )
     session.add(status_update)
     session.commit()

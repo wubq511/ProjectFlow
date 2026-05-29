@@ -222,6 +222,9 @@ def _workspace_state() -> WorkspaceStateResponse:
         (
             AgentEventType.replan,
             {
+                "before": {"task-1": "Due 2026-06-01"},
+                "after": {"task-1": "Due 2026-06-03"},
+                "impact": "Moves the task by two days.",
                 "stage_adjustments": [
                     {
                         "stage_id": "stage-1",
@@ -305,6 +308,9 @@ def test_replan_requires_confirmation():
         validate_agent_output(
             AgentEventType.replan,
             {
+                "before": {},
+                "after": {},
+                "impact": "No change should apply.",
                 "stage_adjustments": [],
                 "task_changes": [],
                 "action_cards": [],

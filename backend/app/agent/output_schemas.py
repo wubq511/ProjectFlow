@@ -172,6 +172,9 @@ class TaskChange(BaseModel):
 
 
 class ReplanOutput(AgentOutputBase):
+    before: dict[str, Any] | list | str
+    after: dict[str, Any] | list | str
+    impact: str = Field(min_length=1)
     stage_adjustments: list[StageAdjustment] = Field(default_factory=list)
     task_changes: list[TaskChange] = Field(default_factory=list)
     action_cards: list[ActionCardProposal] = Field(default_factory=list)

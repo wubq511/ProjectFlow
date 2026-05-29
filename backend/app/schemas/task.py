@@ -50,6 +50,7 @@ class TaskStatusUpdateCreate(BaseModel):
     status: TaskStatus
     progress_note: str | None = None
     blocker: str | None = None
+    available_hours_change: float | None = None
 
 
 class TaskStatusUpdateRead(BaseModel):

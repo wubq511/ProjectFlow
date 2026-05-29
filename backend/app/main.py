@@ -11,6 +11,12 @@ from app.api.routes_projects import router as projects_router
 from app.api.routes_resources import router as resources_router
 from app.api.routes_stages import router as stages_router
 from app.api.routes_tasks import router as tasks_router
+from app.api.routes_assignments import router as assignments_router
+from app.api.routes_checkins import router as checkins_router
+from app.api.routes_risks import router as risks_router
+from app.api.routes_action_cards import router as action_cards_router
+from app.api.routes_replans import router as replans_router
+from app.api.routes_agent import router as agent_router
 from app.api.routes_workspace_state import router as workspace_state_router
 from app.core.database import create_db_and_tables
 
@@ -31,4 +37,10 @@ app.include_router(projects_router, prefix="/api")
 app.include_router(resources_router, prefix="/api")
 app.include_router(stages_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
+app.include_router(assignments_router, prefix="/api")
+app.include_router(checkins_router, prefix="/api")
+app.include_router(risks_router, prefix="/api")
+app.include_router(action_cards_router, prefix="/api")
+app.include_router(replans_router, prefix="/api")
+app.include_router(agent_router, prefix="/api")
 app.include_router(workspace_state_router, prefix="/api")
