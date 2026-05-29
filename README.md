@@ -15,7 +15,7 @@ All MVP phases complete (2026-05-29).
 - Phase 8 / GitHub #10 — Demo Seed, Reset, Runbook, and Review Export
 - Phase 9 / GitHub #11 — Verification, Tests, and Demo Stability Hardening
 
-Implemented: FastAPI backend (57 endpoints, 18 domain models), agent infrastructure with mock/LLM provider, seed/reset/export, Next.js frontend (7 routes), 69 backend tests passing, frontend lint+build clean.
+Implemented: FastAPI backend (58 endpoints, 18 domain models), agent infrastructure with mock/LLM provider and diagnostics, seed/reset/export, Next.js frontend (7 routes), 110 backend tests passing, frontend lint+build clean.
 
 ## Stack
 
@@ -38,6 +38,12 @@ Health check:
 
 ```bash
 curl http://localhost:8000/api/health
+```
+
+LLM provider diagnostic:
+
+```bash
+curl -X POST http://localhost:8000/api/llm/diagnostic
 ```
 
 Load demo seed data:

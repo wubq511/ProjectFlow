@@ -112,6 +112,7 @@ flowchart TD
     API --> CK[Check-in Service]
     API --> AGS[Agent Service]
     API --> EX[Export Service]
+    API --> LLM[LLM Diagnostic Service]
 
     AGS --> CA[Coordinator Agent]
 
@@ -137,6 +138,7 @@ flowchart TD
     CK --> DB
     AGS --> DB
     EX --> DB
+    LLM --> CA
 
     CA --> TL[Agent Timeline]
     TL --> DB
@@ -1584,6 +1586,40 @@ Response:
 
 ---
 
+## 11.17 LLM Diagnostic API
+
+```http
+POST /api/llm/diagnostic
+```
+
+Optional request body (overrides env settings for the check):
+
+```json
+{
+  "provider": "openai",
+  "api_key": "sk-...",
+  "base_url": "https://api.openai.com/v1",
+  "model": "gpt-4o-mini",
+  "timeout_seconds": 30.0
+}
+```
+
+Response (never includes API key):
+
+```json
+{
+  "provider": "openai",
+  "model": "gpt-4o-mini",
+  "base_url": "https://api.openai.com/v1",
+  "status": "ok",
+  "detail": "Provider responded successfully"
+}
+```
+
+Security: API key is accepted as input only and never returned in the response, logged, or persisted.
+
+---
+
 ## 12. Frontend Design
 
 ## 12.1 Main Screens
@@ -1666,7 +1702,11 @@ Current implementation note: GitHub issues #7-#11 implement the project dashboar
 | NotFoundError       | project_id 不存在   | 404                            |
 | PermissionLiteError | 非 workspace 成员访问 | 403，MVP 轻量处理                   |
 | AgentOutputError    | LLM 输出无法解析       | retry + fallback + timeline 记录 |
-| AgentTimeoutError   | LLM 超时           | 返回可重试状态                        |
+| LLMAuthError        | API key 缺失/被拒    | 401/403 → 明确提示检查 .env          |
+| LLMTimeoutError     | LLM 请求超时         | 返回可重试状态 + 超时秒数                 |
+| LLMConnectionError  | 端点不可达            | 网络/DNS 错误 → 检查 base_url        |
+| LLMResponseError    | 响应结构异常           | 缺少 choices → 提示模型/端点不匹配        |
+| LLMConfigurationError | 不支持的 provider  | 列出支持的 provider 列表              |
 | ConflictError       | 确认过期 proposal    | 要求刷新状态                         |
 | DatabaseError       | SQLite 写入失败      | 500 + 错误日志                     |
 

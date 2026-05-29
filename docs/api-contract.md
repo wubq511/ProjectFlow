@@ -269,6 +269,40 @@ POST /api/demo/reset
 
 Compatibility endpoint for the frontend reset button. It resets and reloads the deterministic demo state, then returns the created workspace, project, user, stage, and task IDs for manual review.
 
+### LLM Diagnostic
+
+```http
+POST /api/llm/diagnostic
+```
+
+Optional request body:
+
+```json
+{
+  "provider": "openai",
+  "api_key": "sk-...",
+  "base_url": "https://api.openai.com/v1",
+  "model": "gpt-4o-mini",
+  "timeout_seconds": 30.0
+}
+```
+
+Response (never includes API key):
+
+```json
+{
+  "provider": "openai",
+  "model": "gpt-4o-mini",
+  "base_url": "https://api.openai.com/v1",
+  "status": "ok",
+  "detail": "Provider responded successfully"
+}
+```
+
+`status` values: `"ok"` (provider reachable), `"error"` (auth/timeout/connection/response failure), `"mock"` (mock provider, no connectivity check needed).
+
+Security: API key values are never returned in the response, logged, or stored in timeline snapshots.
+
 ## Planned MVP Endpoints
 
 None remaining — all planned MVP endpoints are now implemented.

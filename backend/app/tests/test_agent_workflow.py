@@ -5,6 +5,7 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.agent.llm_client import (
+    LLMAuthError,
     LLMClientSettings,
     LLMConfigurationError,
     MockLLMClient,
@@ -21,19 +22,6 @@ from app.schemas.workspace_state import ProjectState, WorkspaceStateResponse
 def _parse_snapshot(raw: str) -> dict:
     """Helper: AgentEvent snapshots are stored as JSON strings."""
     return json.loads(raw)
-
-from app.agent.llm_client import (
-    LLMClientSettings,
-    LLMConfigurationError,
-    MockLLMClient,
-    OpenAICompatibleLLMClient,
-    build_llm_client,
-)
-from app.agent.prompts import AGENT_SYSTEM_PROMPT
-from app.agent.workflow import AgentRunStatus, generate_structured_output
-from app.models import AgentEvent
-from app.models.enums import AgentEventStatus, AgentEventType
-from app.schemas.workspace_state import ProjectState, WorkspaceStateResponse
 
 
 def _workspace_state() -> WorkspaceStateResponse:
@@ -95,7 +83,7 @@ def test_build_llm_client_supports_mock_and_openai_compatible_settings():
 
 
 def test_openai_compatible_client_requires_api_key():
-    with pytest.raises(LLMConfigurationError):
+    with pytest.raises(LLMAuthError):
         build_llm_client(LLMClientSettings(provider="openai", api_key=None))
 
 

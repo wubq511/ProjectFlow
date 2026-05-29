@@ -110,6 +110,24 @@ Known non-blocking warnings:
 - Backend pytest may show a FastAPI/Starlette `TestClient` deprecation warning.
 - Vitest may show a Vite CJS Node API deprecation warning.
 
+## LLM Provider Diagnostic
+
+Check whether the configured LLM provider is reachable:
+
+```bash
+curl -X POST http://localhost:8000/api/llm/diagnostic
+```
+
+Or with explicit provider settings:
+
+```bash
+curl -X POST http://localhost:8000/api/llm/diagnostic \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"openai","api_key":"sk-...","model":"gpt-4o-mini"}'
+```
+
+The response never includes the API key value. `status` is `"ok"`, `"error"`, or `"mock"`.
+
 ## Demo Reset
 
 With the backend running, reset the local demo data:

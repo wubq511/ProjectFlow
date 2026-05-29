@@ -1,13 +1,51 @@
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Protocol
+from urllib import error as urllib_error
 from urllib import request
 
 from app.core.config import settings as app_settings
 
+logger = logging.getLogger(__name__)
 
-class LLMConfigurationError(ValueError):
+# ---------------------------------------------------------------------------
+# Exception hierarchy — each failure mode maps to a distinct, clear error.
+# ---------------------------------------------------------------------------
+
+
+class LLMError(RuntimeError):
+    """Base for all LLM client errors."""
+
+    def __init__(self, message: str, *, provider: str = "", detail: str = ""):
+        self.provider = provider
+        self.detail = detail
+        super().__init__(message)
+
+
+class LLMConfigurationError(LLMError, ValueError):
     """Raised when provider settings are incomplete or unsupported."""
+
+
+class LLMAuthError(LLMError):
+    """Raised when the API key is missing, empty, or rejected by the provider."""
+
+
+class LLMTimeoutError(LLMError):
+    """Raised when the LLM request exceeds the configured timeout."""
+
+
+class LLMConnectionError(LLMError):
+    """Raised when the LLM endpoint is unreachable (network / DNS / refused)."""
+
+
+class LLMResponseError(LLMError):
+    """Raised when the provider returns an unexpected HTTP status or malformed body."""
+
+
+# ---------------------------------------------------------------------------
+# Protocol & settings
+# ---------------------------------------------------------------------------
 
 
 class LLMClient(Protocol):
@@ -24,6 +62,11 @@ class LLMClientSettings:
     timeout_seconds: float = 30.0
 
 
+# ---------------------------------------------------------------------------
+# Mock client (offline / demo / tests)
+# ---------------------------------------------------------------------------
+
+
 class MockLLMClient:
     def __init__(self, responses: list[str] | None = None):
         self.responses = responses or []
@@ -37,8 +80,19 @@ class MockLLMClient:
         return self.responses[index]
 
 
+# ---------------------------------------------------------------------------
+# OpenAI-compatible client (real provider)
+# ---------------------------------------------------------------------------
+
+
 class OpenAICompatibleLLMClient:
     def __init__(self, *, api_key: str, base_url: str, model: str, timeout_seconds: float):
+        if not api_key or not api_key.strip():
+            raise LLMAuthError(
+                "LLM API key is required for OpenAI-compatible providers but was empty",
+                provider="openai-compatible",
+                detail="Set LLM_API_KEY in .env or pass api_key to build_llm_client()",
+            )
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -61,9 +115,98 @@ class OpenAICompatibleLLMClient:
                 "Content-Type": "application/json",
             },
         )
-        with request.urlopen(req, timeout=self.timeout_seconds) as response:
-            payload: dict[str, Any] = json.loads(response.read().decode("utf-8"))
-        return payload["choices"][0]["message"]["content"]
+        try:
+            with request.urlopen(req, timeout=self.timeout_seconds) as response:
+                payload: dict[str, Any] = json.loads(response.read().decode("utf-8"))
+        except urllib_error.HTTPError as exc:
+            self._raise_http_error(exc)
+        except urllib_error.URLError as exc:
+            self._raise_url_error(exc)
+        except TimeoutError:
+            raise LLMTimeoutError(
+                f"LLM request timed out after {self.timeout_seconds}s",
+                provider="openai-compatible",
+                detail=f"model={self.model} base_url={self.base_url}",
+            )
+
+        # Validate response structure
+        try:
+            content = payload["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMResponseError(
+                f"LLM response missing expected structure: {exc}",
+                provider="openai-compatible",
+                detail=f"response keys: {list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__}",
+            )
+        return content
+
+    # ------------------------------------------------------------------
+    # Error translation helpers
+    # ------------------------------------------------------------------
+
+    def _raise_http_error(self, exc: urllib_error.HTTPError) -> None:
+        """Translate HTTP status codes into specific LLM errors."""
+        status = exc.code
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = "<unreadable>"
+
+        if status == 401:
+            raise LLMAuthError(
+                "LLM API key was rejected (HTTP 401 Unauthorized)",
+                provider="openai-compatible",
+                detail=f"Verify LLM_API_KEY is correct. Response: {body[:200]}",
+            ) from exc
+        if status == 403:
+            raise LLMAuthError(
+                "LLM API key lacks permission (HTTP 403 Forbidden)",
+                provider="openai-compatible",
+                detail=f"Check API key scopes. Response: {body[:200]}",
+            ) from exc
+        if status == 404:
+            raise LLMConfigurationError(
+                f"LLM model or endpoint not found (HTTP 404): model={self.model}",
+                provider="openai-compatible",
+                detail=f"Verify LLM_MODEL and LLM_BASE_URL. Response: {body[:200]}",
+            ) from exc
+        if status == 429:
+            raise LLMError(
+                "LLM rate limit exceeded (HTTP 429)",
+                provider="openai-compatible",
+                detail=f"Retry after a delay. Response: {body[:200]}",
+            ) from exc
+        if status >= 500:
+            raise LLMConnectionError(
+                f"LLM provider server error (HTTP {status})",
+                provider="openai-compatible",
+                detail=f"Provider may be temporarily unavailable. Response: {body[:200]}",
+            ) from exc
+        raise LLMResponseError(
+            f"Unexpected HTTP {status} from LLM provider",
+            provider="openai-compatible",
+            detail=f"Response: {body[:200]}",
+        ) from exc
+
+    def _raise_url_error(self, exc: urllib_error.URLError) -> None:
+        """Translate URL errors (network / DNS) into LLMConnectionError."""
+        reason = exc.reason
+        if isinstance(reason, TimeoutError):
+            raise LLMTimeoutError(
+                f"LLM request timed out after {self.timeout_seconds}s",
+                provider="openai-compatible",
+                detail=f"model={self.model} base_url={self.base_url}",
+            ) from exc
+        raise LLMConnectionError(
+            f"Cannot reach LLM endpoint: {reason}",
+            provider="openai-compatible",
+            detail=f"Check LLM_BASE_URL and network. base_url={self.base_url}",
+        ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
 
 
 def build_llm_client(settings: LLMClientSettings | None = None) -> LLMClient:
@@ -79,11 +222,19 @@ def build_llm_client(settings: LLMClientSettings | None = None) -> LLMClient:
         return MockLLMClient()
     if provider in {"openai", "openai-compatible"}:
         if not selected.api_key:
-            raise LLMConfigurationError("llm_api_key is required for OpenAI-compatible providers")
+            raise LLMAuthError(
+                "LLM_API_KEY is required for OpenAI-compatible providers but was not set",
+                provider=provider,
+                detail="Set LLM_API_KEY in .env or pass api_key to build_llm_client()",
+            )
         return OpenAICompatibleLLMClient(
             api_key=selected.api_key,
             base_url=selected.base_url,
             model=selected.model,
             timeout_seconds=selected.timeout_seconds,
         )
-    raise LLMConfigurationError(f"Unsupported LLM provider: {selected.provider}")
+    raise LLMConfigurationError(
+        f"Unsupported LLM provider: {selected.provider!r}",
+        provider=selected.provider,
+        detail="Supported providers: mock, openai, openai-compatible",
+    )

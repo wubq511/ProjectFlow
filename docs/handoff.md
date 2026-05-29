@@ -14,6 +14,7 @@ GitHub issue #8 (Assignment, active push, check-in, risk, and replan backend flo
 GitHub issue #9 (Action cards, check-in, risk, timeline, and export UI) is implemented.
 GitHub issue #10 (Demo Seed, Reset, Runbook, and Review Export) is implemented.
 GitHub issue #11 (Verification, Tests, and Demo Stability Hardening) is complete.
+GitHub issue #16 (Real LLM Provider Readiness and Diagnostics) is implemented.
 
 Implemented scope:
 
@@ -34,6 +35,7 @@ Implemented scope:
 - Service layer for all CRUD domains in `backend/app/services/`.
 - Pydantic schemas for all CRUD domains in `backend/app/schemas/`.
 - Agent infrastructure in `backend/app/agent/`: coordinator, workflow, prompts, LLM client, structured output schemas, module request builders, JSON repair/retry/template fallback, and AgentEvent timeline logging.
+- LLM provider readiness: specific error hierarchy (LLMAuthError, LLMTimeoutError, LLMConnectionError, LLMResponseError, LLMConfigurationError), HTTP status code mapping, provider diagnostic endpoint (`POST /api/llm/diagnostic`), API key masking, `.env.example` with documented settings.
 - 9 API smoke tests covering full demo path and list endpoints.
 - Backend execution-loop APIs for assignment proposals/responses/finalization/negotiation, action cards, check-in cycles/responses, risks, confirmed replans, and agent endpoints.
 
@@ -64,6 +66,15 @@ Implemented scope:
 - Extended task status updates with `available_hours_change`.
 - Added backend tests for assignment flow, check-in/risk/replan flow, and agent endpoints.
 - Local SQLite databases created before `AgentEvent.status` may need the runbook schema drift repair before agent timeline writes.
+
+### GitHub issue #16 (2026-05-29)
+
+- LLM client error hierarchy: `LLMAuthError`, `LLMTimeoutError`, `LLMConnectionError`, `LLMResponseError`, `LLMConfigurationError` — all inherit from `LLMError`.
+- HTTP error mapping: 401/403→AuthError, 404→ConfigError, 429→RateLimit, 5xx→ConnectionError, timeout→TimeoutError, network→ConnectionError, malformed response→ResponseError.
+- Provider diagnostic endpoint: `POST /api/llm/diagnostic` — safe dry-run connectivity check, never exposes API key.
+- `.env.example` with documented LLM settings (provider, key, base_url, model, timeout).
+- 38 new tests for error mapping, diagnostic, API key masking, mock regression.
+- Backend test count: 110 passing.
 
 ### GitHub issues #9-#11 (2026-05-29)
 
@@ -98,7 +109,7 @@ npm run build
 
 Results:
 
-- Backend: MVP backend suite passed.
+- Backend: 110 tests passed.
 - Frontend: 5 tests passed across 3 test files.
 - Frontend lint passed.
 - Frontend build passed (7 routes generated).
@@ -107,13 +118,13 @@ Results:
 
 Backend:
 
-- Implemented routes: health, users, workspaces, invitations, member-profiles, projects, resources, stages, tasks, workspace-state, agent, assignments, action-cards, check-ins, risks, replans, seed/reset, timeline, export, and demo reset.
+- Implemented routes: health, users, workspaces, invitations, member-profiles, projects, resources, stages, tasks, workspace-state, agent, assignments, action-cards, check-ins, risks, replans, seed/reset, timeline, export, demo reset, and llm diagnostic.
 - Domain models implemented (18 models, all enums).
 - AgentEvent now records `status` for success, repaired, fallback, or failed agent runs.
 - Service layer implemented for all CRUD domains plus assignment, action-card, check-in, risk, replan, and agent-flow orchestration.
 - Pydantic schemas implemented for all CRUD and execution-loop domains.
 - WorkspaceState endpoint returns members, project, stages, tasks for Agent consumption.
-- Agent infrastructure can run with `LLM_PROVIDER=mock` by default, or OpenAI-compatible chat-completions settings through environment variables. Agent HTTP endpoints persist structured outputs and created entity IDs through service-layer writes.
+- Agent infrastructure can run with `LLM_PROVIDER=mock` by default, or OpenAI-compatible chat-completions settings through environment variables. Agent HTTP endpoints persist structured outputs and created entity IDs through service-layer writes. LLM provider errors are mapped to specific exception types (LLMAuthError, LLMTimeoutError, LLMConnectionError, LLMResponseError) with clear messages and recovery hints.
 
 Frontend:
 
@@ -134,9 +145,9 @@ Frontend:
 MVP issue scope is complete. Phase 10 (UI Structural Fix) completed 2026-05-29.
 
 Remaining work for MVP Usable (see `.claude/epics/projectflow-mvp-usable-ready/`):
-- Real LLM integration (replace mock provider)
+- Real LLM integration testing (provider readiness infrastructure done via #16, need live key testing)
 - Confirm-to-persist (Agent outputs only persisted after human confirmation)
-- Prompt quality (structured output reliability)
+- Prompt quality (structured output reliability — #18 in progress)
 - Agent status transparency (show Agent thinking/reasoning in UI)
 - Demo stability and polish
 
