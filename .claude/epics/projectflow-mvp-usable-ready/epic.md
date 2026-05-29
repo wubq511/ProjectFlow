@@ -1,9 +1,9 @@
 ---
 name: projectflow-mvp-usable-ready
-status: backlog
+status: completed
 created: 2026-05-29T13:07:13Z
-updated: 2026-05-29T13:11:38Z
-progress: 0%
+updated: 2026-05-30T01:45:00Z
+progress: 100%
 prd: .claude/prds/projectflow-mvp-usable-ready.md
 github: https://github.com/wubq511/ProjectFlow/issues/15
 ---

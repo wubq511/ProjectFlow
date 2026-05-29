@@ -4,7 +4,7 @@ ProjectFlow is a local-first active project agent MVP for college project teams.
 
 ## Current Status
 
-All MVP phases complete (2026-05-29).
+All MVP phases and MVP Usable tasks complete (2026-05-30).
 
 - Phase 0 / GitHub #2 — Guardrails & Setup
 - Phase 1 / GitHub #3 — Account / Workspace / Member Profile
@@ -18,8 +18,10 @@ All MVP phases complete (2026-05-29).
 - MVP Usable / GitHub #20 — Assignment, Push, Risk, and Replan Usability Pass
 - MVP Usable / GitHub #16 — Real LLM Provider Readiness and Diagnostics
 - MVP Usable / GitHub #17 — Agent Output Persistence and Confirmation
+- MVP Usable / GitHub #19 — Frontend Agent Status and Review UX
+- MVP Usable / GitHub #21 — Real-Provider Verification and MVP Usable Runbook
 
-Implemented: FastAPI backend (70 endpoint method/path pairs, 19 persistence tables/domain models), agent infrastructure with mock/OpenAI-compatible provider diagnostics, confirm-to-persist `AgentProposal` flow, seed/reset/export, Next.js frontend (7 routes), 146 backend tests passing, frontend lint+build clean.
+Implemented: FastAPI backend (70 endpoint method/path pairs, 19 persistence tables/domain models), agent infrastructure with mock/OpenAI-compatible provider diagnostics, confirm-to-persist `AgentProposal` flow, seed/reset/export, Next.js frontend (7 routes), 146 backend tests passing, 5 frontend tests passing, frontend lint+build+audit clean.
 
 ## Stack
 

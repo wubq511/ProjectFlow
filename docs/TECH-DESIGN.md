@@ -35,7 +35,9 @@ Snapshot date: 2026-05-30.
 - All MVP phases are complete.
 - MVP Usable #18 (Prompt and Schema Quality Hardening) is complete.
 - MVP Usable #20 (Assignment, Push, Risk, and Replan Usability Pass) is complete: assignment citations, push card goal/start/done-when, risk structured evidence, replan before/after/impact/confirmation, finalized-assignment guard.
-- Current verification baseline: backend pytest 146 passing, frontend lint passing, frontend build passing, frontend audit 0 vulnerabilities. Frontend tests currently have 3 stale failures in pre-existing assertions after the Chinese UI pass.
+- MVP Usable #19 (Frontend Agent Status and Review UX) is complete.
+- MVP Usable #21 (Real-Provider Verification and MVP Usable Runbook) is complete: frontend test fixes, runbook with mock/real-provider modes and manual verification checklist, final status report.
+- Current verification baseline: backend pytest 146 passing, frontend 5 tests passing, frontend lint passing, frontend build passing, frontend audit 0 vulnerabilities.
 
 ---
 
