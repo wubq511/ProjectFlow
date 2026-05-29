@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useSyncExternalStore } from "react";
 import { motion } from "framer-motion";
-import { Home, Users, FolderOpen, Plus, Menu } from "lucide-react";
+import { Home, LayoutDashboard, Plus, Menu } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,12 +19,52 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 
-const navItems = [
-  { label: "Home", href: "/", icon: Home },
-  { label: "Onboarding", href: "/onboarding", icon: Users },
-  { label: "Workspaces", href: "/workspaces/new", icon: FolderOpen },
-  { label: "New Project", href: "/projects/new", icon: Plus },
+const WORKSPACE_STORAGE_KEY = "projectflow:last-workspace-id";
+
+function subscribeToStorage(cb: () => void) {
+  window.addEventListener("storage", cb);
+  return () => window.removeEventListener("storage", cb);
+}
+
+function getStorageSnapshot() {
+  return localStorage.getItem(WORKSPACE_STORAGE_KEY);
+}
+
+function getServerSnapshot() {
+  return null;
+}
+
+const baseNavItems = [
+  { label: "首页", href: "/", icon: Home },
+  { label: "新建项目", href: "/projects/new", icon: Plus },
 ] as const;
+
+function useWorkspaceNav() {
+  const pathname = usePathname();
+  const workspaceMatch = pathname.match(/\/workspaces\/([^/]+)/);
+  const urlWorkspaceId = workspaceMatch?.[1] ?? null;
+
+  const cachedId = useSyncExternalStore(
+    subscribeToStorage,
+    getStorageSnapshot,
+    getServerSnapshot,
+  );
+
+  useEffect(() => {
+    if (urlWorkspaceId) {
+      localStorage.setItem(WORKSPACE_STORAGE_KEY, urlWorkspaceId);
+      window.dispatchEvent(new StorageEvent("storage", { key: WORKSPACE_STORAGE_KEY }));
+    }
+  }, [urlWorkspaceId]);
+
+  return urlWorkspaceId || cachedId;
+}
+
+export function setLastWorkspaceId(id: string) {
+  if (typeof window !== "undefined") {
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, id);
+  }
+}
 
 function NavLink({
   label,
@@ -52,12 +93,20 @@ function NavLink({
   );
 }
 
-function MobileNav({ pathname }: { pathname: string }) {
+function MobileNav({ pathname, workspaceId }: { pathname: string; workspaceId: string | null }) {
+  const navItems = workspaceId
+    ? [
+        { label: "首页", href: "/", icon: Home },
+        { label: "工作台", href: `/workspaces/${workspaceId}`, icon: LayoutDashboard },
+        { label: "新建项目", href: "/projects/new", icon: Plus },
+      ]
+    : baseNavItems;
+
   return (
     <Sheet>
       <SheetTrigger render={<Button variant="ghost" size="icon" />}>
         <Menu />
-        <span className="sr-only">Open navigation</span>
+        <span className="sr-only">打开导航</span>
       </SheetTrigger>
       <SheetContent side="left" className="w-64 bg-paper p-0">
         <SheetHeader className="border-b border-ink/10 px-5 py-4">
@@ -65,12 +114,12 @@ function MobileNav({ pathname }: { pathname: string }) {
             ProjectFlow
           </SheetTitle>
           <SheetDescription className="text-xs text-ink/55">
-            Active project agent
+            主动推进型项目 Agent
           </SheetDescription>
         </SheetHeader>
         <nav className="flex flex-col gap-1 p-4">
           {navItems.map((item) => {
-            const active = pathname === item.href;
+            const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
             return (
               <SheetClose
                 key={item.href}
@@ -99,6 +148,15 @@ function MobileNav({ pathname }: { pathname: string }) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const workspaceId = useWorkspaceNav();
+
+  const navItems = workspaceId
+    ? [
+        { label: "首页", href: "/", icon: Home },
+        { label: "工作台", href: `/workspaces/${workspaceId}`, icon: LayoutDashboard },
+        { label: "新建项目", href: "/projects/new", icon: Plus },
+      ]
+    : baseNavItems;
 
   return (
     <div className="min-h-screen bg-paper text-ink">
@@ -109,7 +167,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className="sticky top-0 z-40 border-b border-ink/8 bg-paper/90 backdrop-blur-md"
       >
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-5 lg:px-8">
-          {/* Left: logo + desktop nav */}
           <div className="flex items-center gap-6">
             <Link href="/" className="flex items-center gap-2">
               <span className="font-display text-lg font-black text-ink">
@@ -117,7 +174,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </span>
             </Link>
 
-            {/* Desktop nav links */}
             <nav className="hidden items-center gap-1 md:flex">
               {navItems.map((item) => (
                 <NavLink
@@ -125,18 +181,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   label={item.label}
                   href={item.href}
                   icon={item.icon}
-                  active={pathname === item.href}
+                  active={pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href))}
                 />
               ))}
             </nav>
           </div>
 
-          {/* Right side placeholder (future: user avatar, notifications) */}
           <div className="hidden md:block" />
 
-          {/* Mobile hamburger */}
           <div className="md:hidden">
-            <MobileNav pathname={pathname} />
+            <MobileNav pathname={pathname} workspaceId={workspaceId} />
           </div>
         </div>
       </motion.header>

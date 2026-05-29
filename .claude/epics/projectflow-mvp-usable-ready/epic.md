@@ -57,6 +57,45 @@ This epic moves ProjectFlow from "demo-ready MVP" to "usable MVP." The existing 
 5. Make Agent status/fallback transparent in frontend.
 6. Validate the end-to-end flow with real provider mode and update docs.
 
+## Cross-Cutting Skill Guidance
+
+各 task 的 Recommended Skills 已写入对应 task 文件。以下是跨 task 的高价值 skill 使用策略：
+
+### Agent 开发核心 Skill（贯穿 #16/#17/#18/#20）
+
+| Skill | 核心价值 | 适用 task |
+|-------|----------|-----------|
+| `prompt-engineer` | Agent 输出质量直接决定产品可用性，用 RTF/RISEN/RODES 框架结构化 prompt 比随意改写有效得多 | #18, #20 |
+| `agentic-eval` | 不只是改 prompt，还要能度量改进效果，evaluator-optimizer 循环是验证 prompt 改进的关键手段 | #18, #20 |
+| `instructor` | 用 Instructor 包装 LLM 调用，自动 Pydantic 校验 + 失败重试，比手写 JSON 解析 + 校验更可靠 | #16, #18 |
+| `python-backend` | FastAPI + Pydantic + service 模式，后端四个 task 都需要 | #16, #17, #18, #20, #21 |
+
+### 前端 & 动画设计 Skill（#19 核心，#20 辅助）
+
+| Skill | 核心价值 | 适用 task |
+|-------|----------|-----------|
+| `design-taste-frontend` | 反模板化设计，确保 Agent status 区分度清晰、review 面板布局合理 | #19, #20 |
+| `shadcn-ui` | 项目已用 shadcn/ui，构建 status badge、review card、confirm dialog 时直接用 | #19, #20 |
+| `nextjs` | 项目已用 Next.js App Router，处理 Agent status 数据流、review panel 页面 | #19 |
+| `framer-motion-animator` | 项目已用 Framer Motion，四种 Agent status 切换动画、loading 进度动画 | #19 |
+| `high-end-visual-design` | 确保 review 面板设计质感、信息层级清晰 | #19 |
+
+### 流程编排 Skill
+
+| Skill | 核心价值 | 适用 task |
+|-------|----------|-----------|
+| `workflow-orchestrator` | 多步骤确认流程编排（#17 的 clarification→confirm→persist）和端到端验证流程编排（#21 的 mock + real-provider 双路径） | #17, #21 |
+
+### Skill 调用时机参考
+
+```
+1. 读取 task 文件中的 Recommended Skills → 按 table 中的"何时使用"触发
+2. 后端 LLM 调用改造 → instructor + python-backend
+3. Prompt 改写 → prompt-engineer，改完后用 agentic-eval 评估效果
+4. 前端 Agent status UI → design-taste-frontend + shadcn-ui + framer-motion-animator
+5. 多步骤确认流程 → workflow-orchestrator
+```
+
 ## Task Breakdown Preview
 
 - Provider readiness and diagnostics can proceed in parallel with prompt/schema hardening.

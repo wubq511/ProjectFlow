@@ -1,6 +1,7 @@
 "use client";
 
-import { AlertCircle, ChevronRight, Loader2, PlayCircle, RotateCcw, Sparkles } from "lucide-react";
+import { AlertCircle, ChevronRight, Loader2, PlayCircle, RotateCcw, Sparkles, ArrowLeft } from "lucide-react";
+import Link from "next/link";
 
 import { DirectionCardPanel } from "@/components/agent/direction-card-panel";
 import { ActionCardsList } from "@/components/agent/action-card";
@@ -64,6 +65,33 @@ type ProjectDashboardProps = {
   onResetDemo?: () => void | Promise<void>;
 };
 
+type AgentPhase = "planning" | "assignment" | "execution" | "monitoring";
+
+const PHASE_META: Record<AgentPhase, { label: string; description: string }> = {
+  planning: { label: "规划", description: "澄清方向、拆解阶段、分解任务" },
+  assignment: { label: "分工", description: "根据成员技能和可用时间推荐分工" },
+  execution: { label: "执行", description: "主动推进、签到反馈、更新状态" },
+  monitoring: { label: "监控", description: "风险识别、计划调整" },
+};
+
+const PHASE_ACTIONS: Record<AgentPhase, AgentAction[]> = {
+  planning: ["clarify", "plan", "breakdown"],
+  assignment: ["assign"],
+  execution: ["push", "analyze-checkins"],
+  monitoring: ["risk-analysis", "replan"],
+};
+
+const ACTION_LABELS: Record<AgentAction, string> = {
+  clarify: "澄清方向",
+  plan: "生成阶段计划",
+  breakdown: "分解任务",
+  assign: "推荐分工",
+  push: "主动推进",
+  "analyze-checkins": "分析签到",
+  "risk-analysis": "风险分析",
+  replan: "调整计划",
+};
+
 function projectStatusClass(status: ProjectState["project"]["status"]) {
   if (status === "active") return "bg-moss/15 text-moss";
   if (status === "at_risk") return "bg-coral/15 text-coral";
@@ -71,18 +99,33 @@ function projectStatusClass(status: ProjectState["project"]["status"]) {
   return "bg-white text-ink/60";
 }
 
-function actionLabel(action: AgentAction) {
-  const labels: Record<AgentAction, string> = {
-    clarify: "Run clarification",
-    plan: "Generate plan",
-    breakdown: "Break down tasks",
-    assign: "Recommend assignments",
-    push: "Active push",
-    "analyze-checkins": "Analyze check-ins",
-    "risk-analysis": "Risk analysis",
-    replan: "Replan",
-  };
-  return labels[action];
+function projectStatusLabel(status: ProjectState["project"]["status"]) {
+  if (status === "active") return "进行中";
+  if (status === "at_risk") return "有风险";
+  if (status === "completed") return "已完成";
+  if (status === "draft") return "草稿";
+  return status;
+}
+
+function inferCurrentPhase(state: ProjectState): AgentPhase {
+  const { project, stages, tasks, assignment_proposals } = state;
+  if (!project.direction_card) return "planning";
+  if (stages.length === 0) return "planning";
+  if (tasks.length === 0) return "planning";
+  const hasFinalized = assignment_proposals.some((p) => p.status === "finalized");
+  if (!hasFinalized && assignment_proposals.length === 0) return "assignment";
+  return "execution";
+}
+
+function inferRecommendedAction(state: ProjectState): AgentAction | null {
+  const { project, stages, tasks, assignment_proposals } = state;
+  if (!project.direction_card) return "clarify";
+  if (stages.length === 0) return "plan";
+  if (tasks.length === 0) return "breakdown";
+  if (assignment_proposals.length === 0) return "assign";
+  const hasFinalized = assignment_proposals.some((p) => p.status === "finalized");
+  if (!hasFinalized) return "assign";
+  return "push";
 }
 
 export function ProjectDashboard({
@@ -117,27 +160,41 @@ export function ProjectDashboard({
     (card) => card.user_id === currentUserId && card.status === "active"
   );
 
-  const runButton = (action: AgentAction) => (
+  const currentPhase = inferCurrentPhase(state);
+  const recommendedAction = inferRecommendedAction(state);
+
+  const phaseOrder: AgentPhase[] = ["planning", "assignment", "execution", "monitoring"];
+  const currentPhaseIndex = phaseOrder.indexOf(currentPhase);
+
+  const runButton = (action: AgentAction, isRecommended: boolean) => (
     <Button
       key={action}
-      variant={action === "assign" ? "default" : "outline"}
+      variant={isRecommended ? "default" : "outline"}
       disabled={Boolean(pendingAction)}
       onClick={() => onRunAgent?.(action)}
-      className={action === "assign" ? "bg-ink text-white hover:bg-ink/85" : ""}
+      className={isRecommended ? "bg-ink text-white hover:bg-ink/85" : ""}
     >
       {pendingAction === action ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
-      {pendingAction === action ? "Running..." : actionLabel(action)}
+      {pendingAction === action ? "运行中..." : ACTION_LABELS[action]}
     </Button>
   );
 
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 lg:px-8">
+      <nav className="mb-4 flex items-center gap-2 text-sm text-ink/55">
+        <Link href={`/workspaces/${state.workspace.workspace_id}`} className="transition hover:text-ink">
+          工作台
+        </Link>
+        <ChevronRight className="h-3.5 w-3.5" />
+        <span className="text-ink">{project.name}</span>
+      </nav>
+
       <header className="rounded-lg border border-ink/10 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge className={projectStatusClass(project.status)}>{project.status}</Badge>
-              <span className="text-xs text-ink/45">Deadline {project.deadline}</span>
+              <Badge className={projectStatusClass(project.status)}>{projectStatusLabel(project.status)}</Badge>
+              <span className="text-xs text-ink/45">截止 {project.deadline}</span>
             </div>
             <h1 className="font-display mt-3 text-3xl font-black leading-tight text-ink md:text-4xl">
               {project.name}
@@ -146,52 +203,32 @@ export function ProjectDashboard({
           </div>
           <div className="grid min-w-56 gap-2 rounded-lg bg-paper p-4 text-sm">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">Current stage</p>
-              <p className="mt-1 font-semibold text-ink">{currentStage?.name ?? "No stage yet"}</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">当前阶段</p>
+              <p className="mt-1 font-semibold text-ink">{currentStage?.name ?? "暂无阶段"}</p>
             </div>
             <div className="border-t border-ink/10 pt-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">Next recommended action</p>
-              <p className="mt-1 font-semibold text-ink">{nextAction?.title ?? "Create the next agent proposal"}</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">推荐下一步</p>
+              <p className="mt-1 font-semibold text-ink">
+                {recommendedAction ? ACTION_LABELS[recommendedAction] : "查看行动卡"}
+              </p>
             </div>
           </div>
         </div>
 
         <div className="mt-5 grid gap-3 border-t border-ink/10 pt-5 md:grid-cols-3">
           <div className="rounded-lg bg-paper px-4 py-3">
-            <p className="text-xs text-ink/50">Open P0 tasks</p>
+            <p className="text-xs text-ink/50">待处理 P0</p>
             <p className="mt-1 text-2xl font-black text-ink">{p0OpenCount}</p>
           </div>
           <div className="rounded-lg bg-paper px-4 py-3">
-            <p className="text-xs text-ink/50">Owner coverage</p>
+            <p className="text-xs text-ink/50">分工覆盖率</p>
             <p className="mt-1 text-2xl font-black text-ink">{ownerCoverage}%</p>
           </div>
           <div className="rounded-lg bg-paper px-4 py-3">
-            <p className="text-xs text-ink/50">Active action cards</p>
+            <p className="text-xs text-ink/50">活跃行动卡</p>
             <p className="mt-1 text-2xl font-black text-ink">{action_cards.filter((card) => card.status === "active").length}</p>
           </div>
         </div>
-
-        <div className="mt-5 flex flex-wrap gap-2">
-          {(["clarify", "plan", "breakdown", "assign", "push", "analyze-checkins", "risk-analysis", "replan"] as AgentAction[]).map(runButton)}
-          {onResetDemo && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onResetDemo}
-              className="text-ink/50 hover:text-coral"
-            >
-              <RotateCcw className="h-4 w-4" />
-              Reset demo
-            </Button>
-          )}
-        </div>
-
-        {actionError && (
-          <div className="mt-4 flex items-start gap-2 rounded-lg border border-coral/20 bg-coral/10 p-3 text-sm text-coral">
-            <AlertCircle className="mt-0.5 h-4 w-4" />
-            <p>{actionError}</p>
-          </div>
-        )}
       </header>
 
       {nextAction && (
@@ -202,12 +239,104 @@ export function ProjectDashboard({
               <p className="font-semibold text-ink">{nextAction.title}</p>
               <p className="mt-1 text-sm text-ink/65">{nextAction.content}</p>
               <p className="mt-2 flex items-center gap-1 text-xs text-ink/50">
-                Reason <ChevronRight className="h-3 w-3" /> {nextAction.reason}
+                原因 <ChevronRight className="h-3 w-3" /> {nextAction.reason}
               </p>
             </div>
           </div>
         </section>
       )}
+
+      <section className="mt-5 rounded-lg border border-ink/10 bg-white p-5 shadow-sm">
+        <div className="mb-4">
+          <h2 className="text-lg font-bold text-ink">Agent 操作</h2>
+          <p className="mt-1 text-sm text-ink/60">
+            按项目阶段推进，当前阶段高亮显示
+          </p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-4">
+          {phaseOrder.map((phase, phaseIndex) => {
+            const isCurrent = phaseIndex === currentPhaseIndex;
+            const isPast = phaseIndex < currentPhaseIndex;
+            const actions = PHASE_ACTIONS[phase];
+            const meta = PHASE_META[phase];
+
+            return (
+              <div
+                key={phase}
+                className={`rounded-lg border p-4 transition ${
+                  isCurrent
+                    ? "border-moss/30 bg-moss/5"
+                    : isPast
+                      ? "border-ink/8 bg-ink/3"
+                      : "border-ink/8 bg-white"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      isCurrent ? "bg-moss" : isPast ? "bg-ink/30" : "bg-ink/15"
+                    }`}
+                  />
+                  <h3 className={`text-sm font-bold ${isCurrent ? "text-moss" : "text-ink/70"}`}>
+                    {meta.label}
+                  </h3>
+                  {isCurrent && (
+                    <Badge className="bg-moss/15 text-moss text-[10px] px-1.5 py-0">当前</Badge>
+                  )}
+                  {isPast && (
+                    <Badge className="bg-ink/10 text-ink/50 text-[10px] px-1.5 py-0">已完成</Badge>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-ink/50">{meta.description}</p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {actions.map((action) => {
+                    const isRecommended = action === recommendedAction;
+                    return (
+                      <Button
+                        key={action}
+                        variant={isRecommended ? "default" : "outline"}
+                        size="sm"
+                        disabled={Boolean(pendingAction)}
+                        onClick={() => onRunAgent?.(action)}
+                        className={isRecommended ? "bg-ink text-white hover:bg-ink/85 text-xs" : "text-xs"}
+                      >
+                        {pendingAction === action ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <PlayCircle className="h-3.5 w-3.5" />
+                        )}
+                        {pendingAction === action ? "运行中" : ACTION_LABELS[action]}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {actionError && (
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-coral/20 bg-coral/10 p-3 text-sm text-coral">
+            <AlertCircle className="mt-0.5 h-4 w-4" />
+            <p>{actionError}</p>
+          </div>
+        )}
+
+        {onResetDemo && (
+          <div className="mt-4 border-t border-ink/8 pt-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onResetDemo}
+              className="text-ink/50 hover:text-coral"
+            >
+              <RotateCcw className="h-4 w-4" />
+              重置演示
+            </Button>
+          </div>
+        )}
+      </section>
 
       <div className="mt-5 grid gap-5">
         <DirectionCardPanel
@@ -232,19 +361,19 @@ export function ProjectDashboard({
 
         <Tabs defaultValue="actions" className="w-full">
           <TabsList className="mb-4">
-            <TabsTrigger value="actions">Action cards</TabsTrigger>
-            <TabsTrigger value="checkin">Check-in & Status</TabsTrigger>
-            <TabsTrigger value="risks">Risks & Replan</TabsTrigger>
-            <TabsTrigger value="timeline">Timeline & Export</TabsTrigger>
+            <TabsTrigger value="actions">行动卡</TabsTrigger>
+            <TabsTrigger value="checkin">签到与状态</TabsTrigger>
+            <TabsTrigger value="risks">风险与调整</TabsTrigger>
+            <TabsTrigger value="timeline">时间线与导出</TabsTrigger>
           </TabsList>
 
           <TabsContent value="actions" className="space-y-5">
             {personalCards.length > 0 && (
               <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-sm">
                 <div>
-                  <h2 className="text-lg font-bold text-ink">Your actions</h2>
+                  <h2 className="text-lg font-bold text-ink">你的行动</h2>
                   <p className="mt-1 text-sm text-ink/60">
-                    Personal tasks and reminders assigned to you.
+                    分配给你的任务和提醒
                   </p>
                 </div>
                 <div className="mt-5">
@@ -277,9 +406,9 @@ export function ProjectDashboard({
             {currentUserId && onUpdateTaskStatus && (
               <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-sm">
                 <div>
-                  <h2 className="text-lg font-bold text-ink">Update task status</h2>
+                  <h2 className="text-lg font-bold text-ink">更新任务状态</h2>
                   <p className="mt-1 text-sm text-ink/60">
-                    Manually update progress, blockers, and completion.
+                    手动更新进度、阻塞和完成情况
                   </p>
                 </div>
                 <div className="mt-5">

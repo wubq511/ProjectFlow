@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { getWorkspaceState } from "@/lib/api";
+import { setLastWorkspaceId } from "@/components/app-shell";
 import type { WorkspaceState } from "@/lib/types";
 
 export default function WorkspaceDashboardPage() {
@@ -21,9 +22,10 @@ export default function WorkspaceDashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setLastWorkspaceId(workspaceId);
     getWorkspaceState(workspaceId)
       .then(setState)
-      .catch(() => setError("Failed to load workspace"))
+      .catch(() => setError("加载工作台失败"))
       .finally(() => setLoading(false));
   }, [workspaceId]);
 
@@ -39,9 +41,9 @@ export default function WorkspaceDashboardPage() {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3">
         <AlertCircle className="h-8 w-8 text-coral" />
-        <p className="text-sm text-coral">{error ?? "Workspace not found"}</p>
+        <p className="text-sm text-coral">{error ?? "工作台未找到"}</p>
         <Button variant="outline" onClick={() => window.location.reload()}>
-          Retry
+          重试
         </Button>
       </div>
     );
@@ -54,7 +56,7 @@ export default function WorkspaceDashboardPage() {
       className="mx-auto max-w-3xl px-5 py-8"
     >
       <header className="mb-8">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-moss">Workspace</p>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-moss">工作台</p>
         <h1 className="font-display mt-2 text-3xl font-black">{state.workspace.name}</h1>
         {state.workspace.description && (
           <p className="mt-2 text-sm text-ink/60">{state.workspace.description}</p>
@@ -66,12 +68,12 @@ export default function WorkspaceDashboardPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Users className="h-5 w-5 text-harbor" />
-              Members ({state.memberships.length})
+              成员 ({state.memberships.length})
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {state.memberships.length === 0 ? (
-              <p className="text-sm text-ink/40">No members yet.</p>
+              <p className="text-sm text-ink/40">暂无成员</p>
             ) : (
               state.memberships.map((m) => {
                 const user = state.users.find((u) => u.user_id === m.user_id);
@@ -82,14 +84,14 @@ export default function WorkspaceDashboardPage() {
                     className="flex items-center justify-between rounded-lg border border-ink/10 p-3"
                   >
                     <div>
-                      <p className="font-medium">{user?.display_name ?? "Unknown"}</p>
+                      <p className="font-medium">{user?.display_name ?? "未知"}</p>
                       {profile && (
                         <p className="text-xs text-ink/50">
-                          {profile.role_preference} &middot; {profile.available_hours_per_week}h/wk
+                          {profile.role_preference} / {profile.available_hours_per_week}h/周
                         </p>
                       )}
                     </div>
-                    <Badge variant="secondary">{m.role}</Badge>
+                    <Badge variant="secondary">{m.role === "owner" ? "负责人" : "成员"}</Badge>
                   </div>
                 );
               })
@@ -101,12 +103,12 @@ export default function WorkspaceDashboardPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <FolderOpen className="h-5 w-5 text-moss" />
-              Projects ({state.projects.length})
+              项目 ({state.projects.length})
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {state.projects.length === 0 ? (
-              <p className="text-sm text-ink/40">No projects yet.</p>
+              <p className="text-sm text-ink/40">暂无项目</p>
             ) : (
               state.projects.map((p) => (
                 <a
@@ -135,7 +137,7 @@ export default function WorkspaceDashboardPage() {
             <Separator className="my-2" />
             <Button variant="outline" className="w-full gap-2" onClick={() => router.push(`/projects/new?workspaceId=${workspaceId}&createdBy=${state.workspace.owner_user_id}`)}>
               <Plus className="h-4 w-4" />
-              Create Project
+              新建项目
             </Button>
           </CardContent>
         </Card>

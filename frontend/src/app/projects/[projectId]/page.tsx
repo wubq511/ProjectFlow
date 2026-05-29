@@ -6,6 +6,7 @@ import { AlertCircle, Loader2 } from "lucide-react";
 
 import { ProjectDashboard, type AgentAction } from "@/components/project/project-dashboard";
 import { Button } from "@/components/ui/button";
+import { setLastWorkspaceId } from "@/components/app-shell";
 import {
   finalizeAssignments,
   createCheckinCycle,
@@ -61,10 +62,13 @@ export default function ProjectDashboardPage() {
 
     getProjectState(projectId)
       .then((nextState) => {
-        if (!ignore) setState(nextState);
+        if (!ignore) {
+          setState(nextState);
+          setLastWorkspaceId(nextState.workspace.workspace_id);
+        }
       })
       .catch(() => {
-        if (!ignore) setError("Failed to load project dashboard.");
+        if (!ignore) setError("加载项目仪表盘失败");
       })
       .finally(() => {
         if (!ignore) setLoading(false);
@@ -82,7 +86,7 @@ export default function ProjectDashboardPage() {
       await AGENT_RUNNERS[action](projectId);
       await reloadProject();
     } catch {
-      setActionError("This agent action is not available yet. Keep the current dashboard state and retry after backend routes are implemented.");
+      setActionError("Agent 操作暂不可用，请保持当前状态并在后端路由实现后重试。");
     } finally {
       setPendingAction(null);
     }
@@ -100,7 +104,7 @@ export default function ProjectDashboardPage() {
       await respondToAssignment(proposalId, userId, response, preferredTaskId, reason);
       await reloadProject();
     } catch {
-      setActionError("Assignment response route is not available yet. The UI is ready for the backend flow.");
+      setActionError("分工响应路由暂不可用，UI 已就绪等待后端支持。");
     }
   };
 
@@ -114,7 +118,7 @@ export default function ProjectDashboardPage() {
       await startNegotiation(projectId, proposalId, fromUserId, desiredTaskId);
       await reloadProject();
     } catch {
-      setActionError("Negotiation route is not available yet. The rejection state remains local until backend support lands.");
+      setActionError("协商路由暂不可用，拒绝状态将保留在本地直到后端支持。");
     }
   };
 
@@ -125,7 +129,7 @@ export default function ProjectDashboardPage() {
       await finalizeAssignments(stageId, state.project.created_by);
       await reloadProject();
     } catch {
-      setActionError("Final assignment confirmation route is not available yet. No task owner was changed.");
+      setActionError("确认分工路由暂不可用，任务负责人未被更改。");
     }
   };
 
@@ -162,7 +166,7 @@ export default function ProjectDashboardPage() {
       });
       await reloadProject();
     } catch {
-      setActionError("Check-in submission failed. The current dashboard state was preserved.");
+      setActionError("签到提交失败，当前仪表盘状态已保留。");
     }
   };
 
@@ -179,7 +183,7 @@ export default function ProjectDashboardPage() {
       await updateTaskStatus(data.task_id, data);
       await reloadProject();
     } catch {
-      setActionError("Task status update failed. No local-only status was applied.");
+      setActionError("任务状态更新失败，本地状态未变更。");
     }
   };
 
@@ -192,7 +196,7 @@ export default function ProjectDashboardPage() {
       await updateRiskStatus(riskId, status);
       await reloadProject();
     } catch {
-      setActionError("Risk status update failed.");
+      setActionError("风险状态更新失败。");
     }
   };
 
@@ -205,7 +209,7 @@ export default function ProjectDashboardPage() {
       await updateActionCardStatus(cardId, status);
       await reloadProject();
     } catch {
-      setActionError("Action card update failed.");
+      setActionError("行动卡更新失败。");
     }
   };
 
@@ -219,7 +223,7 @@ export default function ProjectDashboardPage() {
         router.push(`/projects/${demo.project_id}`);
       }
     } catch {
-      setActionError("Demo reset failed. Existing project data was not changed by the frontend.");
+      setActionError("演示重置失败，现有项目数据未被更改。");
     }
   };
 
@@ -229,7 +233,7 @@ export default function ProjectDashboardPage() {
         <div className="w-full rounded-lg border border-ink/10 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-3">
             <Loader2 className="h-5 w-5 animate-spin text-moss" />
-            <p className="font-semibold text-ink">Loading project dashboard</p>
+            <p className="font-semibold text-ink">加载项目仪表盘</p>
           </div>
           <div className="mt-5 grid gap-3 md:grid-cols-3">
             <div className="h-24 animate-pulse rounded-lg bg-ink/5" />
@@ -245,9 +249,9 @@ export default function ProjectDashboardPage() {
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center gap-3 px-5 text-center">
         <AlertCircle className="h-8 w-8 text-coral" />
-        <p className="text-sm text-coral">{error ?? "Project not found"}</p>
+        <p className="text-sm text-coral">{error ?? "项目未找到"}</p>
         <Button variant="outline" onClick={() => window.location.reload()}>
-          Retry
+          重试
         </Button>
       </div>
     );

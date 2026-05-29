@@ -121,13 +121,26 @@ Frontend:
 - API base URL comes from `NEXT_PUBLIC_API_BASE_URL` or defaults to `http://localhost:8000/api`.
 - All API calls go through `frontend/src/lib/api.ts`.
 - All types defined in `frontend/src/lib/types.ts`.
-- Project dashboard composes project, workspace, resources, stages, tasks, users, profiles, action cards, check-ins, risks, replan diff, agent timeline, and export from implemented endpoints. All frontend wiring for issue #8 backend APIs is complete.
+- Navigation: 首页 / 工作台（自动检测 workspace ID）/ 新建项目。Onboarding 不再常驻导航。
+- 首页智能重定向：有 workspace 记录则跳转工作台，否则展示欢迎页 + "加载演示数据"按钮。
+- Project dashboard composes project, workspace, resources, stages, tasks, users, profiles, action cards, check-ins, risks, replan diff, agent timeline, and export from implemented endpoints. Agent 操作按状态机 4 阶段分组（规划/分工/执行/监控），当前阶段高亮，自动推荐下一步。
+- UI 语言统一中文。表单组件统一使用 shadcn/ui（Input、Select、Textarea）。
+- RiskPanel 支持状态过滤（全部/待处理/已接受/已忽略/已解决）。
+- localStorage 读取使用 `useSyncExternalStore` 避免 hydration mismatch。
 - UI components use shadcn/ui (base-nova style) with project color tokens (ink, paper, moss, citron, coral, harbor).
 
 ## Next Work
 
-MVP issue scope is complete. Remaining work should be treated as post-MVP polish: richer real-LLM prompts, auth, deployment, collaboration permissions, and broader UI hardening.
-All MVP issues (#2-#11) are complete. Remaining work should be treated as post-MVP polish: manual demo rehearsal, richer real-LLM prompts, auth, deployment, collaboration permissions, and broader UI hardening.
+MVP issue scope is complete. Phase 10 (UI Structural Fix) completed 2026-05-29.
+
+Remaining work for MVP Usable (see `.claude/epics/projectflow-mvp-usable-ready/`):
+- Real LLM integration (replace mock provider)
+- Confirm-to-persist (Agent outputs only persisted after human confirmation)
+- Prompt quality (structured output reliability)
+- Agent status transparency (show Agent thinking/reasoning in UI)
+- Demo stability and polish
+
+Post-MVP: auth, deployment, collaboration permissions, broader UI hardening.
 
 Dependency note: all resolved.
 
