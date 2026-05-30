@@ -50,9 +50,20 @@ export default function WorkspaceDashboardPage() {
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3">
         <AlertCircle className="h-8 w-8 text-destructive" />
         <p className="text-sm text-destructive">{error ?? "工作台未找到"}</p>
-        <Button variant="outline" onClick={() => window.location.reload()}>
-          重试
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            重试
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              localStorage.removeItem("projectflow:last-workspace-id");
+              window.location.href = "/";
+            }}
+          >
+            返回首页
+          </Button>
+        </div>
       </div>
     )
   }

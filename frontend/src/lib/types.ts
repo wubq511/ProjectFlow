@@ -111,12 +111,12 @@ export type CreateProjectRequest = {
 // --- Direction Card ---
 export type DirectionCard = {
   problem: string;
-  target_users: string;
-  core_value: string;
+  users: string;
+  value: string;
   deliverables: string[];
-  constraints: string[];
-  out_of_scope: string[];
-  initial_risks: string[];
+  boundaries: string[];
+  risks: string[];
+  suggested_questions: string[];
 };
 
 // --- Project Resource ---
@@ -318,6 +318,19 @@ export type WorkspaceState = {
   projects: Project[];
 };
 
+export type AgentProposal = {
+  id: string;
+  project_id: string;
+  workspace_id: string;
+  proposal_type: "clarify" | "plan" | "breakdown";
+  status: "pending" | "confirmed" | "rejected";
+  agent_event_id: string;
+  payload: Record<string, unknown>;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  created_at: string;
+};
+
 // --- Project State (aggregated) ---
 export type ProjectState = {
   workspace: Workspace;
@@ -327,6 +340,7 @@ export type ProjectState = {
   member_profiles: MemberProfile[];
   stages: Stage[];
   tasks: Task[];
+  agent_proposals: AgentProposal[];
   assignment_proposals: AssignmentProposal[];
   assignment_responses: AssignmentResponse[];
   assignment_negotiations: AssignmentNegotiation[];

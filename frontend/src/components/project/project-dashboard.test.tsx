@@ -25,12 +25,12 @@ const projectState: ProjectState = {
     current_stage_id: "stage-1",
     direction_card: {
       problem: "Students lose time deciding what to do next.",
-      target_users: "College project teams",
-      core_value: "Turn project state into the next concrete action.",
+      users: "College project teams",
+      value: "Turn project state into the next concrete action.",
       deliverables: ["Working demo", "Review summary"],
-      constraints: ["One week", "Local demo"],
-      out_of_scope: ["Production auth"],
-      initial_risks: ["Scope drift"],
+      boundaries: ["One week", "Local demo"],
+      risks: ["Scope drift"],
+      suggested_questions: ["Who is the first demo user?"],
     },
     created_by: "user-lead",
     created_at: "2026-05-29T00:00:00Z",
@@ -127,6 +127,7 @@ const projectState: ProjectState = {
       updated_at: "2026-05-29T00:00:00Z",
     },
   ],
+  agent_proposals: [],
   assignment_proposals: [
     {
       id: "proposal-1",

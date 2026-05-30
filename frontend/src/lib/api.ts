@@ -14,6 +14,7 @@ import type {
   ProjectState,
   ProjectResource,
   AddResourceRequest,
+  AgentProposal,
   AssignmentProposal,
   AssignmentResponse,
   AssignmentNegotiation,
@@ -82,7 +83,7 @@ function normalizeRisk(risk: BackendRisk): Risk {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+  const timeoutId = setTimeout(() => controller.abort(), 120_000);
 
   const { headers: customHeaders, ...restOptions } = options || {};
   const mergedHeaders = {
@@ -269,6 +270,7 @@ export async function getProjectState(projectId: string): Promise<ProjectState> 
     tasks,
     allUsers,
     memberProfiles,
+    agentProposals,
     assignmentProposals,
     assignmentResponses,
     assignmentNegotiations,
@@ -283,6 +285,7 @@ export async function getProjectState(projectId: string): Promise<ProjectState> 
     listTasksByProject(projectId),
     listUsers(),
     listMemberProfilesByWorkspace(project.workspace_id),
+    listAgentProposalsByProject(projectId),
     listAssignmentProposalsByProject(projectId),
     listAssignmentResponsesByProject(projectId),
     listAssignmentNegotiationsByProject(projectId),
@@ -305,6 +308,7 @@ export async function getProjectState(projectId: string): Promise<ProjectState> 
     member_profiles: memberProfiles,
     stages,
     tasks,
+    agent_proposals: agentProposals,
     assignment_proposals: assignmentProposals,
     assignment_responses: assignmentResponses,
     assignment_negotiations: assignmentNegotiations,
@@ -347,6 +351,23 @@ export async function listTasksByProject(projectId: string): Promise<ProjectStat
 
 export async function listAssignmentProposalsByProject(projectId: string): Promise<AssignmentProposal[]> {
   return request<AssignmentProposal[]>(`/projects/${projectId}/assignment-proposals`);
+}
+
+export async function listAgentProposalsByProject(projectId: string): Promise<AgentProposal[]> {
+  return request<AgentProposal[]>(`/agent-proposals?project_id=${encodeURIComponent(projectId)}`);
+}
+
+export async function confirmAgentProposal(proposalId: string, confirmedBy: string): Promise<AgentProposal> {
+  return request<AgentProposal>(`/agent-proposals/${proposalId}/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ confirmed_by: confirmedBy }),
+  });
+}
+
+export async function rejectAgentProposal(proposalId: string): Promise<AgentProposal> {
+  return request<AgentProposal>(`/agent-proposals/${proposalId}/reject`, {
+    method: "POST",
+  });
 }
 
 export async function listAssignmentResponsesByProject(projectId: string): Promise<AssignmentResponse[]> {

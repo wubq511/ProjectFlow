@@ -70,6 +70,10 @@ export function WorkspaceCreateForm({
       else if (name.trim().length < 2) newErrors.name = "至少 2 个字符"
       if (!ownerId.trim()) newErrors.ownerId = "请输入所有者 ID"
     }
+    if (s === 1) {
+      if (!teamSize) newErrors.teamSize = "请选择团队规模"
+      if (!useCase) newErrors.useCase = "请选择主要场景"
+    }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -185,13 +189,16 @@ export function WorkspaceCreateForm({
 
         {step === 1 && (
           <div className="space-y-4">
-            <FormField label="团队规模" hint="预计参与人数">
+            <FormField label="团队规模" hint="预计参与人数" error={errors.teamSize}>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {TEAM_SIZES.map((size) => (
                   <button
                     key={size.id}
                     type="button"
-                    onClick={() => setTeamSize(size.id)}
+                    onClick={() => {
+                      setTeamSize(size.id)
+                      if (errors.teamSize) setErrors((prev) => ({ ...prev, teamSize: "" }))
+                    }}
                     className={cn(
                       "rounded-lg border-2 px-3 py-2 text-sm font-medium transition-colors",
                       teamSize === size.id
@@ -205,7 +212,7 @@ export function WorkspaceCreateForm({
               </div>
             </FormField>
 
-            <FormField label="主要场景" hint="你们主要做什么类型的项目">
+            <FormField label="主要场景" hint="你们主要做什么类型的项目" error={errors.useCase}>
               <div className="grid grid-cols-2 gap-3">
                 {USE_CASES.map((uc) => {
                   const Icon = uc.icon
@@ -213,7 +220,10 @@ export function WorkspaceCreateForm({
                     <button
                       key={uc.id}
                       type="button"
-                      onClick={() => setUseCase(uc.id)}
+                      onClick={() => {
+                        setUseCase(uc.id)
+                        if (errors.useCase) setErrors((prev) => ({ ...prev, useCase: "" }))
+                      }}
                       className={cn(
                         "flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-sm font-medium transition-colors",
                         useCase === uc.id
@@ -244,6 +254,7 @@ export function WorkspaceCreateForm({
             variant="outline"
             onClick={() => setStep(Math.max(0, step - 1))}
             disabled={step === 0}
+            className={step === 0 ? "cursor-not-allowed opacity-40" : ""}
           >
             上一步
           </Button>
@@ -259,7 +270,7 @@ export function WorkspaceCreateForm({
           ) : (
             <Button
               type="submit"
-              disabled={submitting || !name.trim() || !ownerId.trim()}
+              disabled={submitting || !name.trim() || !ownerId.trim() || !teamSize || !useCase}
             >
               {submitting ? (
                 <>

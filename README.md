@@ -4,7 +4,7 @@ ProjectFlow is a local-first active project agent MVP for college project teams.
 
 ## Current Status
 
-All MVP phases and MVP Usable tasks complete (2026-05-30).
+All MVP phases and MVP Usable tasks complete (2026-05-30). Phase 18 (Frontend Bugfix) complete (2026-05-30).
 
 - Phase 0 / GitHub #2 — Guardrails & Setup
 - Phase 1 / GitHub #3 — Account / Workspace / Member Profile

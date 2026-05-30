@@ -114,7 +114,7 @@ npm audit --omit=dev
 Expected baseline as of 2026-05-30:
 
 - Backend tests pass: 146 tests (MVP API/model smoke plus CORS, agent schema, module, provider, fallback, timeline logging, assignment, action-card, check-in, risk, replan, seed/reset/export, demo reset, LLM diagnostic, agent proposal, and agent endpoint tests).
-- Frontend tests pass: 5 tests across 3 files (API layer, project dashboard, home page).
+- Frontend tests pass: 7 tests across 3 files (API layer, project dashboard, home page).
 - Frontend lint passes.
 - Frontend production build passes.
 - `npm audit --omit=dev` reports 0 vulnerabilities.
@@ -184,7 +184,7 @@ ALTER TABLE agent_events ADD COLUMN status TEXT NOT NULL DEFAULT 'success';
 | `LLM_API_KEY` | backend LLM | only for real LLM | Required when `LLM_PROVIDER=openai` or `openai-compatible`. Must stay in `.env`. |
 | `LLM_BASE_URL` | backend LLM | no | Defaults to `https://api.openai.com/v1`; override for OpenAI-compatible providers. |
 | `LLM_MODEL` | backend LLM | no | Defaults to `gpt-4o-mini`. |
-| `LLM_TIMEOUT_SECONDS` | backend LLM | no | Defaults to `30.0`. |
+| `LLM_TIMEOUT_SECONDS` | backend LLM | no | Defaults to `120.0`. |
 | `DEMO_ADMIN_TOKEN` | backend demo admin | outside development | Required for seed/reset endpoints when `APP_ENV` is not `development`. Send it as `X-ProjectFlow-Admin-Token`. |
 | `NEXT_PUBLIC_API_BASE_URL` | frontend | no | Defaults to `http://localhost:8000/api`. |
 
@@ -336,7 +336,7 @@ LLM_PROVIDER=openai
 LLM_API_KEY=sk-...your-key-here...
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=gpt-4o-mini
-LLM_TIMEOUT_SECONDS=30.0
+LLM_TIMEOUT_SECONDS=120.0
 ```
 
 For OpenAI-compatible providers:

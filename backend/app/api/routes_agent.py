@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from app.agent.coordinator import CoordinatorAgent
+from app.agent.llm_client import LLMError, LLMTimeoutError
 from app.core.database import get_session
 from app.schemas.agent_flow import AgentFlowRead, AgentFlowRequest
 from app.services.agent_flow_service import run_agent_flow
@@ -78,3 +79,7 @@ def _run(data: AgentFlowRequest, session: Session, method) -> AgentFlowRead:
         return run_agent_flow(session, data.workspace_id, method)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except LLMTimeoutError as exc:
+        raise HTTPException(status_code=504, detail=f"AI 模型响应超时，请稍后重试: {exc}")
+    except LLMError as exc:
+        raise HTTPException(status_code=502, detail=f"AI 模型调用失败: {exc}")

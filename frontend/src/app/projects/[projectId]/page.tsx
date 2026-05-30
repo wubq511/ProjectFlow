@@ -9,8 +9,10 @@ import { Button } from "@/components/ui/button";
 import { setLastWorkspaceId } from "@/components/app-shell";
 import {
   finalizeAssignments,
+  confirmAgentProposal,
   createCheckinCycle,
   getProjectState,
+  rejectAgentProposal,
   respondToAssignment,
   resetDemo,
   runActivePush,
@@ -53,8 +55,12 @@ export default function ProjectDashboardPage() {
 
   const reloadProject = useCallback(async () => {
     setError(null);
-    const nextState = await getProjectState(projectId);
-    setState(nextState);
+    try {
+      const nextState = await getProjectState(projectId);
+      setState(nextState);
+    } catch {
+      setError("刷新项目数据失败，请重试");
+    }
   }, [projectId]);
 
   useEffect(() => {
@@ -79,14 +85,32 @@ export default function ProjectDashboardPage() {
     };
   }, [projectId]);
 
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
   const runAgent = async (action: AgentAction) => {
     setPendingAction(action);
     setActionError(null);
+    setActionSuccess(null);
     try {
-      await AGENT_RUNNERS[action](projectId);
+      const result = await AGENT_RUNNERS[action](projectId);
       await reloadProject();
-    } catch {
-      setActionError("Agent 操作暂不可用，请保持当前状态并在后端路由实现后重试。");
+      const eventType = (result as { event_type?: string })?.event_type ?? action;
+      setActionSuccess(`Agent "${eventType}" 操作成功`);
+    } catch (err: unknown) {
+      let msg = "Agent 操作失败，请稍后重试。";
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message.replace(/^Request failed: \d+ /, ""));
+          if (parsed?.detail) msg = parsed.detail;
+        } catch {
+          if (err.message.includes("504") || err.message.includes("超时")) {
+            msg = "AI 模型响应超时，请稍后重试。";
+          } else if (err.message.includes("502") || err.message.includes("调用失败")) {
+            msg = "AI 模型调用失败，请检查网络连接后重试。";
+          }
+        }
+      }
+      setActionError(msg);
     } finally {
       setPendingAction(null);
     }
@@ -130,6 +154,39 @@ export default function ProjectDashboardPage() {
       await reloadProject();
     } catch {
       setActionError("确认分工路由暂不可用，任务负责人未被更改。");
+    }
+  };
+
+  const handleConfirmProposal = async (proposalId: string) => {
+    if (!state) return;
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      await confirmAgentProposal(proposalId, state.project.created_by);
+      await reloadProject();
+      setActionSuccess("提案已确认，内容已应用到项目");
+    } catch (err: unknown) {
+      let msg = "确认提案失败，请稍后重试。";
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message.replace(/^Request failed: \d+ /, ""));
+          if (parsed?.detail) msg = typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail);
+        } catch { /* ignore */ }
+      }
+      setActionError(msg);
+    }
+  };
+
+  const handleRejectProposal = async (proposalId: string) => {
+    if (!state) return;
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      await rejectAgentProposal(proposalId);
+      await reloadProject();
+      setActionSuccess("提案已拒绝");
+    } catch {
+      setActionError("拒绝提案失败，请稍后重试。");
     }
   };
 
@@ -263,6 +320,7 @@ export default function ProjectDashboardPage() {
       currentUserId={currentUserId}
       pendingAction={pendingAction}
       actionError={actionError}
+      actionSuccess={actionSuccess}
       onRunAgent={runAgent}
       onRespondToAssignment={handleAssignmentResponse}
       onStartNegotiation={handleStartNegotiation}
@@ -274,6 +332,8 @@ export default function ProjectDashboardPage() {
       onIgnoreRisk={(riskId) => handleRiskStatus(riskId, "ignored")}
       onCompleteActionCard={(cardId) => handleActionCardStatus(cardId, "done")}
       onDismissActionCard={(cardId) => handleActionCardStatus(cardId, "dismissed")}
+      onConfirmProposal={handleConfirmProposal}
+      onRejectProposal={handleRejectProposal}
       onResetDemo={handleResetDemo}
     />
   );

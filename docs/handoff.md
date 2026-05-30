@@ -1,6 +1,6 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-05-30.
+Status: current as of 2026-05-31.
 
 ## Completed
 
@@ -17,6 +17,16 @@ GitHub issue #11 (Verification, Tests, and Demo Stability Hardening) is complete
 GitHub issue #16 (Real LLM Provider Readiness and Diagnostics) is complete.
 GitHub issue #17 (Agent Output Persistence and Confirmation) is complete.
 GitHub issue #21 (Real-Provider Verification and MVP Usable Runbook) is complete.
+
+### Phase 18 — Frontend Bugfix (2026-05-30)
+
+- Fixed DirectionCard type field names to match backend: `target_users/core_value/constraints/out_of_scope/initial_risks` → `users/value/boundaries/risks/suggested_questions`.
+- Fixed "页面暂时不可用" crash after confirming Agent proposals: DirectionCardPanel was calling `.map()` on undefined fields due to field name mismatch, triggering Next.js error boundary.
+- Rewrote DirectionCardPanel with `safeStringList()` defensive rendering and full field display (deliverables, boundaries, risks, suggested questions).
+- Added defensive `proposals ?? []` in AgentProposalPanel to prevent undefined crashes.
+- Increased frontend API timeout from 30s to 120s (matching backend LLM timeout).
+- Updated test data: `project-dashboard.test.tsx` DirectionCard field names aligned + `agent_proposals: []` added; `api.test.ts` added `agent-proposals` endpoint mock.
+- Frontend test baseline: 7 tests passing across 3 files (was 5).
 
 Implemented scope:
 
@@ -151,7 +161,7 @@ npm audit --omit=dev
 Results:
 
 - Backend: 146 tests passed (MVP suite + usability pass + LLM diagnostics + agent proposal confirmation).
-- Frontend tests: 5 passed across 3 files (API layer, project dashboard, home page). Previous stale English-label assertions have been fixed to match the Chinese UI.
+- Frontend tests: 7 passed across 3 files (API layer, project dashboard, home page).
 - Frontend lint passed.
 - Frontend build passed.
 - Frontend audit passed with 0 vulnerabilities.
@@ -211,7 +221,7 @@ Unfixed issues documented in `.trae/documents/code-review-unfixed-issues.md`.
 
 ## Next Work
 
-Core MVP phase scope is complete. Phase 10 (UI Structural Fix) completed 2026-05-29; MVP Usable #16/#17/#18/#19/#20/#21 are complete. Phase 17 (Code Review Hardening) completed 2026-05-30.
+Core MVP phase scope is complete. Phase 10 (UI Structural Fix) completed 2026-05-29; MVP Usable #16/#17/#18/#19/#20/#21 are complete. Phase 17 (Code Review Hardening) completed 2026-05-30. Phase 18 (Frontend Bugfix: DirectionCard field alignment, proposal confirmation crash fix, defensive rendering) completed 2026-05-30.
 
 MVP Usable progress (see `.claude/epics/projectflow-mvp-usable-ready/`):
 - ✅ #18 Prompt and Schema Quality Hardening (completed 2026-05-29)

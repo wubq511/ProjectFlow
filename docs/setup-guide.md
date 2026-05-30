@@ -64,7 +64,7 @@ LLM_PROVIDER=mock
 LLM_API_KEY=
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=gpt-4o-mini
-LLM_TIMEOUT_SECONDS=30.0
+LLM_TIMEOUT_SECONDS=120.0
 ```
 
 > `.env` 已被 Git 忽略，不会提交。**永远不要把真实 API Key 提交到仓库。**
@@ -134,7 +134,7 @@ npm run lint
 npm run build
 ```
 
-预期：5 个测试通过，lint 无错误，build 成功。
+预期：7 个测试通过，lint 无错误，build 成功。
 
 ## 第五步：加载演示数据
 

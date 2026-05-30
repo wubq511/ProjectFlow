@@ -37,7 +37,7 @@ Snapshot date: 2026-05-30.
 - MVP Usable #20 (Assignment, Push, Risk, and Replan Usability Pass) is complete: assignment citations, push card goal/start/done-when, risk structured evidence, replan before/after/impact/confirmation, finalized-assignment guard.
 - MVP Usable #19 (Frontend Agent Status and Review UX) is complete.
 - MVP Usable #21 (Real-Provider Verification and MVP Usable Runbook) is complete: frontend test fixes, runbook with mock/real-provider modes and manual verification checklist, final status report.
-- Current verification baseline: backend pytest 146 passing, frontend 5 tests passing, frontend lint passing, frontend build passing, frontend audit 0 vulnerabilities.
+- Current verification baseline: backend pytest 146 passing, frontend 7 tests passing, frontend lint passing, frontend build passing, frontend audit 0 vulnerabilities.
 
 ---
 
@@ -1805,12 +1805,12 @@ LLM_PROVIDER=mock
 LLM_API_KEY=xxx
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=gpt-4o-mini
-LLM_TIMEOUT_SECONDS=30.0
+LLM_TIMEOUT_SECONDS=120.0
 DEMO_ADMIN_TOKEN=optional-admin-token
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
 ```
 
-`APP_ENV`、`DATABASE_URL`、`LLM_PROVIDER`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_TIMEOUT_SECONDS`、`DEMO_ADMIN_TOKEN` 已由后端配置读取。`LLM_PROVIDER` 默认 `mock`；真实 LLM 接入时设置为 `openai` 或 `openai-compatible`，并把 `LLM_API_KEY` 放在 `.env`。`LLM_TIMEOUT_SECONDS` 默认 `30.0`。`DEMO_ADMIN_TOKEN` 仅在非 `development` 环境保护 seed/reset/demo reset 端点。`NEXT_PUBLIC_API_BASE_URL` 是前端可选变量，不配置时默认 `http://localhost:8000/api`。
+`APP_ENV`、`DATABASE_URL`、`LLM_PROVIDER`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_TIMEOUT_SECONDS`、`DEMO_ADMIN_TOKEN` 已由后端配置读取。`LLM_PROVIDER` 默认 `mock`；真实 LLM 接入时设置为 `openai` 或 `openai-compatible`，并把 `LLM_API_KEY` 放在 `.env`。`LLM_TIMEOUT_SECONDS` 默认 `120.0`。`DEMO_ADMIN_TOKEN` 仅在非 `development` 环境保护 seed/reset/demo reset 端点。`NEXT_PUBLIC_API_BASE_URL` 是前端可选变量，不配置时默认 `http://localhost:8000/api`。
 
 ## 14.4 Git Ignore Rules
 
@@ -2301,10 +2301,11 @@ http://localhost:3000
 8. ~~用 seed data/mock LLM 跑通完整前端主路径。~~ (done #10-#11)
 9. ~~接入真实 LLM readiness diagnostics。~~ (done #16)
 10. ~~将 clarify/plan/breakdown 输出改为确认后持久化。~~ (done #17)
-11. 修复当前 frontend test 的 3 个过期断言：App Router harness 和中文 UI 文案。
-12. 完成 #19 Frontend Agent Status and Review UX。
-13. 完成 #21 Real-Provider Verification and MVP Usable Runbook。
+11. ~~修复当前 frontend test 的 3 个过期断言：App Router harness 和中文 UI 文案。~~ (done #21)
+12. ~~完成 #19 Frontend Agent Status and Review UX。~~ (done #19)
+13. ~~完成 #21 Real-Provider Verification and MVP Usable Runbook。~~ (done #21)
 14. 持续保持 `docs/api-contract.md`、`docs/runbook.md`、`docs/handoff.md` 与代码同步。
+15. ~~修复 DirectionCard 字段名不匹配导致 Agent 提案确认后页面崩溃。~~ (done Phase 18)
 
 ---
 

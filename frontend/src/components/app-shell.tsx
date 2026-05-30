@@ -36,13 +36,13 @@ function getServerSnapshot() {
 
 const baseNavItems = [
   { label: "首页", href: "/", icon: Home },
-  { label: "新建项目", href: "/projects/new", icon: Plus },
 ] as const;
 
 function useWorkspaceNav() {
   const pathname = usePathname();
   const workspaceMatch = pathname.match(/\/workspaces\/([^/]+)/);
-  const urlWorkspaceId = workspaceMatch?.[1] ?? null;
+  const rawId = workspaceMatch?.[1] ?? null;
+  const urlWorkspaceId = rawId && !["new", "invite"].includes(rawId) ? rawId : null;
 
   const cachedId = useSyncExternalStore(
     subscribeToStorage,
@@ -123,6 +123,7 @@ function MobileNav({ pathname, workspaceId }: { pathname: string; workspaceId: s
             return (
               <SheetClose
                 key={item.href}
+                nativeButton={false}
                 render={
                   <Link
                     href={item.href}

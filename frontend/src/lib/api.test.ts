@@ -112,6 +112,7 @@ describe("frontend API layer", () => {
         ]);
       }
       if (url.endsWith("/workspaces/workspace-1/profiles")) return jsonResponse([]);
+      if (url.includes("/agent-proposals?project_id=project-1")) return jsonResponse([]);
       if (url.endsWith("/projects/project-1/assignment-proposals")) return jsonResponse([]);
       if (url.endsWith("/projects/project-1/assignment-responses")) return jsonResponse([]);
       if (url.endsWith("/projects/project-1/assignment-negotiations")) return jsonResponse([]);

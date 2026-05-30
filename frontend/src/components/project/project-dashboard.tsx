@@ -1,9 +1,10 @@
 "use client";
 
-import { AlertCircle, ChevronRight, Loader2, PlayCircle, RotateCcw, Sparkles, ArrowLeft } from "lucide-react";
+import { AlertCircle, CheckCircle, ChevronRight, Loader2, PlayCircle, RotateCcw, Sparkles, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
 import { DirectionCardPanel } from "@/components/agent/direction-card-panel";
+import { AgentProposalPanel } from "@/components/agent/agent-proposal-panel";
 import { ActionCardsList } from "@/components/agent/action-card";
 import { TeamActionsPanel } from "@/components/agent/team-actions-panel";
 import { AgentTimeline } from "@/components/agent/timeline";
@@ -27,6 +28,7 @@ type ProjectDashboardProps = {
   currentUserId?: string;
   pendingAction?: AgentAction | null;
   actionError?: string | null;
+  actionSuccess?: string | null;
   onRunAgent?: (action: AgentAction) => void | Promise<void>;
   onRespondToAssignment?: (
     proposalId: string,
@@ -62,6 +64,8 @@ type ProjectDashboardProps = {
   onIgnoreRisk?: (riskId: string) => void | Promise<void>;
   onDismissActionCard?: (cardId: string) => void | Promise<void>;
   onCompleteActionCard?: (cardId: string) => void | Promise<void>;
+  onConfirmProposal?: (proposalId: string) => void | Promise<void>;
+  onRejectProposal?: (proposalId: string) => void | Promise<void>;
   onResetDemo?: () => void | Promise<void>;
 };
 
@@ -133,6 +137,7 @@ export function ProjectDashboard({
   currentUserId,
   pendingAction,
   actionError,
+  actionSuccess,
   onRunAgent,
   onRespondToAssignment,
   onStartNegotiation,
@@ -144,6 +149,8 @@ export function ProjectDashboard({
   onIgnoreRisk,
   onDismissActionCard,
   onCompleteActionCard,
+  onConfirmProposal,
+  onRejectProposal,
   onResetDemo,
 }: ProjectDashboardProps) {
   const { project, stages, tasks, action_cards, risks, timeline } = state;
@@ -316,6 +323,13 @@ export function ProjectDashboard({
           })}
         </div>
 
+        {actionSuccess && (
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-moss/20 bg-moss/10 p-3 text-sm text-moss">
+            <CheckCircle className="mt-0.5 h-4 w-4" />
+            <p>{actionSuccess}</p>
+          </div>
+        )}
+
         {actionError && (
           <div className="mt-4 flex items-start gap-2 rounded-lg border border-coral/20 bg-coral/10 p-3 text-sm text-coral">
             <AlertCircle className="mt-0.5 h-4 w-4" />
@@ -339,6 +353,12 @@ export function ProjectDashboard({
       </section>
 
       <div className="mt-5 grid gap-5">
+        <AgentProposalPanel
+          proposals={state.agent_proposals}
+          pending={Boolean(pendingAction)}
+          onConfirm={onConfirmProposal}
+          onReject={onRejectProposal}
+        />
         <DirectionCardPanel
           directionCard={project.direction_card}
           timeline={state.timeline}

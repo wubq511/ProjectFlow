@@ -246,10 +246,10 @@ export function MemberProfileWizard({
               </div>
             </div>
             <Link
-              href="/workspaces/new"
+              href={`/workspaces/${workspaceId}`}
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-bold text-primary-foreground transition hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              创建工作区
+              进入工作台
               <ArrowRight className="h-4 w-4" />
             </Link>
           </CardContent>
