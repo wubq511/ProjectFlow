@@ -157,15 +157,21 @@ export function ProjectDashboard({
   const currentStage = stages.find((stage) => stage.id === project.current_stage_id)
     ?? stages.find((stage) => stage.status === "active")
     ?? stages[0];
-  const nextAction = action_cards.find((card) => card.status === "active");
+  const personalNextAction = action_cards.find(
+    (card) => card.status === "active" && card.user_id === currentUserId
+  );
+  const teamNextAction = action_cards.find(
+    (card) => card.status === "active" && !card.user_id
+  );
   const p0OpenCount = tasks.filter((task) => task.priority === "P0" && task.status !== "done").length;
   const ownerCoverage = tasks.length === 0
     ? 0
     : Math.round((tasks.filter((task) => task.owner_user_id).length / tasks.length) * 100);
 
   const personalCards = action_cards.filter(
-    (card) => card.user_id === currentUserId && card.status === "active"
+    (card) => card.user_id === currentUserId
   );
+  const isCreator = currentUserId === project.created_by;
 
   const currentPhase = inferCurrentPhase(state);
   const recommendedAction = inferRecommendedAction(state);
@@ -238,19 +244,39 @@ export function ProjectDashboard({
         </div>
       </header>
 
-      {nextAction && (
-        <section className="mt-5 rounded-lg border border-moss/20 bg-moss/10 p-4">
-          <div className="flex items-start gap-3">
-            <Sparkles className="mt-1 h-5 w-5 text-moss" />
-            <div>
-              <p className="font-semibold text-ink">{nextAction.title}</p>
-              <p className="mt-1 text-sm text-ink/65">{nextAction.content}</p>
-              <p className="mt-2 flex items-center gap-1 text-xs text-ink/50">
-                原因 <ChevronRight className="h-3 w-3" /> {nextAction.reason}
-              </p>
-            </div>
-          </div>
-        </section>
+      {(personalNextAction || teamNextAction) && (
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          {personalNextAction && (
+            <section className="rounded-lg border border-moss/20 bg-moss/10 p-4">
+              <div className="flex items-start gap-3">
+                <Sparkles className="mt-1 h-5 w-5 shrink-0 text-moss" />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-moss/70">你的行动</p>
+                  <p className="mt-1 font-semibold text-ink">{personalNextAction.title}</p>
+                  <p className="mt-1 text-sm text-ink/65">{personalNextAction.content}</p>
+                  <p className="mt-2 flex items-center gap-1 text-xs text-ink/50">
+                    原因 <ChevronRight className="h-3 w-3" /> {personalNextAction.reason}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
+          {teamNextAction && (
+            <section className="rounded-lg border border-ink/15 bg-paper p-4">
+              <div className="flex items-start gap-3">
+                <Sparkles className="mt-1 h-5 w-5 shrink-0 text-ink/50" />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">团队下一步</p>
+                  <p className="mt-1 font-semibold text-ink">{teamNextAction.title}</p>
+                  <p className="mt-1 text-sm text-ink/65">{teamNextAction.content}</p>
+                  <p className="mt-2 flex items-center gap-1 text-xs text-ink/50">
+                    原因 <ChevronRight className="h-3 w-3" /> {teamNextAction.reason}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
+        </div>
       )}
 
       <section className="mt-5 rounded-lg border border-ink/10 bg-white p-5 shadow-sm">
@@ -411,6 +437,7 @@ export function ProjectDashboard({
               onDismiss={onDismissActionCard}
               onComplete={onCompleteActionCard}
               pending={Boolean(pendingAction)}
+              canOperate={isCreator}
             />
           </TabsContent>
 

@@ -41,6 +41,25 @@ class TaskState(BaseModel):
     assignment_reason: str | None = None
 
 
+class CheckInCycleState(BaseModel):
+    id: str
+    stage_id: str
+    cadence_days: int
+    next_due_date: str
+    status: str
+
+
+class CheckInResponseState(BaseModel):
+    id: str
+    cycle_id: str
+    user_id: str
+    task_id: str | None = None
+    what_done: str
+    blocker: str | None = None
+    available_hours_next_cycle: float | None = None
+    mood_or_confidence: str | None = None
+
+
 class ProjectState(BaseModel):
     id: str
     name: str
@@ -52,6 +71,8 @@ class ProjectState(BaseModel):
     current_stage_id: str | None
     stages: list[StageState]
     tasks: list[TaskState]
+    checkin_cycles: list[CheckInCycleState] = Field(default_factory=list)
+    checkin_responses: list[CheckInResponseState] = Field(default_factory=list)
 
 
 class WorkspaceStateResponse(BaseModel):

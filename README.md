@@ -4,7 +4,7 @@ ProjectFlow is a local-first active project agent MVP for college project teams.
 
 ## Current Status
 
-All MVP phases and MVP Usable tasks complete (2026-05-31). Phase 19 (Agent Prompt Refactor) complete (2026-05-31).
+All MVP phases and MVP Usable tasks complete. Phase 22 (Agent Output Quality + Bug Fixes) complete (2026-06-03). Phase 19 (Agent Prompt Refactor) complete (2026-05-31).
 
 - Phase 0 / GitHub #2 — Guardrails & Setup
 - Phase 1 / GitHub #3 — Account / Workspace / Member Profile
@@ -98,6 +98,7 @@ npm audit --omit=dev
 - [Demo script](docs/demo-script.md)
 - [Seed scenarios](docs/seed-scenarios.md)
 - [Current handoff](docs/handoff.md)
+- [Bug log](Bug.md)
 - [Issue #11 verification report](docs/issue-11-status-report.md)
 
 ## Runtime Files

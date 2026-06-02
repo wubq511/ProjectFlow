@@ -52,9 +52,10 @@ def update_task(session: Session, task_id: str, data: TaskUpdate) -> Task:
     return task
 
 
-def create_status_update(session: Session, data: TaskStatusUpdateCreate, *, auto_commit: bool = True) -> TaskStatusUpdate:
+def create_status_update(session: Session, task_id: str, data: TaskStatusUpdateCreate, *, auto_commit: bool = True) -> TaskStatusUpdate:
+    # Create the history record
     status_update = TaskStatusUpdate(
-        task_id=data.task_id,
+        task_id=task_id,
         user_id=data.user_id,
         status=data.status,
         progress_note=data.progress_note,
@@ -62,6 +63,14 @@ def create_status_update(session: Session, data: TaskStatusUpdateCreate, *, auto
         available_hours_change=data.available_hours_change,
     )
     session.add(status_update)
+
+    # Also update the Task.status field so the task's current status reflects the change
+    task = session.get(Task, task_id)
+    if task is not None:
+        task.status = data.status.value if hasattr(data.status, "value") else data.status
+        task.updated_at = datetime.now(UTC)
+        session.add(task)
+
     if auto_commit:
         session.commit()
         session.refresh(status_update)

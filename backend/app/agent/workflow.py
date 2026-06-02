@@ -140,16 +140,23 @@ def _fallback_after_provider_error(
 
 
 def _max_tokens_for_event(event_type: AgentEventType) -> int:
+    """Return max_tokens for the given event type.
+
+    Reasoning models (e.g. DeepSeek) consume a large portion of completion
+    tokens for internal thought before producing visible output, so these
+    values are deliberately generous.  Non-reasoning models will stop far
+    earlier — the cap only limits the upper bound.
+    """
     return {
-        AgentEventType.clarify: 900,
-        AgentEventType.plan: 1600,
-        AgentEventType.breakdown: 1400,
-        AgentEventType.assign: 1100,
-        AgentEventType.negotiate: 900,
-        AgentEventType.push: 1000,
-        AgentEventType.checkin: 900,
-        AgentEventType.risk: 1000,
-        AgentEventType.replan: 1200,
+        AgentEventType.clarify: 3000,
+        AgentEventType.plan: 4000,
+        AgentEventType.breakdown: 4000,
+        AgentEventType.assign: 3000,
+        AgentEventType.negotiate: 2000,
+        AgentEventType.push: 3000,
+        AgentEventType.checkin: 4000,
+        AgentEventType.risk: 3000,
+        AgentEventType.replan: 4000,
     }[event_type]
 
 

@@ -39,7 +39,9 @@ def build_request(workspace_state: WorkspaceStateResponse) -> AgentModuleRequest
         user_prompt=(
             "Create exactly 1 action card for the most important next step. "
             "Prefer blocked, overdue, unassigned, or high-priority tasks. "
-            "Each card needs goal, start_suggestion, completion_standard, and a reason citing task status, deadline, or member capacity."
+            "Each card needs goal, start_suggestion, completion_standard, and a reason citing task status, deadline, or member capacity. "
+            "ALL text fields (title, content, reason, goal, start_suggestion, completion_standard) MUST be written in Chinese. "
+            "In text fields, use member display names (e.g. '小林') and task titles (e.g. '后端 API') — never use raw IDs."
         ),
         fallback_payload={
             "action_cards": [
@@ -51,7 +53,6 @@ def build_request(workspace_state: WorkspaceStateResponse) -> AgentModuleRequest
                     "goal": f"Advance {fallback_task_title} to in_progress",
                     "start_suggestion": f"Start working on {fallback_task_title}",
                     "completion_standard": f"{fallback_task_title} is marked done or in_progress",
-                    "user_id": member_id,
                     "stage_id": stage_id,
                     "task_id": task_id,
                 }

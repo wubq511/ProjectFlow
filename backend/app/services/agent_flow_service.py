@@ -134,6 +134,7 @@ def _persist_agent_output(
         for update in output.task_updates:
             status_update = create_status_update(
                 session,
+                update.task_id,
                 TaskStatusUpdateCreate(
                     task_id=update.task_id,
                     user_id=update.user_id,

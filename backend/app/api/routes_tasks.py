@@ -109,5 +109,4 @@ def api_create_status_update(
     data: TaskStatusUpdateCreate,
     session: Session = Depends(get_session),
 ):
-    data.task_id = task_id
-    return create_status_update(session, data)
+    return create_status_update(session, task_id, data)

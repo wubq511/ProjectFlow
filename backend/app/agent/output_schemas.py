@@ -162,7 +162,7 @@ class RiskProposal(BaseModel):
     severity: RiskSeverity
     title: str = Field(min_length=1)
     description: str = Field(min_length=1)
-    evidence: list[dict[str, Any]] = Field(min_length=1)
+    evidence: list[str | dict[str, Any]] = Field(min_length=1)
     recommendation: str = Field(min_length=1)
     stage_id: str | None = None
     task_id: str | None = None
@@ -331,7 +331,7 @@ def _validate_risk_references(
 
 
 def _validate_evidence_ids(
-    evidence: list[dict[str, Any]],
+    evidence: list[str | dict[str, Any]],
     stage_ids: set[str],
     task_ids: set[str],
     errors: list[str],

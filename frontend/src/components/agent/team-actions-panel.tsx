@@ -10,11 +10,12 @@ type TeamActionsPanelProps = {
   onDismiss?: (cardId: string) => void | Promise<void>;
   onComplete?: (cardId: string) => void | Promise<void>;
   pending?: boolean;
+  canOperate?: boolean;
 };
 
-export function TeamActionsPanel({ cards, onDismiss, onComplete, pending }: TeamActionsPanelProps) {
+export function TeamActionsPanel({ cards, onDismiss, onComplete, pending, canOperate = true }: TeamActionsPanelProps) {
   const teamCards = cards.filter(
-    (card) => card.type === "team_next_step" || card.type === "kickoff_tip" || card.type === "reminder"
+    (card) => !card.user_id
   );
 
   return (
@@ -39,6 +40,7 @@ export function TeamActionsPanel({ cards, onDismiss, onComplete, pending }: Team
           onDismiss={onDismiss}
           onComplete={onComplete}
           pending={pending}
+          canOperate={canOperate}
         />
       </div>
     </section>

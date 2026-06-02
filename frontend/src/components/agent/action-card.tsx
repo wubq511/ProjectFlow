@@ -1,6 +1,7 @@
 "use client";
 
-import { CheckCircle2, Clock, Lightbulb, ShieldAlert, UserCheck, XCircle } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle2, ChevronDown, ChevronRight, Clock, History, Lightbulb, ShieldAlert, UserCheck, XCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -65,7 +66,7 @@ function typeClass(type: ActionCard["type"]) {
   }
 }
 
-export function ActionCardItem({ card, onDismiss, onComplete, pending }: ActionCardItemProps) {
+export function ActionCardItem({ card, onDismiss, onComplete, pending, canOperate = true }: ActionCardItemProps & { canOperate?: boolean }) {
   return (
     <article className="rounded-lg border border-ink/10 bg-paper/60 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -121,7 +122,7 @@ export function ActionCardItem({ card, onDismiss, onComplete, pending }: ActionC
             <>
               <Button
                 size="sm"
-                disabled={pending}
+                disabled={pending || !canOperate}
                 onClick={() => onComplete?.(card.id)}
                 className="bg-moss text-white hover:bg-moss/85"
               >
@@ -131,7 +132,7 @@ export function ActionCardItem({ card, onDismiss, onComplete, pending }: ActionC
               <Button
                 size="sm"
                 variant="outline"
-                disabled={pending}
+                disabled={pending || !canOperate}
                 onClick={() => onDismiss?.(card.id)}
               >
                 <XCircle className="h-4 w-4" />
@@ -151,6 +152,7 @@ type ActionCardsListProps = {
   onDismiss?: (cardId: string) => void | Promise<void>;
   onComplete?: (cardId: string) => void | Promise<void>;
   pending?: boolean;
+  canOperate?: boolean;
 };
 
 export function ActionCardsList({
@@ -159,8 +161,13 @@ export function ActionCardsList({
   onDismiss,
   onComplete,
   pending,
+  canOperate = true,
 }: ActionCardsListProps) {
+  const [showHistory, setShowHistory] = useState(false);
   const activeCards = cards.filter((card) => card.status === "active");
+  const historyCards = cards.filter((card) => card.status !== "active");
+  const doneCards = historyCards.filter((card) => card.status === "done");
+  const dismissedCards = historyCards.filter((card) => card.status === "dismissed");
 
   if (cards.length === 0) {
     return (
@@ -172,7 +179,12 @@ export function ActionCardsList({
 
   return (
     <div className="grid gap-3">
-      {activeCards.length === 0 && (
+      {activeCards.length === 0 && historyCards.length === 0 && (
+        <div className="rounded-lg border border-dashed border-ink/15 bg-paper/70 p-6 text-sm text-ink/55">
+          暂无行动卡。
+        </div>
+      )}
+      {activeCards.length === 0 && historyCards.length > 0 && (
         <div className="rounded-lg border border-dashed border-ink/15 bg-paper/70 p-6 text-sm text-ink/55">
           暂无进行中的行动卡。
         </div>
@@ -184,8 +196,52 @@ export function ActionCardsList({
           onDismiss={onDismiss}
           onComplete={onComplete}
           pending={pending}
+          canOperate={canOperate}
         />
       ))}
+
+      {historyCards.length > 0 && (
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={() => setShowHistory(!showHistory)}
+            className="flex items-center gap-1.5 text-sm font-medium text-ink/55 transition hover:text-ink/80"
+          >
+            <History className="h-4 w-4" />
+            {showHistory ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            历史记录（{historyCards.length}）
+          </button>
+
+          {showHistory && (
+            <div className="mt-3 grid gap-3">
+              {doneCards.length > 0 && (
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-moss/70">
+                    已完成（{doneCards.length}）
+                  </p>
+                  {doneCards.map((card) => (
+                    <div key={card.id} className="mb-2 opacity-70">
+                      <ActionCardItem card={card} pending={pending} canOperate={false} />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {dismissedCards.length > 0 && (
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">
+                    已忽略（{dismissedCards.length}）
+                  </p>
+                  {dismissedCards.map((card) => (
+                    <div key={card.id} className="mb-2 opacity-50">
+                      <ActionCardItem card={card} pending={pending} canOperate={false} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

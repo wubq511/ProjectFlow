@@ -4,8 +4,10 @@ from app.models.enums import AgentEventType
 from app.schemas.workspace_state import WorkspaceStateResponse
 
 
-AGENT_SYSTEM_PROMPT = """You are ProjectFlow's Coordinator Agent for student teams.
+AGENT_SYSTEM_PROMPT = """You are ProjectFlow's Coordinator Agent for Chinese-speaking student teams.
 Return one valid JSON object only. No markdown.
+ALL user-facing text (title, content, reason, summary, description, goal, start_suggestion, completion_standard, recommendation, evidence, progress_note) MUST be written in Chinese.
+CRITICAL: Never use raw IDs (user_id, task_id) in user-facing text. Always refer to members by their display name (e.g. '小林' not 'demo-user-001') and to tasks by their title (e.g. '后端 API 与数据模型' not 'demo-task-007').
 Do not fabricate members, stages, tasks, assignments, projects, or IDs; use only WorkspaceState facts.
 Every reason must cite concrete state: skills, hours, deadline, status, blocker, or task/stage goal.
 High-impact plan changes require "requires_confirmation": true.
@@ -33,11 +35,12 @@ Required keys: "from_user_id" existing member id, "desired_task_id" existing tas
     AgentEventType.push: """ActivePushOutput JSON object:
 Required keys: "action_cards" array, "reason" string.
 Each action card: "type" one of personal_task/team_next_step/reminder/risk_action/kickoff_tip/checkin_prompt/assignment_request, "title" string, "content" string, "reason" string, "goal" string, "start_suggestion" string, "completion_standard" string, optional "user_id" existing member id or null, optional "task_id" existing task id or null, optional "stage_id" existing stage id or null, optional "due_date" YYYY-MM-DD or null.
+All text fields (title, content, reason, goal, start_suggestion, completion_standard) MUST be written in Chinese.
 Create exactly 1 card for the highest-priority next action.""",
     AgentEventType.checkin: """CheckInAnalysisOutput JSON object:
 Required keys: "summary" string, "task_updates" array, "risks" array, "reason" string.
 Each task update: "task_id" existing task id, "user_id" existing member id, "status" one of not_started/in_progress/done/blocked, optional "progress_note", "blocker", "available_hours_change".
-Each risk must use exact keys: "type" deadline/dependency/workload/scope/review/assignment/checkin, "severity" low/medium/high, "title", "description", "evidence" non-empty object array, "recommendation", optional "stage_id", optional "task_id".
+Each risk must use exact keys: "type" deadline/dependency/workload/scope/review/assignment/checkin, "severity" low/medium/high, "title", "description", "evidence" non-empty string array (readable Chinese sentences, not dicts or IDs), "recommendation", optional "stage_id", optional "task_id".
 Do not use risk_type, mitigation, or affected_task_ids.""",
     AgentEventType.risk: """RiskAnalysisOutput JSON object:
 Required keys: "risks" array, "reason" string, optional "requires_confirmation" boolean.
@@ -63,8 +66,8 @@ def _without_none(value):
     return value
 
 
-def _compact_member(member, *, include_id: bool, include_interests: bool) -> dict:
-    item = {
+def _compact_member(member, *, include_id: bool, include_interests: bool, include_name: bool = False) -> dict:
+    item: dict = {
         "skills": member.skills,
         "hours": member.available_hours_per_week,
         "pref": member.role_preference,
@@ -72,6 +75,8 @@ def _compact_member(member, *, include_id: bool, include_interests: bool) -> dic
     }
     if include_id:
         item["user_id"] = member.user_id
+    if include_name:
+        item["name"] = member.display_name
     if include_interests and member.interests:
         item["interests"] = member.interests
     return _without_none(item)
@@ -90,11 +95,13 @@ def _compact_workspace_state_json(event_type: AgentEventType, workspace_state: W
     include_member_interests = event_type in {
         AgentEventType.assign,
     }
+    include_member_names = needs_member_ids  # push/checkin/risk/replan/assign: LLM needs member names for text
     payload = {
         "members": [
             _compact_member(
                 member,
                 include_id=needs_member_ids,
+                include_name=include_member_names,
                 include_interests=include_member_interests,
             )
             for member in workspace_state.members
@@ -190,6 +197,21 @@ def _compact_workspace_state_json(event_type: AgentEventType, workspace_state: W
                 for task in tasks
             ],
         }
+        # Include check-in data for checkin analysis so LLM can see blockers
+        if event_type == AgentEventType.checkin and project.checkin_responses:
+            # Build member name + task title lookup for human-readable output
+            member_names = {m.user_id: m.display_name for m in workspace_state.members}
+            task_titles = {t.id: t.title for t in project.tasks}
+            payload["project"]["checkin_responses"] = [
+                _without_none({
+                    "member_name": member_names.get(r.user_id, r.user_id),
+                    "task_title": task_titles.get(r.task_id, r.task_id) if r.task_id else None,
+                    "what_done": r.what_done,
+                    "blocker": r.blocker,
+                    "mood": r.mood_or_confidence,
+                })
+                for r in project.checkin_responses
+            ]
     return json.dumps(
         _without_none(payload),
         ensure_ascii=False,

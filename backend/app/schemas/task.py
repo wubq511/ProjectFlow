@@ -46,7 +46,6 @@ class TaskRead(BaseModel):
 
 
 class TaskStatusUpdateCreate(BaseModel):
-    task_id: NonEmptyStr
     user_id: NonEmptyStr
     status: TaskStatus
     progress_note: NonEmptyStr | None = None
