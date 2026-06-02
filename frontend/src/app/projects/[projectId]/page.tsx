@@ -8,6 +8,7 @@ import { ProjectDashboard, type AgentAction } from "@/components/project/project
 import { Button } from "@/components/ui/button";
 import { setLastWorkspaceId, useCurrentUserId, setCurrentUserId, setWorkspaceMembers } from "@/components/app-shell";
 import {
+  addResource,
   finalizeAssignments,
   confirmAgentProposal,
   createCheckinCycle,
@@ -29,7 +30,7 @@ import {
   updateRiskStatus,
   updateTaskStatus,
 } from "@/lib/api";
-import type { ProjectState } from "@/lib/types";
+import type { AddResourceRequest, ProjectState } from "@/lib/types";
 
 const AGENT_RUNNERS: Record<AgentAction, (projectId: string) => Promise<unknown>> = {
   clarify: runClarification,
@@ -207,6 +208,18 @@ export default function ProjectDashboardPage() {
     }
   };
 
+  const handleAddResource = async (resource: AddResourceRequest) => {
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      await addResource(projectId, resource);
+      await reloadProject();
+      setActionSuccess("资源已添加");
+    } catch {
+      setActionError("资源添加失败，请检查标题和内容后重试。");
+    }
+  };
+
   const activeStage = state?.stages.find((stage) => stage.id === state.project.current_stage_id)
     ?? state?.stages.find((stage) => stage.status === "active")
     ?? state?.stages[0];
@@ -352,6 +365,7 @@ export default function ProjectDashboardPage() {
       onDismissActionCard={(cardId) => handleActionCardStatus(cardId, "dismissed")}
       onConfirmProposal={handleConfirmProposal}
       onRejectProposal={handleRejectProposal}
+      onAddResource={handleAddResource}
       onResetDemo={handleResetDemo}
     />
   );

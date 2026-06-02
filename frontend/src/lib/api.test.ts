@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getProjectState, runAssignment } from "./api";
+import { getProjectState, rejectAgentProposal, runAssignment } from "./api";
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -13,6 +13,34 @@ afterEach(() => {
 });
 
 describe("frontend API layer", () => {
+  it("rejects agent proposals with an explicit nullable reason body", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/agent-proposals/proposal-1/reject")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ reason: null });
+        return jsonResponse({
+          id: "proposal-1",
+          project_id: "project-1",
+          workspace_id: "workspace-1",
+          proposal_type: "clarify",
+          status: "rejected",
+          agent_event_id: "event-1",
+          payload: {},
+          confirmed_by: null,
+          confirmed_at: null,
+          created_at: "2026-06-02T00:00:00Z",
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const proposal = await rejectAgentProposal("proposal-1");
+
+    expect(proposal.status).toBe("rejected");
+  });
+
   it("runs agent flows through the implemented workspace-scoped backend route", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

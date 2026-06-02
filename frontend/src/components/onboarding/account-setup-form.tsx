@@ -5,7 +5,6 @@ import { motion } from "framer-motion"
 import {
   Loader2,
   UserPlus,
-  CheckCircle2,
   AlertCircle,
   Mail,
 } from "lucide-react"
@@ -28,7 +27,6 @@ export function AccountSetupForm() {
   const [loading, setLoading] = React.useState(true)
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [createdUser, setCreatedUser] = React.useState<User | null>(null)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
 
   React.useEffect(() => {
@@ -69,8 +67,8 @@ export function AccountSetupForm() {
         display_name: displayName.trim(),
         email: email.trim() || null,
       })
-      setCreatedUser(user)
       setUsers((prev) => [...prev, user])
+      router.push(`/workspaces/new?ownerId=${user.user_id}`)
     } catch {
       setError("创建账号失败，请重试")
     } finally {
@@ -83,34 +81,6 @@ export function AccountSetupForm() {
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
-    )
-  }
-
-  if (createdUser) {
-    return (
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mx-auto max-w-lg p-4"
-      >
-        <Card className="border-green-200 bg-green-50/50 dark:bg-green-950/20">
-          <CardContent className="flex flex-col items-center gap-3 py-8">
-            <CheckCircle2 className="h-10 w-10 text-green-600" />
-            <p className="text-lg font-bold">账号创建成功</p>
-            <p className="text-sm text-muted-foreground">
-              {createdUser.display_name}
-            </p>
-            <Button
-              className="mt-2"
-              onClick={() =>
-                router.push(`/workspaces/new?ownerId=${createdUser.user_id}`)
-              }
-            >
-              创建工作区
-            </Button>
-          </CardContent>
-        </Card>
-      </motion.div>
     )
   }
 

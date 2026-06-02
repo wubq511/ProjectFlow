@@ -157,6 +157,15 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
                               {profile.available_hours_per_week}h/周
                             </p>
                           )}
+                          {profile?.skills?.length ? (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {profile.skills.slice(0, 3).map((skill) => (
+                                <Badge key={skill.name} variant="secondary" className="text-[10px]">
+                                  {skill.name} Lv.{skill.level}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                         <Badge variant={m.role === "owner" ? "default" : "secondary"}>
                           {m.role === "owner" ? (
@@ -165,7 +174,7 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
                               负责人
                             </span>
                           ) : (
-                            "成员"
+                            "已加入"
                           )}
                         </Badge>
                       </div>

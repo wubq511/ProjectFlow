@@ -21,6 +21,9 @@ const body = Source_Sans_3({
 export const metadata: Metadata = {
   title: "ProjectFlow",
   description: "Active project agent workspace for college teams.",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({

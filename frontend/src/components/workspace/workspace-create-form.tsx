@@ -6,7 +6,6 @@ import { motion } from "framer-motion"
 import {
   Loader2,
   FolderOpen,
-  CheckCircle2,
   AlertCircle,
   Users,
   Briefcase,
@@ -16,7 +15,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent } from "@/components/ui/card"
 import { createWorkspace } from "@/lib/api"
 import type { Workspace } from "@/lib/types"
 import { StepIndicator } from "@/components/ui/step-indicator"
@@ -55,7 +53,6 @@ export function WorkspaceCreateForm({
   const [useCase, setUseCase] = React.useState("")
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [created, setCreated] = React.useState<Workspace | null>(null)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
 
   const steps = [
@@ -89,44 +86,13 @@ export function WorkspaceCreateForm({
         owner_user_id: ownerId.trim(),
         description: description.trim() || null,
       })
-      setCreated(ws)
       onCreated?.(ws)
+      router.push(`/onboarding/profile?userId=${ownerId.trim()}&workspaceId=${ws.workspace_id}`)
     } catch {
       setError("创建工作区失败，请重试")
     } finally {
       setSubmitting(false)
     }
-  }
-
-  if (created) {
-    return (
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mx-auto max-w-lg p-4"
-      >
-        <Card className="border-green-200 bg-green-50/50 dark:bg-green-950/20">
-          <CardContent className="flex flex-col items-center gap-3 py-8">
-            <CheckCircle2 className="h-10 w-10 text-green-600" />
-            <p className="text-lg font-bold">工作区创建成功</p>
-            <p className="text-sm text-muted-foreground">{created.name}</p>
-            <p className="text-xs font-mono text-muted-foreground/60">
-              {created.workspace_id}
-            </p>
-            <Button
-              className="mt-2"
-              onClick={() =>
-                router.push(
-                  `/onboarding/profile?userId=${ownerId}&workspaceId=${created.workspace_id}`
-                )
-              }
-            >
-              完善成员资料
-            </Button>
-          </CardContent>
-        </Card>
-      </motion.div>
-    )
   }
 
   return (
@@ -171,19 +137,20 @@ export function WorkspaceCreateForm({
                 className="resize-none"
               />
             </FormField>
-            <FormField label="所有者 ID" required error={errors.ownerId}>
-              <Input
-                value={ownerId}
-                onChange={(e) => {
-                  setOwnerId(e.target.value)
-                  if (errors.ownerId)
-                    setErrors((prev) => ({ ...prev, ownerId: "" }))
-                }}
-                placeholder="UUID of the team lead"
-                disabled={!!ownerUserId}
-                className="h-10"
-              />
-            </FormField>
+            {!ownerUserId && (
+              <FormField label="所有者 ID" required error={errors.ownerId}>
+                <Input
+                  value={ownerId}
+                  onChange={(e) => {
+                    setOwnerId(e.target.value)
+                    if (errors.ownerId)
+                      setErrors((prev) => ({ ...prev, ownerId: "" }))
+                  }}
+                  placeholder="UUID of the team lead"
+                  className="h-10"
+                />
+              </FormField>
+            )}
           </div>
         )}
 

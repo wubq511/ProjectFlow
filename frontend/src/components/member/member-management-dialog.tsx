@@ -483,6 +483,15 @@ export function MemberManagementDialog({
                           {profile.role_preference} / {profile.available_hours_per_week}h/周
                         </p>
                       )}
+                      {profile?.skills?.length ? (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {profile.skills.slice(0, 4).map((skill) => (
+                            <Badge key={skill.name} variant="secondary" className="text-[10px]">
+                              {skill.name} Lv.{skill.level}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-1">
                       {isOwner && (

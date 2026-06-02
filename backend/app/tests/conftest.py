@@ -1,7 +1,13 @@
 """Shared test fixtures for ProjectFlow backend tests."""
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+os.environ["APP_ENV"] = "development"
+os.environ["DATABASE_URL"] = "sqlite://"
+os.environ["LLM_PROVIDER"] = "mock"
+os.environ.pop("LLM_API_KEY", None)
 
 import pytest
 from fastapi import FastAPI

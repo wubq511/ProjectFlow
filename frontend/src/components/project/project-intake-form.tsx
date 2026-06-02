@@ -6,7 +6,6 @@ import { motion } from "framer-motion"
 import {
   Loader2,
   Lightbulb,
-  CheckCircle2,
   AlertCircle,
   BookOpen,
   Trophy,
@@ -16,7 +15,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent } from "@/components/ui/card"
 import { createProject, addResource } from "@/lib/api"
 import type { Project, AddResourceRequest } from "@/lib/types"
 import { ResourceInputPanel } from "./resource-input-panel"
@@ -61,7 +59,6 @@ export function ProjectIntakeForm({
   const [resources, setResources] = React.useState<AddResourceRequest[]>([])
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [created, setCreated] = React.useState<Project | null>(null)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
 
   // Load draft from localStorage on mount
@@ -222,41 +219,14 @@ export function ProjectIntakeForm({
           `项目已创建，但 ${failedResources.length} 个资源保存失败: ${failedResources.join(", ")}`
         )
       }
-      setCreated(project)
       clearDraft()
       onCreated?.(project)
+      router.push(`/projects/${project.id}`)
     } catch {
       setError("创建项目失败，请重试")
     } finally {
       setSubmitting(false)
     }
-  }
-
-  if (created) {
-    return (
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mx-auto max-w-2xl p-4"
-      >
-        <Card className="border-green-200 bg-green-50/50 dark:bg-green-950/20">
-          <CardContent className="flex flex-col items-center gap-3 py-8">
-            <CheckCircle2 className="h-10 w-10 text-green-600" />
-            <p className="text-lg font-bold">项目创建成功</p>
-            <p className="text-sm text-muted-foreground">{created.name}</p>
-            <p className="text-xs font-mono text-muted-foreground/60">
-              {created.id}
-            </p>
-            <Button
-              className="mt-2"
-              onClick={() => router.push(`/projects/${created.id}`)}
-            >
-              进入项目
-            </Button>
-          </CardContent>
-        </Card>
-      </motion.div>
-    )
   }
 
   return (
@@ -321,19 +291,20 @@ export function ProjectIntakeForm({
               className="resize-none"
             />
           </FormField>
-          <FormField label="创建者 ID" required error={errors.createdBy}>
-            <Input
-              value={createdBy}
-              onChange={(e) => {
-                setCreatedBy(e.target.value)
-                if (errors.createdBy)
-                  setErrors((prev) => ({ ...prev, createdBy: "" }))
-              }}
-              placeholder="UUID of project creator"
-              disabled={!!defaultCreatedBy}
-              className="h-10"
-            />
-          </FormField>
+          {!defaultCreatedBy && (
+            <FormField label="创建者 ID" required error={errors.createdBy}>
+              <Input
+                value={createdBy}
+                onChange={(e) => {
+                  setCreatedBy(e.target.value)
+                  if (errors.createdBy)
+                    setErrors((prev) => ({ ...prev, createdBy: "" }))
+                }}
+                placeholder="UUID of project creator"
+                className="h-10"
+              />
+            </FormField>
+          )}
         </FormSection>
 
         <FormSection title="项目详情">

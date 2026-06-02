@@ -82,6 +82,28 @@ def _create_full_fixture(client: TestClient):
     return workspace, project, stage, task, owner, member
 
 
+def _create_project_without_stage(client: TestClient):
+    """Create a workspace and project without stages for activation tests."""
+    owner = client.post("/api/users", json={"display_name": "Owner"}).json()
+    workspace = client.post(
+        "/api/workspaces",
+        json={"name": "No Stage Workspace"},
+        params={"owner_user_id": owner["id"]},
+    ).json()
+    project = client.post(
+        "/api/projects",
+        json={
+            "workspace_id": workspace["id"],
+            "name": "No Stage Project",
+            "idea": "Plan from scratch",
+            "deadline": "2026-06-07",
+            "deliverables": "Demo",
+            "created_by": owner["id"],
+        },
+    ).json()
+    return workspace, project, owner
+
+
 # --- Clarification (Direction Card) ---
 
 
@@ -193,6 +215,25 @@ def test_confirm_plan_creates_stages(client: TestClient):
     assert len(stages_after) > count_before
 
 
+def test_confirm_plan_sets_first_new_stage_active(client: TestClient):
+    workspace, project, owner = _create_project_without_stage(client)
+    plan_resp = client.post("/api/agent/plan", json={"workspace_id": workspace["id"]})
+    proposal_id = plan_resp.json()["proposal_id"]
+
+    confirm_resp = client.post(
+        f"/api/agent-proposals/{proposal_id}/confirm",
+        json={"confirmed_by": owner["id"]},
+    )
+
+    assert confirm_resp.status_code == 200
+    stages = client.get(f"/api/projects/{project['id']}/stages").json()
+    project_after = client.get(f"/api/projects/{project['id']}").json()
+    active_stages = [stage for stage in stages if stage["status"] == "active"]
+    assert len(active_stages) == 1
+    assert project_after["current_stage_id"] == active_stages[0]["id"]
+    assert project_after["status"] == "active"
+
+
 # --- Task Breakdown ---
 
 
@@ -268,6 +309,19 @@ def test_reject_proposal_marks_rejected_no_state_mutation(client: TestClient):
     assert reject_resp.json()["status"] == "rejected"
 
     # Direction card should still be None
+    project_after = client.get(f"/api/projects/{project['id']}").json()
+    assert project_after["direction_card"] is None
+
+
+def test_reject_proposal_accepts_empty_body(client: TestClient):
+    workspace, project, *_ = _create_full_fixture(client)
+    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace["id"]})
+    proposal_id = clarify_resp.json()["proposal_id"]
+
+    reject_resp = client.post(f"/api/agent-proposals/{proposal_id}/reject")
+
+    assert reject_resp.status_code == 200
+    assert reject_resp.json()["status"] == "rejected"
     project_after = client.get(f"/api/projects/{project['id']}").json()
     assert project_after["direction_card"] is None
 

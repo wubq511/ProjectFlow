@@ -10,7 +10,7 @@ from app.agent.output_schemas import (
     TaskBreakdownOutput,
 )
 from app.models import AgentEvent, AgentProposal, Project, Stage, Task
-from app.models.enums import AgentEventType, AgentProposalStatus
+from app.models.enums import AgentEventType, AgentProposalStatus, ProjectStatus, StageStatus
 
 
 def create_proposal(
@@ -127,7 +127,7 @@ def confirm_proposal(
     return proposal
 
 
-def reject_proposal(session: Session, proposal_id: str) -> AgentProposal:
+def reject_proposal(session: Session, proposal_id: str, reason: str | None = None) -> AgentProposal:
     """Reject a pending proposal. No state mutation occurs."""
     proposal = require_row(session, AgentProposal, proposal_id, "Agent proposal")
     if proposal.status != AgentProposalStatus.pending:
@@ -168,11 +168,22 @@ def _persist_clarification(session: Session, proposal: AgentProposal) -> list[st
 
 
 def _persist_stage_plan(session: Session, proposal: AgentProposal) -> list[str]:
-    """Persist stage plan output by creating Stage records."""
+    """Persist stage plan output and activate the first stage when needed."""
+    project = require_row(session, Project, proposal.project_id, "Project")
     payload = _get_payload(proposal)
     output = StagePlanOutput.model_validate(payload)
+    existing_active = session.exec(
+        select(Stage).where(
+            Stage.project_id == proposal.project_id,
+            Stage.status == StageStatus.active.value,
+        )
+    ).first()
+    should_activate_first = existing_active is None and project.current_stage_id is None
+
     created_ids: list[str] = []
-    for stage_item in output.stages:
+    active_stage_id: str | None = None
+    for index, stage_item in enumerate(sorted(output.stages, key=lambda item: item.order_index)):
+        activate_this_stage = should_activate_first and index == 0
         stage = Stage(
             project_id=proposal.project_id,
             name=stage_item.name,
@@ -182,10 +193,20 @@ def _persist_stage_plan(session: Session, proposal: AgentProposal) -> list[str]:
             deliverable=stage_item.deliverable,
             done_criteria=json.dumps(stage_item.done_criteria, ensure_ascii=False),
             order_index=stage_item.order_index,
+            status=StageStatus.active.value if activate_this_stage else StageStatus.pending.value,
         )
         session.add(stage)
         session.flush()
         created_ids.append(stage.id)
+        if activate_this_stage:
+            active_stage_id = stage.id
+
+    if active_stage_id:
+        project.current_stage_id = active_stage_id
+        project.status = ProjectStatus.active.value
+        project.updated_at = datetime.now(UTC)
+        session.add(project)
+
     return created_ids
 
 

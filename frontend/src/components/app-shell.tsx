@@ -71,6 +71,12 @@ function useWorkspaceNav() {
 export function setLastWorkspaceId(id: string) {
   if (typeof window !== "undefined") {
     localStorage.setItem(WORKSPACE_STORAGE_KEY, id);
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: WORKSPACE_STORAGE_KEY,
+        newValue: id,
+      }),
+    );
   }
 }
 

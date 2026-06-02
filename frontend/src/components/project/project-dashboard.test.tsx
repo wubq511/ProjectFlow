@@ -36,7 +36,18 @@ const projectState: ProjectState = {
     created_at: "2026-05-29T00:00:00Z",
     updated_at: "2026-05-29T00:00:00Z",
   },
-  resources: [],
+  resources: [
+    {
+      id: "resource-1",
+      project_id: "project-1",
+      type: "link",
+      title: "shadcn 文档",
+      url: "https://ui.shadcn.com",
+      content_text: null,
+      file_name: null,
+      created_at: "2026-06-02T00:00:00Z",
+    },
+  ],
   members: [
     {
       user_id: "user-lead",
@@ -209,6 +220,9 @@ describe("ProjectDashboard", () => {
     );
 
     expect(screen.getByRole("heading", { name: "AI Study Planner" })).toBeTruthy();
+    expect(screen.getByText("项目资源")).toBeTruthy();
+    expect(screen.getByText("shadcn 文档")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "https://ui.shadcn.com" })).toBeTruthy();
     expect(screen.getByText("当前阶段")).toBeTruthy();
     expect(screen.getAllByText("Prototype").length).toBeGreaterThan(0);
     expect(screen.getByText("推荐下一步")).toBeTruthy();

@@ -368,6 +368,7 @@ export async function confirmAgentProposal(proposalId: string, confirmedBy: stri
 export async function rejectAgentProposal(proposalId: string): Promise<AgentProposal> {
   return request<AgentProposal>(`/agent-proposals/${proposalId}/reject`, {
     method: "POST",
+    body: JSON.stringify({ reason: null }),
   });
 }
 

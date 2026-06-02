@@ -13,13 +13,14 @@ import { AssignmentFlowPanel } from "@/components/assignment/assignment-flow-pan
 import { CheckInForm } from "@/components/checkin/checkin-form";
 import { RiskPanel } from "@/components/risk/risk-panel";
 import { ReplanDiff } from "@/components/risk/replan-diff";
+import { ProjectResourcesPanel } from "@/components/project/project-resources-panel";
 import { StagePlanBoard } from "@/components/stage/stage-plan-board";
 import { TaskBreakdownBoard } from "@/components/task/task-breakdown-board";
 import { TaskStatusUpdateList } from "@/components/task/task-status-update";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { ProjectState } from "@/lib/types";
+import type { AddResourceRequest, ProjectState } from "@/lib/types";
 
 export type AgentAction = "clarify" | "plan" | "breakdown" | "assign" | "push" | "analyze-checkins" | "risk-analysis" | "replan";
 
@@ -66,6 +67,7 @@ type ProjectDashboardProps = {
   onCompleteActionCard?: (cardId: string) => void | Promise<void>;
   onConfirmProposal?: (proposalId: string) => void | Promise<void>;
   onRejectProposal?: (proposalId: string) => void | Promise<void>;
+  onAddResource?: (resource: AddResourceRequest) => void | Promise<void>;
   onResetDemo?: () => void | Promise<void>;
 };
 
@@ -151,6 +153,7 @@ export function ProjectDashboard({
   onCompleteActionCard,
   onConfirmProposal,
   onRejectProposal,
+  onAddResource,
   onResetDemo,
 }: ProjectDashboardProps) {
   const { project, stages, tasks, action_cards, risks, timeline } = state;
@@ -353,6 +356,11 @@ export function ProjectDashboard({
       </section>
 
       <div className="mt-5 grid gap-5">
+        <ProjectResourcesPanel
+          resources={state.resources}
+          pending={Boolean(pendingAction)}
+          onAddResource={onAddResource}
+        />
         <AgentProposalPanel
           proposals={state.agent_proposals}
           pending={Boolean(pendingAction)}

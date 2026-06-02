@@ -76,6 +76,10 @@ def _workspace_state() -> WorkspaceStateResponse:
     )
 
 
+def _contains_cjk(text: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in text)
+
+
 @pytest.fixture(name="session")
 def session_fixture():
     engine = create_engine(
@@ -113,6 +117,37 @@ def test_agent_modules_return_valid_generation_requests(module, event_type):
         request.fallback_payload,
         workspace_state=_workspace_state(),
     )
+
+
+def test_t23a_clarification_fallback_is_chinese_and_project_aware():
+    request = clarification.build_request(_workspace_state())
+    payload = request.fallback_payload
+
+    assert _contains_cjk(payload["problem"])
+    assert "Demo Project" in payload["reason"]
+    assert len(payload["deliverables"]) >= 2
+    assert len(payload["suggested_questions"]) >= 2
+
+
+def test_t23a_planning_fallback_has_multiple_chinese_stages():
+    request = planning.build_request(_workspace_state())
+    stages = request.fallback_payload["stages"]
+
+    assert len(stages) == 3
+    assert all(_contains_cjk(stage["name"]) for stage in stages)
+    assert stages[0]["order_index"] == 0
+    assert stages[1]["order_index"] == 1
+    assert stages[2]["order_index"] == 2
+
+
+def test_t23a_breakdown_fallback_has_three_prioritized_chinese_tasks():
+    request = breakdown.build_request(_workspace_state())
+    tasks = request.fallback_payload["tasks"]
+
+    assert len(tasks) == 3
+    assert [task["priority"] for task in tasks] == ["P0", "P1", "P2"]
+    assert all(task["stage_id"] == "stage-1" for task in tasks)
+    assert all(_contains_cjk(task["title"]) for task in tasks)
 
 
 def test_coordinator_delegates_direction_card_generation_and_logs_event(session: Session):

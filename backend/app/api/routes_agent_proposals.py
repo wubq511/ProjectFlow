@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlmodel import Session
 
 from app.core.database import get_session
@@ -75,11 +75,11 @@ def api_confirm_agent_proposal(
 @router.post("/agent-proposals/{proposal_id}/reject", response_model=AgentProposalRead)
 def api_reject_agent_proposal(
     proposal_id: str,
-    data: AgentProposalReject,
+    data: AgentProposalReject | None = Body(default=None),
     session: Session = Depends(get_session),
 ):
     try:
-        proposal = reject_proposal(session, proposal_id)
+        proposal = reject_proposal(session, proposal_id, reason=data.reason if data else None)
         return _proposal_to_read(proposal)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

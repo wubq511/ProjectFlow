@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AppShell } from "./app-shell";
+import { AppShell, setLastWorkspaceId } from "./app-shell";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/projects/demo-project-001",
@@ -18,6 +18,19 @@ vi.mock("framer-motion", () => ({
     ),
   },
 }));
+
+describe("setLastWorkspaceId", () => {
+  it("updates localStorage and dispatches same-page storage event", () => {
+    const listener = vi.fn();
+    window.addEventListener("storage", listener);
+
+    setLastWorkspaceId("workspace-new");
+
+    expect(localStorage.getItem("projectflow:last-workspace-id")).toBe("workspace-new");
+    expect(listener).toHaveBeenCalledTimes(1);
+    window.removeEventListener("storage", listener);
+  });
+});
 
 describe("AppShell user switcher", () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
