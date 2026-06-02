@@ -24,11 +24,12 @@ function getServerSnapshot() {
   return null;
 }
 
-async function checkWorkspaceExists(workspaceId: string): Promise<boolean> {
+async function checkWorkspaceExists(workspaceId: string, signal?: AbortSignal): Promise<boolean> {
   try {
-    const response = await fetch(`${API_BASE_URL}/workspaces/${workspaceId}`);
+    const response = await fetch(`${API_BASE_URL}/workspaces/${workspaceId}`, { signal });
     return response.ok;
-  } catch {
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") return false;
     return false;
   }
 }
@@ -45,8 +46,9 @@ export function ProjectFlowHome() {
     if (validatedRef.current === storedId) return;
 
     validatedRef.current = storedId;
+    setIsValidating(true);
     const controller = new AbortController();
-    checkWorkspaceExists(storedId)
+    checkWorkspaceExists(storedId, controller.signal)
       .then((exists) => {
         if (controller.signal.aborted) return;
         if (exists) {

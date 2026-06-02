@@ -9,7 +9,7 @@ from app.agent.output_schemas import (
     StagePlanOutput,
     TaskBreakdownOutput,
 )
-from app.models import AgentEvent, AgentProposal, Project, Stage, Task
+from app.models import AgentEvent, AgentProposal, Project, Stage, Task, User
 from app.models.enums import AgentEventType, AgentProposalStatus, ProjectStatus, StageStatus
 
 
@@ -76,6 +76,8 @@ def confirm_proposal(
     if proposal.status != AgentProposalStatus.pending:
         raise ValueError(f"Proposal is {proposal.status.value}, cannot confirm")
 
+    require_row(session, User, confirmed_by, "User")
+
     # Persist to project state based on type
     created_ids: list[str] = []
     if proposal.proposal_type == "clarify":
@@ -134,6 +136,7 @@ def reject_proposal(session: Session, proposal_id: str, reason: str | None = Non
         raise ValueError(f"Proposal is {proposal.status.value}, cannot reject")
 
     proposal.status = AgentProposalStatus.rejected
+    proposal.rejection_reason = reason
     session.add(proposal)
     session.commit()
     session.refresh(proposal)

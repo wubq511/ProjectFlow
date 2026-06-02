@@ -16,6 +16,7 @@ class AgentProposalRead(BaseModel):
     payload: dict[str, Any] | list[Any]
     confirmed_by: str | None
     confirmed_at: datetime | None
+    rejection_reason: str | None = None
     created_at: datetime
 
 

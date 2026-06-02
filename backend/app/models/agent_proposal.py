@@ -18,4 +18,5 @@ class AgentProposal(SQLModel, table=True):
     payload: str = Field(default="{}")  # JSON string
     confirmed_by: str | None = Field(default=None, foreign_key="users.id")
     confirmed_at: datetime | None = Field(default=None)
+    rejection_reason: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

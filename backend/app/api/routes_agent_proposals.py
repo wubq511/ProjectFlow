@@ -34,6 +34,7 @@ def _proposal_to_read(proposal) -> AgentProposalRead:
         payload=payload,
         confirmed_by=proposal.confirmed_by,
         confirmed_at=proposal.confirmed_at,
+        rejection_reason=proposal.rejection_reason,
         created_at=proposal.created_at,
     )
 
