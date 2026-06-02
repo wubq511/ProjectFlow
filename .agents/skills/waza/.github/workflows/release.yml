@@ -1,0 +1,18 @@
+name: release
+on:
+  release:
+    types: [published]
+jobs:
+  upload-zip:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq ripgrep python3
+      - run: make package
+      - name: Upload waza.zip to release
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/waza.zip --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -22,3 +22,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 scripts/
+
+# Agent config (codex not tracked)
+.codex/
