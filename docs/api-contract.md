@@ -1,6 +1,6 @@
 # ProjectFlow API Contract
 
-Status: current as of 2026-05-30.
+Status: current as of 2026-06-02. All planned MVP endpoints are implemented; confirmation-to-persist flow for clarify/plan/breakdown; structured assignment citations and action card fields; resource CRUD; reject endpoint accepts empty body.
 
 This document records the implemented MVP API surface. Post-MVP ideas should be tracked in roadmap docs, not mixed into this contract.
 

@@ -1,6 +1,6 @@
 # ProjectFlow Runbook
 
-Status: current as of 2026-05-30.
+Status: current as of 2026-06-02.
 
 ## Prerequisites
 
@@ -111,10 +111,10 @@ npm run build
 npm audit --omit=dev
 ```
 
-Expected baseline as of 2026-05-30:
+Expected baseline as of 2026-06-02:
 
-- Backend tests pass: 166 tests (MVP API/model smoke plus CORS, agent schema, module, provider, fallback, timeline logging, assignment, action-card, check-in, risk, replan, seed/reset/export, demo reset, LLM diagnostic, agent proposal, and agent endpoint tests).
-- Frontend tests pass: 10 tests across 6 files (API layer, project dashboard, home page, error boundaries, action cards, task status update).
+- Backend tests pass: 166 tests (MVP API/model smoke plus CORS, agent schema, module, provider, fallback, timeline logging, assignment, action-card, check-in, risk, replan, seed/reset/export, demo reset, LLM diagnostic, agent proposal, agent module, and agent proposal confirm tests).
+- Frontend tests pass: 13 tests across 7 files (API layer, project dashboard, home page, app shell, action cards, task status update, error boundaries).
 - Frontend lint passes.
 - Frontend production build passes.
 - `npm audit --omit=dev` reports 0 vulnerabilities.

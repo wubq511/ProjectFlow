@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowRight, Loader2, Sparkles } from "lucide-react";
@@ -9,6 +9,7 @@ import { ArrowRight, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const WORKSPACE_STORAGE_KEY = "projectflow:last-workspace-id";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
 
 function subscribeToStorage(cb: () => void) {
   window.addEventListener("storage", cb);
@@ -23,18 +24,55 @@ function getServerSnapshot() {
   return null;
 }
 
+async function checkWorkspaceExists(workspaceId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/workspaces/${workspaceId}`);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function ProjectFlowHome() {
   const router = useRouter();
   const storedId = useSyncExternalStore(subscribeToStorage, getStorageSnapshot, getServerSnapshot);
   const [isLoadingDemo, setIsLoadingDemo] = React.useState(false);
+  const [isValidating, setIsValidating] = React.useState(false);
+  const validatedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (storedId && !isLoadingDemo) {
-      router.replace(`/workspaces/${storedId}`);
-    }
+    if (!storedId || isLoadingDemo) return;
+    if (validatedRef.current === storedId) return;
+
+    validatedRef.current = storedId;
+    const controller = new AbortController();
+    checkWorkspaceExists(storedId)
+      .then((exists) => {
+        if (controller.signal.aborted) return;
+        if (exists) {
+          router.replace(`/workspaces/${storedId}`);
+        } else {
+          localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+          window.dispatchEvent(new StorageEvent("storage", { key: WORKSPACE_STORAGE_KEY }));
+        }
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+        window.dispatchEvent(new StorageEvent("storage", { key: WORKSPACE_STORAGE_KEY }));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsValidating(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
   }, [storedId, router, isLoadingDemo]);
 
-  if (storedId && !isLoadingDemo) {
+  if (storedId && !isLoadingDemo && isValidating) {
     return (
       <div className="flex min-h-[70vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-moss" />

@@ -160,11 +160,11 @@ Stage 完成后 → 下一阶段 → 重新触发阶段性分工推荐
 
 ### 5.1 入口与基础设施
 
-#### [main.py](file:///D:/Flowors/ProjectFlow/backend/app/main.py)
+#### [main.py](backend/app/main.py)
 
 FastAPI 应用组装：lifespan 初始化 DB → CORS 中间件（localhost:3000/3001）→ 全局异常处理器 → 挂载 21 个 router（prefix=/api）
 
-#### [core/config.py](file:///D:/Flowors/ProjectFlow/backend/app/core/config.py)
+#### [core/config.py](backend/app/core/config.py)
 
 `Settings` 类从 `.env` 加载全局配置：
 
@@ -180,21 +180,21 @@ FastAPI 应用组装：lifespan 初始化 DB → CORS 中间件（localhost:3000
 | `LLM_AGENT_TIMEOUT_SECONDS` | `120.0` | Agent 生成超时 |
 | `DEMO_ADMIN_TOKEN` | 可选 | 非 development 环境保护 seed/reset |
 
-#### [core/database.py](file:///D:/Flowors/ProjectFlow/backend/app/core/database.py)
+#### [core/database.py](backend/app/core/database.py)
 
 创建 SQLModel/SQLite 引擎，注册所有模型，提供 `get_session()` 依赖注入
 
-#### [core/db_utils.py](file:///D:/Flowors/ProjectFlow/backend/app/core/db_utils.py)
+#### [core/db_utils.py](backend/app/core/db_utils.py)
 
 `require_row(session, Model, id, label)` — 按 ID 查行，不存在则抛 ValueError
 
-#### [core/security.py](file:///D:/Flowors/ProjectFlow/backend/app/core/security.py)
+#### [core/security.py](backend/app/core/security.py)
 
 `require_demo_admin_access()` — 保护破坏性 demo 端点：开发环境放行，其他环境需 admin token
 
 ### 5.2 数据模型层
 
-#### 枚举体系（[enums.py](file:///D:/Flowors/ProjectFlow/backend/app/models/enums.py)）
+#### 枚举体系（[enums.py](backend/app/models/enums.py)）
 
 16 个 Enum 类覆盖全系统：
 
@@ -268,12 +268,12 @@ Project ──1:N──> AgentEvent
 
 22 个 schema 文件，每个对应一个领域。关键通用工具：
 
-- [common.py](file:///D:/Flowors/ProjectFlow/backend/app/schemas/common.py)：`NonEmptyStr`、`EmailText`、`reject_past_date()`、`reject_inverted_date_range()`
-- [workspace_state.py](file:///D:/Flowors/ProjectFlow/backend/app/schemas/workspace_state.py)：`WorkspaceStateResponse` — Agent 输入上下文，聚合 workspace 下成员+项目+阶段+任务的完整快照
+- [common.py](backend/app/schemas/common.py)：`NonEmptyStr`、`EmailText`、`reject_past_date()`、`reject_inverted_date_range()`
+- [workspace_state.py](backend/app/schemas/workspace_state.py)：`WorkspaceStateResponse` — Agent 输入上下文，聚合 workspace 下成员+项目+阶段+任务的完整快照
 
 ### 5.4 Agent 层
 
-#### 执行引擎（[workflow.py](file:///D:/Flowors/ProjectFlow/backend/app/agent/workflow.py)）
+#### 执行引擎（[workflow.py](backend/app/agent/workflow.py)）
 
 ```
 generate_structured_output()
@@ -286,7 +286,7 @@ generate_structured_output()
   → _log_agent_event() 记录 AgentEvent
 ```
 
-#### LLM 客户端（[llm_client.py](file:///D:/Flowors/ProjectFlow/backend/app/agent/llm_client.py)）
+#### LLM 客户端（[llm_client.py](backend/app/agent/llm_client.py)）
 
 - `LLMClient`（Protocol 接口）
 - `MockLLMClient` — mock 实现，返回预设 JSON
@@ -294,14 +294,14 @@ generate_structured_output()
 - 异常层级：`LLMError` > `LLMConfigurationError` / `LLMAuthError` / `LLMTimeoutError` / `LLMConnectionError` / `LLMResponseError`
 - 工厂函数：`build_llm_client()`（诊断用 30s 超时）、`build_agent_llm_client()`（Agent 用 120s 超时）
 
-#### Prompt 构建（[prompts.py](file:///D:/Flowors/ProjectFlow/backend/app/agent/prompts.py)）
+#### Prompt 构建（[prompts.py](backend/app/agent/prompts.py)）
 
 - `AGENT_SYSTEM_PROMPT` — 全局系统提示
 - `OUTPUT_CONTRACT_BY_EVENT_TYPE` — 按 event_type 裁剪的输出格式契约
 - `build_prompt_messages()` — 组装：系统提示 + workspace_state JSON（XML 标签隔离）+ 输出格式契约
 - `_compact_workspace_state_json()` — 紧凑序列化 workspace 状态
 
-#### 输出校验（[output_schemas.py](file:///D:/Flowors/ProjectFlow/backend/app/agent/output_schemas.py)）
+#### 输出校验（[output_schemas.py](backend/app/agent/output_schemas.py)）
 
 10 个 Pydantic 校验模型：
 
@@ -317,11 +317,11 @@ generate_structured_output()
 | `RiskAnalysisOutput` | Risk Analysis |
 | `ReplanOutput` | Replanning |
 
-#### 协调器（[coordinator.py](file:///D:/Flowors/ProjectFlow/backend/app/agent/coordinator.py)）
+#### 协调器（[coordinator.py](backend/app/agent/coordinator.py)）
 
 `CoordinatorAgent` 是 Agent 入口类，9 个公开方法对应 9 种能力，每个方法组装 module request 后委托给 `generate_structured_output`
 
-#### 能力模块（[modules/](file:///D:/Flowors/ProjectFlow/backend/app/agent/modules/)）
+#### 能力模块（[modules/](backend/app/agent/modules/)）
 
 每个模块暴露 `build_request()` 函数，构建该模块所需的 `AgentModuleRequest`：
 
@@ -337,7 +337,7 @@ generate_structured_output()
 | Risk Analysis | risk_analysis.py | 构建风险分析请求 → 返回风险项 |
 | Replanning | replanning.py | 构建重计划请求 → 最小化调整提案 |
 
-公共结构（[common.py](file:///D:/Flowors/ProjectFlow/backend/app/agent/modules/common.py)）：`AgentModuleRequest` + 辅助函数（`project_deadline_or_today`、`first_stage_id`、`first_task_id`、`first_member_id`）
+公共结构（[common.py](backend/app/agent/modules/common.py)）：`AgentModuleRequest` + 辅助函数（`project_deadline_or_today`、`first_stage_id`、`first_task_id`、`first_member_id`）
 
 ### 5.5 Service 层
 
@@ -345,25 +345,25 @@ generate_structured_output()
 
 | Service | 关键函数 | 核心职责 |
 |---------|---------|---------|
-| [user_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/user_service.py) | create/get/list | 用户 CRUD |
-| [workspace_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/workspace_service.py) | create/get/list, add/remove_member | 工作空间 CRUD + 成员管理 |
-| [project_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/project_service.py) | create/get/list/update, normalize_direction_card | 项目 CRUD + direction_card 规范化 |
-| [stage_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/stage_service.py) | create/get/list/update | 阶段 CRUD |
-| [task_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/task_service.py) | create/get/list/update, create_status_update | 任务 CRUD + 状态更新（支持 auto_commit） |
-| [assignment_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/assignment_service.py) | create_proposal/response, finalize, create_negotiation | 分配全流程：提案→响应→确认→写入 Task.owner |
-| [member_profile_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/member_profile_service.py) | create/get/update/list/delete | 成员画像 CRUD |
-| [checkin_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/checkin_service.py) | create_cycle/list, create_response/list | 签到周期与响应 |
-| [risk_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/risk_service.py) | create/list/update_status | 风险 CRUD（支持 auto_commit） |
-| [resource_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/resource_service.py) | create/list | 资源 CRUD |
-| [invitation_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/invitation_service.py) | create/accept | 邀请创建与接受（自动创建 User + Membership） |
-| [action_card_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/action_card_service.py) | create/list/update_status | 行动卡 CRUD |
-| [agent_flow_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/agent_flow_service.py) | run_agent_flow, _persist_agent_output | Agent 执行编排：获取状态→调 coordinator→按类型持久化 |
-| [agent_proposal_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/agent_proposal_service.py) | create/confirm/reject, _persist_clarification/plan/breakdown | Agent 提案生命周期 |
-| [replan_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/replan_service.py) | confirm_replan | 重计划确认（保护 finalized assignment 不被覆盖） |
-| [export_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/export_service.py) | generate_review_summary | 聚合全量数据生成 Markdown 评审摘要 |
-| [llm_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/llm_service.py) | run_diagnostic | LLM 连通性诊断 |
-| [timeline_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/timeline_service.py) | list_timeline_by_project | Agent 时间线查询 |
-| [workspace_state_service.py](file:///D:/Flowors/ProjectFlow/backend/app/services/workspace_state_service.py) | get_workspace_state | 聚合 workspace 完整状态快照 |
+| [user_service.py](backend/app/services/user_service.py) | create/get/list | 用户 CRUD |
+| [workspace_service.py](backend/app/services/workspace_service.py) | create/get/list, add/remove_member | 工作空间 CRUD + 成员管理 |
+| [project_service.py](backend/app/services/project_service.py) | create/get/list/update, normalize_direction_card | 项目 CRUD + direction_card 规范化 |
+| [stage_service.py](backend/app/services/stage_service.py) | create/get/list/update | 阶段 CRUD |
+| [task_service.py](backend/app/services/task_service.py) | create/get/list/update, create_status_update | 任务 CRUD + 状态更新（支持 auto_commit） |
+| [assignment_service.py](backend/app/services/assignment_service.py) | create_proposal/response, finalize, create_negotiation | 分配全流程：提案→响应→确认→写入 Task.owner |
+| [member_profile_service.py](backend/app/services/member_profile_service.py) | create/get/update/list/delete | 成员画像 CRUD |
+| [checkin_service.py](backend/app/services/checkin_service.py) | create_cycle/list, create_response/list | 签到周期与响应 |
+| [risk_service.py](backend/app/services/risk_service.py) | create/list/update_status | 风险 CRUD（支持 auto_commit） |
+| [resource_service.py](backend/app/services/resource_service.py) | create/list | 资源 CRUD |
+| [invitation_service.py](backend/app/services/invitation_service.py) | create/accept | 邀请创建与接受（自动创建 User + Membership） |
+| [action_card_service.py](backend/app/services/action_card_service.py) | create/list/update_status | 行动卡 CRUD |
+| [agent_flow_service.py](backend/app/services/agent_flow_service.py) | run_agent_flow, _persist_agent_output | Agent 执行编排：获取状态→调 coordinator→按类型持久化 |
+| [agent_proposal_service.py](backend/app/services/agent_proposal_service.py) | create/confirm/reject, _persist_clarification/plan/breakdown | Agent 提案生命周期 |
+| [replan_service.py](backend/app/services/replan_service.py) | confirm_replan | 重计划确认（保护 finalized assignment 不被覆盖） |
+| [export_service.py](backend/app/services/export_service.py) | generate_review_summary | 聚合全量数据生成 Markdown 评审摘要 |
+| [llm_service.py](backend/app/services/llm_service.py) | run_diagnostic | LLM 连通性诊断 |
+| [timeline_service.py](backend/app/services/timeline_service.py) | list_timeline_by_project | Agent 时间线查询 |
+| [workspace_state_service.py](backend/app/services/workspace_state_service.py) | get_workspace_state | 聚合 workspace 完整状态快照 |
 
 ### 5.6 API 路由层
 
@@ -452,7 +452,7 @@ generate_structured_output()
 
 ### 6.3 数据层
 
-#### [api.ts](file:///D:/Flowors/ProjectFlow/frontend/src/lib/api.ts) — 35 个 API 函数
+#### [api.ts](frontend/src/lib/api.ts) — 35 个 API 函数
 
 基础设施：
 - `request<T>(path, options)` — 通用 HTTP 请求，120s 超时，自动 JSON 解析
@@ -480,7 +480,7 @@ generate_structured_output()
 | Seed/Reset | loadDemoSeed, resetDemoData, resetDemo |
 | Export | exportReviewSummary |
 
-#### [types.ts](file:///D:/Flowors/ProjectFlow/frontend/src/lib/types.ts) — 25 个领域类型
+#### [types.ts](frontend/src/lib/types.ts) — 25 个领域类型
 
 聚合类型：
 - `WorkspaceState` — workspace + users + memberships + profiles + projects
@@ -497,6 +497,7 @@ generate_structured_output()
 - `setLastWorkspaceId()` 在 workspace/project 页面调用
 - `setCurrentUserId()` / `useCurrentUserId()` 管理当前用户身份
 - 项目仪表盘 `currentUserId` 优先取 localStorage，fallback 到 `project.created_by`
+- 首页 (`/`) 在跳转前会先验证 localStorage 中的 workspace 是否仍存在于后端；若不存在则自动清除记录，避免"加载工作台失败"
 
 ---
 
@@ -665,7 +666,7 @@ Base URL: `http://localhost:8000/api`
 ### 验证基线
 
 - 后端 pytest：166 passing
-- 前端：10 tests passing, lint passing, build passing, audit 0 vulnerabilities
+- 前端：13 tests passing, lint passing, build passing, audit 0 vulnerabilities
 
 ---
 
@@ -745,6 +746,7 @@ npm audit --omit=dev                # 安全审计
 | 19 | Agent Prompt 重构 | ✅ 2026-05-31 |
 | 20 | 工作台成员管理 | ✅ 2026-05-31 |
 | 21 | 测试分工文档 + 用户切换器 | ✅ 2026-05-31 |
+| 22 | T23.A 反馈修复 | ✅ 2026-06-02 |
 
 ---
 

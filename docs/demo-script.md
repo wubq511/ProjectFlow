@@ -1,6 +1,6 @@
 # ProjectFlow Demo Script
 
-Status: current as of 2026-05-29.
+Status: current as of 2026-06-02.
 
 A 5-minute path through the core loop. Designed for review presentation.
 

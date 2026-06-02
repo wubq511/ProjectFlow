@@ -1,6 +1,6 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-05-31.
+Status: current as of 2026-06-02.
 
 ## Completed
 
@@ -160,8 +160,8 @@ npm audit --omit=dev
 
 Results:
 
-- Backend: 166 tests passed (MVP suite + usability pass + LLM diagnostics + agent proposal confirmation + agent workflow + seed/reset/export).
-- Frontend tests: 10 passed across 5 files (API layer, project dashboard, home page, action card, task status update).
+- Backend: 166 tests passed (MVP suite + usability pass + LLM diagnostics + agent proposal confirmation + agent workflow + seed/reset/export + agent module tests + proposal confirm tests).
+- Frontend tests: 13 passed across 7 files (API layer, project dashboard, home page, app shell, action card, task status update, error boundaries).
 - Frontend lint passed.
 - Frontend build passed.
 - Frontend audit passed with 0 vulnerabilities.
@@ -186,7 +186,7 @@ Frontend:
 - All API calls go through `frontend/src/lib/api.ts`.
 - All types defined in `frontend/src/lib/types.ts`.
 - Navigation: 首页 / 工作台（自动检测 workspace ID）/ 新建项目。Onboarding 不再常驻导航。
-- 首页智能重定向：有 workspace 记录则跳转工作台，否则展示欢迎页 + "加载演示数据"按钮。
+- 首页智能重定向：有 workspace 记录则先验证该 workspace 是否仍存在于后端，存在则跳转工作台，不存在则自动清除 localStorage 记录并展示欢迎页 + "加载演示数据"按钮。
 - Project dashboard composes project, workspace, resources, stages, tasks, users, profiles, action cards, check-ins, risks, replan diff, agent timeline, and export from implemented endpoints. Agent 操作按状态机 4 阶段分组（规划/分工/执行/监控），当前阶段高亮，自动推荐下一步。
 - UI 语言统一中文。表单组件统一使用 shadcn/ui（Input、Select、Textarea）。
 - RiskPanel 支持状态过滤（全部/待处理/已接受/已忽略/已解决）。
@@ -211,7 +211,33 @@ Frontend:
 - New test files: `action-card.test.tsx`, `task-status-update.test.tsx`.
 - Backend test additions: `test_agent_workflow.py`, `test_llm_provider.py`, `test_seed_reset_export.py` expanded.
 
-### Phase 20 — Test Docs + User Switcher (2026-05-31)
+### Phase 22 — T23.A Feedback Fixes (2026-06-02)
+
+Fixes applied from the T23.A test audit (see `docs/T23.A.feedback.md`):
+
+**Blockers fixed:**
+- **Agent 提案拒绝 422** (`A-17`): `POST /agent-proposals/{id}/reject` body 改为可选，`reject_proposal()` 接受 `reason | None`，前端 `rejectAgentProposal()` 发送空 body 不再报错。
+- **阶段计划确认后首个阶段 inactive** (`A-13/A-14`): `_persist_stage_plan()` 确认阶段计划时自动激活第一个 stage，并更新 `project.current_stage_id` + `project.status=active`。
+- **项目资源面板缺失** (`A-9`): 新增 `ProjectResourcesPanel` 组件，项目仪表盘展示已有资源 + 添加资源表单（文本/链接），API 已新增 `addResource` 支持。
+
+**Experience fixes:**
+- **创建页不暴露原始 UUID** (`A-5`, `A-8`): `AccountSetupForm` 移除原始 user UUID 显示，`WorkspaceCreateForm` / `ProjectIntakeForm` 移除所有者 UUID 显示。
+- **favicon 404** (`A-1`): 添加 `public/favicon.svg` + `layout.tsx` 引用。
+- **导航 workspace 同步** (`A-17`): 项目页 `setLastWorkspaceId()` 在 workspace 变更时写入，`AppShell` 增加 localStorage 事件监听同步导航链接。
+- **成员管理展示技能** (`A-6/A-7`): `MemberManagementDialog` 成员列表增加技能 badge 展示。
+- **Agent fallback 中文** (`A-10/A-11`): `breakdown.py` / `clarification.py` / `planning.py` fallback 模板改为中文；`common.py` 新增 `project_name_or_default()` / `project_idea_or_default()` / `first_stage_name_or_default()` / `stage_windows()` 公共函数，fallback 阶段计划现在生成 3 个中文阶段。
+- **方向卡项目状态更新** (`A-8`): 确认方向卡后 project.status 从 draft → active。
+
+**Test additions:**
+- `test_agent_modules.py`: Agent 模块 fallback 中文验证
+- `test_agent_proposal_confirm.py`: 提案拒绝空 body 兼容、阶段激活验证
+- `conftest.py`: 新增 Agent 模块测试 fixtures
+
+### Phase 20 — Workspace Member Management (2026-05-31)
+
+- 工作台成员管理: 列表查看、添加、编辑、删除成员。
+
+### Phase 21 — Test Docs + User Switcher (2026-05-31)
 
 - Added `docs/T23/` with 4 test documents (T23.A cold-start + planning, T23.B assignment + negotiation, T23.C execution + check-in, T23.D risk + replan + export) covering the full MVP flow with step-by-step instructions, verification checklists, and horizontal evaluation criteria.
 - Added user identity switcher in navigation bar: `useCurrentUserId()` / `setCurrentUserId()` / `setWorkspaceMembers()` in `app-shell.tsx` using `useSyncExternalStore` + localStorage.
@@ -245,17 +271,23 @@ Unfixed issues documented in `.trae/documents/code-review-unfixed-issues.md`.
 
 ## Next Work
 
-Core MVP phase scope is complete. Phase 10 (UI Structural Fix) completed 2026-05-29; MVP Usable #16/#17/#18/#19/#20/#21 are complete. Phase 17 (Code Review Hardening) completed 2026-05-30. Phase 18 (Frontend Bugfix) completed 2026-05-30. Phase 19 (Agent Prompt Refactor) completed 2026-05-31. Phase 20 (Test Docs + User Switcher) completed 2026-05-31.
+Core MVP phase scope is complete. Phase 10 (UI Structural Fix) completed 2026-05-29; MVP Usable #16/#17/#18/#19/#20/#21 are complete. Phase 17 (Code Review Hardening) completed 2026-05-30. Phase 18 (Frontend Bugfix) completed 2026-05-30. Phase 19 (Agent Prompt Refactor) completed 2026-05-31. Phase 20 (Workspace Member Management) completed 2026-05-31. Phase 21 (Test Docs + User Switcher) completed 2026-05-31. Phase 22 (T23.A Feedback Fixes) completed 2026-06-02.
 
 MVP Usable progress (see `.claude/epics/projectflow-mvp-usable-ready/`):
-- ✅ #18 Prompt and Schema Quality Hardening (completed 2026-05-29)
-- ✅ #20 Assignment, Push, Risk, and Replan Usability Pass (completed 2026-05-29)
-- ✅ #16 Real LLM Provider Readiness and Diagnostics (completed 2026-05-29)
-- ✅ #17 Agent Output Persistence and Confirmation (completed 2026-05-29)
-- ✅ #19 Frontend Agent Status and Review UX (completed 2026-05-30)
-- ✅ #21 Real-Provider Verification and MVP Usable Runbook (completed 2026-05-30)
+- ✅ #18 Prompt and Schema Quality Hardening (2026-05-29)
+- ✅ #20 Assignment, Push, Risk, and Replan Usability Pass (2026-05-29)
+- ✅ #16 Real LLM Provider Readiness and Diagnostics (2026-05-29)
+- ✅ #17 Agent Output Persistence and Confirmation (2026-05-29)
+- ✅ #19 Frontend Agent Status and Review UX (2026-05-30)
+- ✅ #21 Real-Provider Verification and MVP Usable Runbook (2026-05-30)
 
 All MVP Usable tasks are complete. The runbook now documents mock mode, real-provider mode, a full manual verification checklist, and a final status report.
+
+T23.A test audit completed (2026-06-02) with feedback documented in `docs/T23.A.feedback.md`. 4 blockers, 7 experience issues, and 1 optimization identified. All 4 blocker issues fixed in Phase 22. Remaining open items from T23.A feedback:
+- A-18: 真实 LLM 超时/失败兜底链路待补测（需用户提供 API）
+- 自动化测试隔离：真实 `.env` 配置影响 mock 测试（需 `LLM_PROVIDER=mock` 强制环境变量）
+
+T23.B/C/D 测试待执行。
 
 Post-MVP: auth, deployment, collaboration permissions, broader UI hardening, remaining code review issues (2 P0 + 9 P1 + 10 P2 documented in `.trae/documents/code-review-unfixed-issues.md`).
 

@@ -124,7 +124,7 @@ cd backend
 .venv\Scripts\python -m pytest app/tests/ -v
 ```
 
-预期：171 个测试全部通过。
+预期：166 个测试全部通过。
 
 ### 前端验证
 

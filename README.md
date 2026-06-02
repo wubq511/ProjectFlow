@@ -4,7 +4,7 @@ ProjectFlow is a local-first active project agent MVP for college project teams.
 
 ## Current Status
 
-All MVP phases and MVP Usable tasks complete (2026-05-31). Phase 19 (Agent Prompt Refactor) complete (2026-05-31).
+All MVP phases and MVP Usable tasks complete (2026-05-31). Phase 19 (Agent Prompt Refactor), Phase 20 (Workspace Member Management), Phase 21 (Test Docs + User Switcher), and Phase 22 (T23.A Feedback Fixes) complete through 2026-06-02.
 
 - Phase 0 / GitHub #2 — Guardrails & Setup
 - Phase 1 / GitHub #3 — Account / Workspace / Member Profile
@@ -20,8 +20,11 @@ All MVP phases and MVP Usable tasks complete (2026-05-31). Phase 19 (Agent Promp
 - MVP Usable / GitHub #17 — Agent Output Persistence and Confirmation
 - MVP Usable / GitHub #19 — Frontend Agent Status and Review UX
 - MVP Usable / GitHub #21 — Real-Provider Verification and MVP Usable Runbook
+- Phase 20 — Workspace Member Management (2026-05-31)
+- Phase 21 — Test Docs + User Switcher (2026-05-31)
+- Phase 22 — T23.A Feedback Fixes (2026-06-02)
 
-Implemented: FastAPI backend (70 endpoint method/path pairs, 19 persistence tables/domain models), agent infrastructure with mock/OpenAI-compatible provider diagnostics, confirm-to-persist `AgentProposal` flow, seed/reset/export, Next.js frontend (7 routes), 166 backend tests passing, 10 frontend tests passing, frontend lint+build+audit clean.
+Implemented: FastAPI backend (70 endpoint method/path pairs, 19 persistence tables/domain models), agent infrastructure with mock/OpenAI-compatible provider diagnostics, confirm-to-persist `AgentProposal` flow, seed/reset/export, Next.js frontend (7 routes, project resources panel, user identity switcher), 166 backend tests passing, 13 frontend tests passing, frontend lint+build+audit clean.
 
 ## Stack
 
@@ -97,7 +100,10 @@ npm audit --omit=dev
 - [Runbook](docs/runbook.md)
 - [Demo script](docs/demo-script.md)
 - [Seed scenarios](docs/seed-scenarios.md)
+- [Code wiki](docs/code-wiki.md)
 - [Current handoff](docs/handoff.md)
+- [T23 test docs](docs/T23/)
+- [T23.A feedback](docs/T23.A.feedback.md)
 - [Issue #11 verification report](docs/issue-11-status-report.md)
 
 ## Runtime Files

@@ -1,5 +1,7 @@
 # Issue #11: Verification, Tests, and Demo Stability Hardening — Status Report
 
+> 📦 **历史归档**：本报告是 Phase 9 (2026-05-29) 的完成快照。当前验证基线见 [handoff.md](handoff.md) 和 [runbook.md](runbook.md)。
+
 **Date**: 2026-05-29
 **Status**: ✅ Complete
 
