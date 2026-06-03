@@ -23,65 +23,63 @@ def _build_user_facing_assignment(
     """Build a single assignment fallback payload entry with Chinese user-facing text."""
     task_title = task.title
     owner_name = owner.display_name
+    skill_names = [str(s) for s in owner.skills]
+    skill_display = "、".join(skill_names[:3]) if skill_names else "未指定"
 
+    # Reason
     if is_single_member:
         reason = (
             f"团队仅有一位成员 {owner_name}，所有任务需要由同一人承担。"
             f"建议负责人按优先级推进，必要时寻求外部支援或调整范围。"
         )
-        skill_match = (
-            f"成员拥有技能：{'、'.join(str(s) for s in owner.skills[:3])}"
-            if owner.skills
-            else "成员暂无明确技能信息"
-        )
+    else:
+        match_parts = [f"{owner_name}的技能涉及{skill_display}"]
+        if owner.available_hours_per_week >= task.estimated_hours:
+            match_parts.append(f"可用时间 {owner.available_hours_per_week}h/周，满足任务预估 {task.estimated_hours}h")
+        else:
+            match_parts.append(f"可用时间 {owner.available_hours_per_week}h/周，但不足任务预估 {task.estimated_hours}h")
+        if owner.role_preference or owner.interests:
+            match_parts.append("偏好/兴趣与任务内容相关")
+        reason = "；".join(match_parts) + f"，建议由 {owner_name} 承担「{task_title}」。"
+
+    # Skill match
+    if is_single_member:
+        skill_match = f"成员拥有技能：{skill_display}" if skill_names else "成员暂无明确技能信息"
+    else:
+        skill_match = f"技能匹配：{skill_display}" if skill_names else "暂无明确技能匹配"
+
+    # Availability match
+    if is_single_member:
         availability_match = f"可用时间 {owner.available_hours_per_week}h/周"
+    else:
+        avail_detail = f"，预估需 {task.estimated_hours}h" if task.estimated_hours > 0 else ""
+        availability_match = f"时间匹配：可用 {owner.available_hours_per_week}h/周{avail_detail}"
+
+    # Preference match
+    if is_single_member:
         preference_match = (
             f"偏好：{owner.role_preference}；兴趣：{owner.interests}"
             if owner.role_preference or owner.interests
             else "无明确偏好"
         )
-        constraint_respected = (
-            owner.constraints if owner.constraints else "无明显限制"
-        )
-        risk_note = risk_note_override or (
-            "单人团队无备选负责人，需关注工作量过载风险。"
-            "建议合理安排优先级，必要时调整项目范围。"
-        )
     else:
-        match_parts = []
-        skill_names = [str(s) for s in owner.skills]
-        match_parts.append(f"{owner_name}的技能涉及{'、'.join(skill_names[:3])}")
-        match_parts.append(
-            f"可用时间 {owner.available_hours_per_week}h/周"
-            + (
-                f"，满足任务预估 {task.estimated_hours}h"
-                if owner.available_hours_per_week >= task.estimated_hours
-                else f"，但不足任务预估 {task.estimated_hours}h"
-            )
-        )
-        if owner.role_preference or owner.interests:
-            match_parts.append("偏好/兴趣与任务内容相关")
-        reason = "；".join(match_parts) + f"，建议由 {owner_name} 承担「{task_title}」。"
-        skill_match = f"技能匹配：{'、'.join(skill_names[:3])}" if skill_names else "暂无明确技能匹配"
-        availability_match = (
-            f"时间匹配：可用 {owner.available_hours_per_week}h/周"
-            + (
-                f"，预估需 {task.estimated_hours}h"
-                if task.estimated_hours > 0
-                else ""
-            )
-        )
-        preference_match = (
-            f"偏好匹配：{owner.role_preference or '未指定'}；兴趣：{owner.interests or '未指定'}"
-        )
-        constraint_respected = (
-            f"限制检查：{owner.constraints}" if owner.constraints else "限制检查：无明显冲突"
-        )
-        risk_note = risk_note_override or (
-            "非最优评分的成员被推荐，因更高分成员被该任务拒绝过，需人工确认。"
-            if (task.id, owner.user_id) in rejected
-            else None
-        )
+        preference_match = f"偏好匹配：{owner.role_preference or '未指定'}；兴趣：{owner.interests or '未指定'}"
+
+    # Constraint
+    if is_single_member:
+        constraint_respected = owner.constraints if owner.constraints else "无明显限制"
+    else:
+        constraint_respected = f"限制检查：{owner.constraints}" if owner.constraints else "限制检查：无明显冲突"
+
+    # Risk note
+    if risk_note_override:
+        risk_note = risk_note_override
+    elif is_single_member:
+        risk_note = "单人团队无备选负责人，需关注工作量过载风险。建议合理安排优先级，必要时调整项目范围。"
+    elif (task.id, owner.user_id) in rejected:
+        risk_note = "非最优评分的成员被推荐，因更高分成员被该任务拒绝过，需人工确认。"
+    else:
+        risk_note = None
 
     return {
         "task_id": task.id,
@@ -184,8 +182,14 @@ def build_request(workspace_state: WorkspaceStateResponse, *, stage_id: str | No
         assigned_counts[best_member.user_id] = assigned_counts.get(best_member.user_id, 0) + 1
 
     requires_confirmation = True
+    # Resolve stage name for user-facing reason
+    stage_name = stage_id
+    if workspace_state.project:
+        stage = next((s for s in workspace_state.project.stages if s.id == stage_id), None)
+        if stage:
+            stage_name = stage.name
     reason = (
-        f"为当前阶段「{stage_id}」的 {len(tasks)} 个任务生成了 {len(assignments)} 条分工建议。"
+        f"为当前阶段「{stage_name}」的 {len(tasks)} 个任务生成了 {len(assignments)} 条分工建议。"
         if len(assignments) == len(tasks)
         else f"为当前阶段的 {len(tasks)} 个任务生成了 {len(assignments)} 条分工建议，部分任务因已拒绝组合暂未覆盖。"
     )

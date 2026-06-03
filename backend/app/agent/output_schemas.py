@@ -1,3 +1,4 @@
+import re
 from datetime import date
 from typing import Any
 
@@ -11,7 +12,13 @@ from app.models.enums import (
     TaskPriority,
     TaskStatus,
 )
-from app.agent.modules.common import SKILL_NAME_CN_MAP
+from app.agent.modules.common import (
+    SKILL_NAME_CN_MAP,
+    active_stage_id as resolve_active_stage_id,
+    assignable_tasks,
+    blocked_assignment_task_ids,
+    rejected_assignment_pairs,
+)
 from app.schemas.workspace_state import WorkspaceStateResponse
 
 
@@ -286,23 +293,9 @@ def _validate_references(output: AgentOutputBase, workspace_state: WorkspaceStat
         # Semantic checks against workspace_state
         if workspace_state.project:
             task_by_id = {t.id: t for t in workspace_state.project.tasks}
-            active_stage_id = workspace_state.project.current_stage_id
-            if not active_stage_id:
-                active = next((s for s in workspace_state.project.stages if s.status == "active"), None)
-                active_stage_id = active.id if active else None
-
-            # Collect blocked task ids from assignment proposals
-            terminal_statuses = {"finalized", "owner_confirmed", "proposed", "negotiating"}
-            blocked_task_ids = {
-                proposal.task_id
-                for proposal in workspace_state.project.assignment_proposals
-                if proposal.status in terminal_statuses
-            }
-            rejected_pairs = {
-                (proposal.task_id, proposal.recommended_owner_user_id)
-                for proposal in workspace_state.project.assignment_proposals
-                if proposal.status == "owner_rejected"
-            }
+            resolved_stage_id = resolve_active_stage_id(workspace_state)
+            blocked_task_ids = blocked_assignment_task_ids(workspace_state)
+            rejected_pairs = rejected_assignment_pairs(workspace_state)
 
             for assignment in output.assignments:
                 task = task_by_id.get(assignment.task_id)
@@ -310,8 +303,8 @@ def _validate_references(output: AgentOutputBase, workspace_state: WorkspaceStat
                     continue
 
                 # Must belong to active stage
-                if active_stage_id and task.stage_id != active_stage_id:
-                    errors.append(f"task {assignment.task_id} is not in active stage {active_stage_id}")
+                if resolved_stage_id and task.stage_id != resolved_stage_id:
+                    errors.append(f"task {assignment.task_id} is not in active stage {resolved_stage_id}")
 
                 # Must not have owner_user_id
                 if task.owner_user_id:
@@ -325,21 +318,11 @@ def _validate_references(output: AgentOutputBase, workspace_state: WorkspaceStat
                 if assignment.task_id in blocked_task_ids:
                     errors.append(f"task {assignment.task_id} already has a proposal in status finalized/owner_confirmed/proposed/negotiating")
 
-                # Must not be a previously rejected pair
-                if (assignment.task_id, assignment.recommended_owner_user_id) in rejected_pairs:
-                    errors.append(f"(task {assignment.task_id}, owner {assignment.recommended_owner_user_id}) was previously rejected")
-
-            # Must cover all eligible tasks (unless zero eligible)
-            if active_stage_id and workspace_state.project.tasks:
-                eligible_tasks = [
-                    t for t in workspace_state.project.tasks
-                    if t.stage_id == active_stage_id
-                    and t.status != "done"
-                    and not t.owner_user_id
-                    and t.id not in blocked_task_ids
-                ]
+            # Must cover all eligible tasks (unless zero eligible or no members)
+            eligible = assignable_tasks(workspace_state)
+            if eligible:
                 proposed_task_ids = {a.task_id for a in output.assignments}
-                missing = [t.id for t in eligible_tasks if t.id not in proposed_task_ids]
+                missing = [t.id for t in eligible if t.id not in proposed_task_ids]
                 if missing:
                     errors.append(f"missing assignment for eligible tasks: {missing}")
 
@@ -407,9 +390,20 @@ def _normalize_user_facing_text(output: AgentOutputBase) -> None:
 
     LLM providers may output skill names in their raw form (ai_ml, prompt_engineering).
     This ensures user-facing text uses Chinese labels (AI/ML, Prompt 工程).
+    Uses word-boundary regex to avoid corrupting substrings (e.g. 'redesign' → 'reUI 设计').
     """
     if not isinstance(output, AssignmentRecommendationOutput):
         return
+
+    # Build a single regex that matches any skill key as a whole word/underscore-token.
+    # Sort by length descending so longer keys (prompt_engineering) match before shorter
+    # substrings (engineering) if they ever overlap.
+    # Use ASCII-only boundaries ([a-zA-Z0-9_]) instead of \w because Python \w
+    # includes Unicode (Chinese) characters, which would prevent matching before 中文 text.
+    sorted_pairs = sorted(SKILL_NAME_CN_MAP.items(), key=lambda kv: -len(kv[0]))
+    pattern = re.compile(
+        r"(?<![a-zA-Z0-9_])(" + "|".join(re.escape(k) for k, _ in sorted_pairs) + r")(?![a-zA-Z0-9_])"
+    )
 
     for assignment in output.assignments:
         for field_name in (
@@ -423,8 +417,7 @@ def _normalize_user_facing_text(output: AgentOutputBase) -> None:
             value = getattr(assignment, field_name, None)
             if not value or not isinstance(value, str):
                 continue
-            for eng_key, cn_label in SKILL_NAME_CN_MAP.items():
-                value = value.replace(eng_key, cn_label)
+            value = pattern.sub(lambda m: SKILL_NAME_CN_MAP.get(m.group(0), m.group(0)), value)
             setattr(assignment, field_name, value)
 
 

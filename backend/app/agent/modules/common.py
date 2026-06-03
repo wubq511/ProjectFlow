@@ -154,7 +154,7 @@ def score_member_for_task(
 
     Rules:
     - Task title/description keywords matching member skills: +3 per keyword.
-    - role_preference or interests matching task keywords: +2.
+    - role_preference or interests matching task keywords: +1 per content word (>2 chars).
     - available_hours >= estimated_hours: +2; otherwise +1 (some time better than none).
     - constraints mention conflicting keywords: -2.
     - Each already-assigned task in this round reduces score by 1 (load balancing).
@@ -182,7 +182,10 @@ def score_member_for_task(
 
     # Constraint check
     if member.constraints:
-        conflict_keywords = ["not", "avoid", "can't", "unavailable", "prefers not"]
+        conflict_keywords = [
+            "not", "avoid", "can't", "unavailable", "prefers not",
+            "不可用", "不能", "避免", "不想", "不愿意", "没空", "冲突",
+        ]
         constraint_lower = member.constraints.lower()
         for kw in conflict_keywords:
             if kw in constraint_lower:

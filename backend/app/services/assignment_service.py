@@ -171,9 +171,10 @@ def create_assignment_response(
 
     # Only proposed proposals can be responded to
     if proposal.status != AssignmentProposalStatus.proposed:
+        status_display = proposal.status.value if isinstance(proposal.status, AssignmentProposalStatus) else proposal.status
         raise ValueError(
-            f"Cannot respond to proposal in status {proposal.status}; "
-            f"only proposals with status 'proposed' accept responses"
+            f"当前提案状态为 {status_display}，无法回复；"
+            f"只有 proposed 状态的提案接受回复"
         )
 
     if data.user_id != proposal.recommended_owner_user_id:
@@ -281,6 +282,14 @@ def create_assignment_negotiation_from_proposal(
     require_row(session, User, data.from_user_id, "Requester")
     desired_task = require_row(session, Task, data.desired_task_id, "Desired task")
 
+    # Only owner_rejected proposals can start a negotiation
+    if proposal.status != AssignmentProposalStatus.owner_rejected:
+        status_display = proposal.status.value if isinstance(proposal.status, AssignmentProposalStatus) else proposal.status
+        raise ValueError(
+            f"Cannot create negotiation for proposal in status {status_display}; "
+            f"only proposals with status 'owner_rejected' accept negotiations"
+        )
+
     # Validate that desired_task belongs to same project as proposal
     if desired_task.project_id != proposal.project_id:
         raise ValueError("Desired task does not belong to the same project as the proposal")
@@ -314,14 +323,12 @@ def create_assignment_negotiation_from_proposal(
             f"该任务当前未分配，负责人可以直接调整或重新运行分工推荐。"
         )
 
-    current_owner_user_id = desired_task_owner_id
-
     negotiation = AssignmentNegotiation(
         project_id=proposal.project_id,
         stage_id=proposal.stage_id,
         from_user_id=data.from_user_id,
         desired_task_id=data.desired_task_id,
-        current_owner_user_id=current_owner_user_id,
+        current_owner_user_id=desired_task_owner_id,
         agent_message=agent_message,
     )
     session.add(negotiation)

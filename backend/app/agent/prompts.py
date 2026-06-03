@@ -117,6 +117,7 @@ def _compact_workspace_state_json(event_type: AgentEventType, workspace_state: W
         stages = project.stages
         tasks = project.tasks
         if event_type in {
+            AgentEventType.assign,
             AgentEventType.breakdown,
             AgentEventType.push,
             AgentEventType.checkin,

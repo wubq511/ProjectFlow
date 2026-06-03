@@ -93,7 +93,9 @@ def build_request(workspace_state: WorkspaceStateResponse) -> AgentModuleRequest
     # Determine a sensible fallback: use the first rejected proposal's data
     fallback_from_user = member_id
     fallback_task = task_id
-    fallback_current_owner = member_id
+    # Look up actual task owner instead of defaulting to first member
+    first_task_obj = task_by_id.get(task_id) if task_id else None
+    fallback_current_owner = first_task_obj.owner_user_id if first_task_obj and first_task_obj.owner_user_id else None
     fallback_message = "请确认团队成员是否同意此次任务交换。"
     fallback_options = ["维持当前分工", "接受交换提议"]
 

@@ -5,6 +5,7 @@ from sqlmodel import Session
 from app.agent.coordinator import CoordinatorAgent
 from app.agent.output_schemas import (
     ActivePushOutput,
+    AssignmentNegotiationOutput,
     AssignmentRecommendationOutput,
     CheckInAnalysisOutput,
     DirectionCardOutput,
@@ -107,6 +108,11 @@ def _persist_agent_output(
                 auto_commit=False,
             )
             created_ids.append(proposal.id)
+
+    if isinstance(output, AssignmentNegotiationOutput):
+        proposal_id = _create_agent_proposal(
+            session, workspace_state, project_id, "negotiate", output
+        )
 
     if isinstance(output, ActivePushOutput):
         for card in output.action_cards:
