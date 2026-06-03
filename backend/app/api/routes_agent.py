@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
-from app.agent.coordinator import CoordinatorAgent
 from app.agent.llm_client import LLMError, LLMTimeoutError
 from app.core.database import get_session
 from app.schemas.agent_flow import AgentFlowRead, AgentFlowRequest
@@ -39,7 +38,7 @@ def api_agent_assign(
     data: AgentFlowRequest,
     session: Session = Depends(get_session),
 ):
-    return _run(data, session, lambda coordinator, state: coordinator.recommend_assignments(state))
+    return _run(data, session, lambda coordinator, state: coordinator.recommend_assignments(state, stage_id=data.stage_id))
 
 
 @router.post("/agent/active-push", response_model=AgentFlowRead)
@@ -72,6 +71,14 @@ def api_agent_replan(
     session: Session = Depends(get_session),
 ):
     return _run(data, session, lambda coordinator, state: coordinator.replan(state))
+
+
+@router.post("/agent/negotiate", response_model=AgentFlowRead)
+def api_agent_negotiate(
+    data: AgentFlowRequest,
+    session: Session = Depends(get_session),
+):
+    return _run(data, session, lambda coordinator, state: coordinator.negotiate_assignment(state))
 
 
 def _run(data: AgentFlowRequest, session: Session, method) -> AgentFlowRead:

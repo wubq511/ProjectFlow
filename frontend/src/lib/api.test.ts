@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getProjectState, rejectAgentProposal, runAssignment } from "./api";
+import { getProjectState, rejectAgentProposal, runAgentNegotiate, runAssignment, startNegotiation } from "./api";
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -79,6 +79,128 @@ describe("frontend API layer", () => {
     await runAssignment("project-1");
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("calls agent negotiate endpoint with workspace_id in body", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/projects/project-1")) {
+        return jsonResponse({
+          id: "project-1",
+          workspace_id: "workspace-1",
+          name: "Demo",
+          idea: "Demo",
+          deadline: "2026-06-07",
+          deliverables: "Demo",
+          status: "active",
+          current_stage_id: null,
+          direction_card: null,
+          created_by: "user-1",
+          created_at: "2026-05-29T00:00:00Z",
+          updated_at: "2026-05-29T00:00:00Z",
+        });
+      }
+      if (url.endsWith("/agent/negotiate")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ workspace_id: "workspace-1" });
+        return jsonResponse({
+          event_type: "negotiate",
+          status: "success",
+          attempts: 1,
+          used_fallback: false,
+          output: { message: "协商建议" },
+          created_ids: [],
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runAgentNegotiate("project-1");
+
+    expect(result.event_type).toBe("negotiate");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("passes stage_id in assignment request body when provided", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/projects/project-1")) {
+        return jsonResponse({
+          id: "project-1",
+          workspace_id: "workspace-1",
+          name: "Demo",
+          idea: "Demo",
+          deadline: "2026-06-07",
+          deliverables: "Demo",
+          status: "active",
+          current_stage_id: null,
+          direction_card: null,
+          created_by: "user-1",
+          created_at: "2026-05-29T00:00:00Z",
+          updated_at: "2026-05-29T00:00:00Z",
+        });
+      }
+      if (url.endsWith("/agent/assign")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          workspace_id: "workspace-1",
+          stage_id: "stage-pending",
+        });
+        return jsonResponse({
+          event_type: "assign",
+          status: "fallback",
+          attempts: 2,
+          used_fallback: true,
+          output: {},
+          created_ids: ["proposal-1"],
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runAssignment("project-1", "stage-pending");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts assignment negotiation through the proposal-scoped backend route", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/assignment-proposals/proposal-1/negotiations")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          from_user_id: "user-mia",
+          desired_task_id: "task-panel",
+        });
+        expect(String(init?.body)).not.toContain("agent_message");
+        expect(String(init?.body)).not.toContain("current_owner_user_id");
+        return jsonResponse({
+          id: "negotiation-1",
+          project_id: "project-1",
+          stage_id: "stage-1",
+          from_user_id: "user-mia",
+          desired_task_id: "task-panel",
+          current_owner_user_id: null,
+          status: "pending",
+          agent_message: "Mia 希望改做分工流程面板。",
+          created_at: "2026-06-03T00:00:00Z",
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const negotiation = await startNegotiation(
+      "project-1",
+      "proposal-1",
+      "user-mia",
+      "task-panel",
+    );
+
+    expect(negotiation.agent_message).toBe("Mia 希望改做分工流程面板。");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("composes dashboard state from execution-loop endpoints", async () => {

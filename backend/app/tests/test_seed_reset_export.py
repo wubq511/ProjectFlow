@@ -1,6 +1,5 @@
 """Tests for demo seed, reset, and review summary export endpoints."""
 
-import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 

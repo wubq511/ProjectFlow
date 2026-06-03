@@ -104,7 +104,7 @@ class OpenAICompatibleLLMClient:
                 "model": self.model,
                 "messages": messages,
                 "response_format": {"type": "json_object"},
-                "temperature": 0.2,
+                "temperature": 0.05,
                 "max_tokens": max_tokens or 1800,
             }
         ).encode("utf-8")

@@ -13,22 +13,19 @@ from datetime import date
 
 import json
 import pytest
-from sqlmodel import Session, SQLModel, create_engine, select
+from sqlmodel import Session, SQLModel, create_engine
 
 from app.agent.output_schemas import (
     ActivePushOutput,
-    AgentOutputValidationError,
     AssignmentRecommendationOutput,
     ReplanOutput,
     RiskAnalysisOutput,
     validate_agent_output,
 )
-from app.models import ActionCard, AssignmentProposal, Project, Risk, Stage, Task, User
+from app.models import Project, Stage, Task, User
 from app.models.enums import AgentEventType, AssignmentProposalStatus
-from app.schemas.action_card import ActionCardCreate
 from app.schemas.assignment import AssignmentProposalCreate
-from app.schemas.replan import ReplanConfirmRequest, ReplanStageAdjustment, ReplanTaskChange
-from app.schemas.risk import RiskCreate
+from app.schemas.replan import ReplanConfirmRequest, ReplanTaskChange
 from app.schemas.workspace_state import (
     MemberState,
     ProjectState,
@@ -38,7 +35,6 @@ from app.schemas.workspace_state import (
 )
 from app.services.assignment_service import create_assignment_proposal, finalize_assignment_proposal
 from app.services.replan_service import confirm_replan
-from app.services.risk_service import create_risk
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +85,7 @@ def _blocked_availability_drop_state() -> WorkspaceStateResponse:
             tasks=[
                 TaskState(
                     id="task-api",
+                    stage_id="stage-build",
                     title="Build event API",
                     status="in_progress",
                     priority="P0",
@@ -98,6 +95,7 @@ def _blocked_availability_drop_state() -> WorkspaceStateResponse:
                 ),
                 TaskState(
                     id="task-deploy",
+                    stage_id="stage-build",
                     title="Set up CI/CD pipeline",
                     status="blocked",
                     priority="P0",
@@ -107,6 +105,7 @@ def _blocked_availability_drop_state() -> WorkspaceStateResponse:
                 ),
                 TaskState(
                     id="task-ui",
+                    stage_id="stage-build",
                     title="Build event list page",
                     status="not_started",
                     priority="P0",
@@ -151,9 +150,10 @@ class TestAssignmentCitations:
         assert isinstance(output, AssignmentRecommendationOutput)
         assignment = output.assignments[0]
         assert assignment.skill_match is not None
-        assert "frontend" in assignment.skill_match
+        assert "前端开发" in assignment.skill_match
         assert assignment.availability_match is not None
         assert assignment.preference_match is not None
+        assert "前端开发" in assignment.preference_match
         assert assignment.constraint_respected is not None
 
     def test_assignment_without_citations_still_valid(self):
@@ -375,6 +375,12 @@ class TestFinalizedAssignmentGuard:
         session.add(user_bob)
         session.flush()
 
+        # Add workspace membership for the users
+        from app.models import WorkspaceMembership
+        session.add(WorkspaceMembership(id="wm-guard-1", workspace_id="ws-1", user_id="u-alice", role="owner"))
+        session.add(WorkspaceMembership(id="wm-guard-2", workspace_id="ws-1", user_id="u-bob", role="member"))
+        session.flush()
+
         project = Project(
             id="proj-guard",
             workspace_id="ws-1",
@@ -409,7 +415,7 @@ class TestFinalizedAssignmentGuard:
             priority="P0",
             due_date="2026-06-05",
             estimated_hours=4,
-            owner_user_id="u-alice",
+            owner_user_id=None,  # Will be set by finalization
         )
         session.add(task)
         session.flush()
@@ -464,6 +470,11 @@ class TestFinalizedAssignmentGuard:
         session.add(user_alice)
         session.flush()
 
+        # Add workspace membership for user
+        from app.models import WorkspaceMembership
+        session.add(WorkspaceMembership(id="wm-guard2-1", workspace_id="ws-1", user_id="u-alice2", role="owner"))
+        session.flush()
+
         project = Project(
             id="proj-guard2",
             workspace_id="ws-1",
@@ -498,7 +509,7 @@ class TestFinalizedAssignmentGuard:
             priority="P0",
             due_date="2026-06-05",
             estimated_hours=4,
-            owner_user_id="u-alice2",
+            owner_user_id=None,  # Will be set by finalization
         )
         session.add(task)
         session.flush()

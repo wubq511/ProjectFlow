@@ -54,6 +54,27 @@ const AGENT_ACTION_LABELS: Record<AgentAction, string> = {
   replan: "计划调整",
 };
 
+function resolveValidCurrentUserId(nextState: ProjectState, storedUserId: string | null) {
+  const memberIds = new Set(nextState.members.map((member) => member.user_id));
+  if (storedUserId && memberIds.has(storedUserId)) return storedUserId;
+  if (memberIds.has(nextState.project.created_by)) return nextState.project.created_by;
+  return nextState.members[0]?.user_id ?? null;
+}
+
+function syncProjectShellState(nextState: ProjectState) {
+  setLastWorkspaceId(nextState.workspace.workspace_id);
+  setWorkspaceMembers(nextState.members.map((member) => ({
+    user_id: member.user_id,
+    display_name: member.display_name,
+  })));
+  if (typeof window === "undefined") return;
+  const storedUserId = localStorage.getItem("projectflow:current-user-id");
+  const validUserId = resolveValidCurrentUserId(nextState, storedUserId);
+  if (validUserId && storedUserId !== validUserId) {
+    setCurrentUserId(validUserId);
+  }
+}
+
 export default function ProjectDashboardPage() {
   const params = useParams();
   const router = useRouter();
@@ -70,6 +91,7 @@ export default function ProjectDashboardPage() {
     try {
       const nextState = await getProjectState(projectId);
       setState(nextState);
+      syncProjectShellState(nextState);
     } catch {
       setError("刷新项目数据失败，请重试");
     }
@@ -82,14 +104,7 @@ export default function ProjectDashboardPage() {
       .then((nextState) => {
         if (!ignore) {
           setState(nextState);
-          setLastWorkspaceId(nextState.workspace.workspace_id);
-          setWorkspaceMembers(nextState.members.map((m) => ({
-            user_id: m.user_id,
-            display_name: m.display_name,
-          })));
-          if (!localStorage.getItem("projectflow:current-user-id")) {
-            setCurrentUserId(nextState.project.created_by);
-          }
+          syncProjectShellState(nextState);
         }
       })
       .catch(() => {
@@ -233,7 +248,7 @@ export default function ProjectDashboardPage() {
     ?? state?.stages.find((stage) => stage.status === "active")
     ?? state?.stages[0];
   const storedUserId = useCurrentUserId();
-  const currentUserId = storedUserId ?? state?.project.created_by;
+  const currentUserId = state ? resolveValidCurrentUserId(state, storedUserId) ?? undefined : undefined;
 
   const handleSubmitCheckin = async (data: {
     user_id: string;

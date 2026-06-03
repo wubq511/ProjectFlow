@@ -308,7 +308,7 @@ Fixes applied:
 - **Shared utility**: `core/db_utils.py` extracted `require_row()` to replace duplicated `_require` functions across 6 service files.
 - **Invitation accept**: `accept_invitation` now accepts `user_id` parameter; creates a User record when no user_id is provided instead of using a placeholder.
 
-Verification: backend 182/182 tests pass; frontend 15/15 tests pass; frontend lint and build pass.
+Verification: backend 218/218 tests pass; frontend 24/24 tests pass; frontend lint and build pass.
 
 Unfixed issues documented in `.trae/documents/code-review-unfixed-issues.md`.
 
@@ -325,11 +325,27 @@ T23.D feedback fixes closed the risk -> replan -> confirm/reject -> push/checkin
 - Agent timeline and run result UI show `success`, `repaired`, `fallback`, and `failed` distinctly.
 - Review export renders enum values and structured evidence as readable Markdown without `None`/`null`/Python enum reprs.
 
-Verification: backend 182/182 tests pass; frontend 15/15 tests pass; frontend lint and build pass.
+Verification: backend 218/218 tests pass; frontend 24/24 tests pass; frontend lint and build pass.
+
+### Phase 26 — T23.B Round 2 Feedback Fixes (2026-06-03)
+
+T23.B second-round fixes after real LLM (GLM-5.1 via openai-compatible) re-testing. 6 IRs plus 2 follow-on items:
+
+- **IR1 Skill name normalization**: `SKILL_NAME_CN_MAP` in `common.py` maps 12 English skill names to Chinese labels. `_normalize_user_facing_text()` in `output_schemas.py` replaces English underscores in assignment user-facing fields. Prompt updated to prefer Chinese labels.
+- **IR2 JSON strictness**: `temperature` lowered from 0.2 to 0.05. System prompt strengthened with explicit JSON-only instruction.
+- **IR3 Negotiate endpoint**: `POST /api/agent/negotiate` exposed in `routes_agent.py`. Frontend `runAgentNegotiate()` added to `api.ts`.
+- **IR4 Stage override**: `AgentFlowRequest.stage_id` allows assignment recommendation for non-active stages. `assignable_tasks()` accepts `stage_id` override. Frontend `runAssignment()` accepts optional `stageId`.
+- **IR5 Test isolation**: `conftest.py` forces `LLM_API_KEY=""` instead of popping env var, preventing real `.env` leakage into mock tests.
+- **IR6 Documentation**: T23.B seed data counts aligned with actual demo seed.
+- **P0 stage_id validation threading**: `coordinator.recommend_assignments()` copies workspace_state with `current_stage_id` overridden to target stage before passing to `_run()`, so `_validate_references` enforces rules against the correct stage.
+- **P1 negotiation context**: `assignment_negotiation.build_request()` rewritten to include rejected proposals, reasons, preferred tasks, pending negotiations, and member summaries in the prompt. Fallback derived from actual rejected proposal data.
+- **Negotiation fallback bugfix**: `current_owner_user_id` correctly set to `None` when preferred task is unassigned (was incorrectly falling back to `fallback_from_user`).
+
+Verification: backend 218/218 tests pass; frontend 24/24 tests pass; frontend lint and build pass.
 
 ## Next Work
 
-Core MVP phase scope is complete. Phase 10 (UI Structural Fix) completed 2026-05-29; MVP Usable #16/#17/#18/#19/#20/#21 are complete. Phase 17 (Code Review Hardening) completed 2026-05-30. Phase 18 (Frontend Bugfix) completed 2026-05-30. Phase 19 (Agent Prompt Refactor) completed 2026-05-31. Phase 20 (Workspace Member Management) completed 2026-05-31. Phase 21 (Test Docs + User Switcher) completed 2026-05-31. Phase 22 (T23.A Feedback Fixes) completed 2026-06-02. Phase 23 (Code Review Hardening) completed 2026-06-02. Phase 24 (Agent Output Quality + Bug Fixes) completed 2026-06-03. Phase 25 (T23.D Feedback Fixes) completed 2026-06-03.
+Core MVP phase scope is complete. Phase 10 (UI Structural Fix) completed 2026-05-29; MVP Usable #16/#17/#18/#19/#20/#21 are complete. Phase 17 (Code Review Hardening) completed 2026-05-30. Phase 18 (Frontend Bugfix) completed 2026-05-30. Phase 19 (Agent Prompt Refactor) completed 2026-05-31. Phase 20 (Workspace Member Management) completed 2026-05-31. Phase 21 (Test Docs + User Switcher) completed 2026-05-31. Phase 22 (T23.A Feedback Fixes) completed 2026-06-02. Phase 23 (Code Review Hardening) completed 2026-06-02. Phase 24 (Agent Output Quality + Bug Fixes) completed 2026-06-03. Phase 25 (T23.D Feedback Fixes) completed 2026-06-03. Phase 26 (T23.B Round 2 Fixes) completed 2026-06-03.
 
 MVP Usable progress (see `.claude/epics/projectflow-mvp-usable-ready/`):
 - ✅ #18 Prompt and Schema Quality Hardening (2026-05-29)
@@ -341,11 +357,9 @@ MVP Usable progress (see `.claude/epics/projectflow-mvp-usable-ready/`):
 
 All MVP Usable tasks are complete. The runbook now documents mock mode, real-provider mode, a full manual verification checklist, and a final status report.
 
-T23.A test audit completed (2026-06-02) with feedback documented in `docs/T23/T23.A.md`. 4 blockers, 7 experience issues, and 1 optimization identified. All 4 blocker issues fixed in Phase 22. Remaining open items from T23.A feedback:
-- A-18: 真实 LLM 超时/失败兜底链路待补测（需用户提供 API）
-- 自动化测试隔离：真实 `.env` 配置影响 mock 测试（需 `LLM_PROVIDER=mock` 强制环境变量）
+T23.A test audit completed (2026-06-02) with feedback documented in `docs/T23/T23.A.md`. 4 blockers, 7 experience issues, and 1 optimization identified. All 4 blocker issues fixed in Phase 22.
 
-T23.B full manual test remains pending. T23.C feedback fixes are documented in `docs/T23/T23.C.feedback.md`. T23.D feedback fixes are implemented and documented in `docs/T23/T23D.feedback.md`; a full mock + real-LLM manual rerun of D1-D17 is still pending.
+T23.B testing completed (2026-06-02 mock round 1, 2026-06-03 real LLM round 2). 8 issues found (B1-B8), 11 items fixed across two rounds (Phase 26). Remaining open: A-18 (真实 LLM 超时兜底链路待补测). T23.C feedback fixes are documented in `docs/T23/T23.C.feedback.md`. T23.D feedback fixes are implemented and documented in `docs/T23/T23D.feedback.md`; a full mock + real-LLM manual rerun of D1-D17 is still pending.
 
 Post-MVP: auth, deployment, collaboration permissions, broader UI hardening, remaining code review issues (2 P0 + 9 P1 + 10 P2 documented in `.trae/documents/code-review-unfixed-issues.md`), and outstanding bugs/feedback tracked in `docs/T23/T23.C.feedback.md` and `docs/T23/T23D.feedback.md`.
 

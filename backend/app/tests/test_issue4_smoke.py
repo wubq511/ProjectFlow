@@ -1,5 +1,4 @@
 """Smoke tests for Issue #4: Core Workspace and Project APIs."""
-import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app

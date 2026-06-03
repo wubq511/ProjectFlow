@@ -1,4 +1,5 @@
 import json
+from enum import Enum
 
 from sqlmodel import Session, select
 
@@ -10,6 +11,9 @@ from app.models import (
     Project,
     Stage,
     Task,
+    AssignmentProposal,
+    AssignmentResponse,
+    AssignmentNegotiation,
 )
 from app.models.checkin import CheckInCycle, CheckInResponse
 from app.schemas.workspace_state import (
@@ -18,6 +22,9 @@ from app.schemas.workspace_state import (
     TaskState,
     CheckInCycleState,
     CheckInResponseState,
+    AssignmentProposalState,
+    AssignmentResponseState,
+    AssignmentNegotiationState,
     ProjectState,
     WorkspaceStateResponse,
 )
@@ -143,6 +150,42 @@ def get_workspace_state(session: Session, workspace_id: str) -> WorkspaceStateRe
             mood_or_confidence=r.mood_or_confidence,
         ) for r in checkin_response_rows]
 
+        # Assignment data
+        assignment_proposal_rows = session.exec(
+            select(AssignmentProposal).where(AssignmentProposal.project_id == project_row.id)
+        ).all()
+        proposal_ids = [p.id for p in assignment_proposal_rows]
+        assignment_response_rows = session.exec(
+            select(AssignmentResponse).where(AssignmentResponse.proposal_id.in_(proposal_ids))
+        ).all() if proposal_ids else []
+        assignment_negotiation_rows = session.exec(
+            select(AssignmentNegotiation).where(AssignmentNegotiation.project_id == project_row.id)
+        ).all()
+        assignment_proposals = [AssignmentProposalState(
+            id=p.id,
+            stage_id=p.stage_id,
+            task_id=p.task_id,
+            recommended_owner_user_id=p.recommended_owner_user_id,
+            backup_owner_user_id=p.backup_owner_user_id,
+            status=p.status.value if isinstance(p.status, Enum) else p.status,
+        ) for p in assignment_proposal_rows]
+        assignment_responses = [AssignmentResponseState(
+            id=r.id,
+            proposal_id=r.proposal_id,
+            user_id=r.user_id,
+            response=r.response.value if isinstance(r.response, Enum) else r.response,
+            preferred_task_id=r.preferred_task_id,
+            reason=r.reason,
+        ) for r in assignment_response_rows]
+        assignment_negotiations = [AssignmentNegotiationState(
+            id=n.id,
+            stage_id=n.stage_id,
+            from_user_id=n.from_user_id,
+            desired_task_id=n.desired_task_id,
+            current_owner_user_id=n.current_owner_user_id,
+            status=n.status.value if isinstance(n.status, Enum) else n.status,
+        ) for n in assignment_negotiation_rows]
+
         project_state = ProjectState(
             id=project_row.id, name=project_row.name, idea=project_row.idea,
             deadline=project_row.deadline,
@@ -153,6 +196,9 @@ def get_workspace_state(session: Session, workspace_id: str) -> WorkspaceStateRe
             stages=stages, tasks=tasks,
             checkin_cycles=checkin_cycles,
             checkin_responses=checkin_responses,
+            assignment_proposals=assignment_proposals,
+            assignment_responses=assignment_responses,
+            assignment_negotiations=assignment_negotiations,
         )
 
     return WorkspaceStateResponse(

@@ -170,6 +170,9 @@ export function ProjectDashboard({
   const ownerCoverage = tasks.length === 0
     ? 0
     : Math.round((tasks.filter((task) => task.owner_user_id).length / tasks.length) * 100);
+  const confirmedPendingAssignments = state.assignment_proposals.filter(
+    (proposal) => proposal.status === "owner_confirmed",
+  ).length;
 
   const personalCards = action_cards.filter(
     (card) => card.user_id === currentUserId
@@ -242,6 +245,9 @@ export function ProjectDashboard({
           <div className="rounded-lg bg-paper px-4 py-3">
             <p className="text-xs text-ink/50">分工覆盖率</p>
             <p className="mt-1 text-2xl font-black text-ink">{ownerCoverage}%</p>
+            <p className="mt-1 text-xs text-ink/45">
+              已确认待定 {confirmedPendingAssignments} 条，最终确认后写入负责人
+            </p>
           </div>
           <div className="rounded-lg bg-paper px-4 py-3">
             <p className="text-xs text-ink/50">活跃行动卡</p>

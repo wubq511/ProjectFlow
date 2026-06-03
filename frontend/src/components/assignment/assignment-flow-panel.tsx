@@ -12,7 +12,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type {
@@ -86,7 +85,15 @@ export function AssignmentFlowPanel({
 
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
   const activeStage = stages.find((stage) => stage.status === "active") ?? stages[0];
-  const firstNegotiation = negotiations[0];
+
+  const canRespond = (status: AssignmentProposal["status"]) => status === "proposed";
+
+  const terminalMessages: Partial<Record<AssignmentProposal["status"], string>> = {
+    owner_confirmed: "成员已接受，等待负责人最终确认。",
+    owner_rejected: "成员已拒绝，可查看协商记录或重新运行分工推荐。",
+    negotiating: "协商中，等待负责人处理。",
+    finalized: "已定稿，任务负责人已正式写入。",
+  };
 
   const submitRejection = async (proposal: AssignmentProposal) => {
     await onRespondToAssignment?.(
@@ -125,6 +132,8 @@ export function AssignmentFlowPanel({
           {proposals.map((proposal) => {
             const task = taskById.get(proposal.task_id);
             const isRejecting = rejectingProposalId === proposal.id;
+            const terminalMsg = terminalMessages[proposal.status];
+            const selectedPreferredTask = preferredTaskId ? taskById.get(preferredTaskId) : null;
             return (
               <motion.article
                 key={proposal.id}
@@ -143,10 +152,10 @@ export function AssignmentFlowPanel({
                     <p className="mt-2 text-sm text-ink/70">{proposal.reason}</p>
                     {(proposal.skill_match || proposal.availability_match || proposal.preference_match || proposal.constraint_respected) && (
                       <div className="mt-2 grid gap-1 text-xs text-ink/55">
-                        {proposal.skill_match && <p><span className="font-semibold text-ink/70">Skill:</span> {proposal.skill_match}</p>}
-                        {proposal.availability_match && <p><span className="font-semibold text-ink/70">Availability:</span> {proposal.availability_match}</p>}
-                        {proposal.preference_match && <p><span className="font-semibold text-ink/70">Preference:</span> {proposal.preference_match}</p>}
-                        {proposal.constraint_respected && <p><span className="font-semibold text-ink/70">Constraint:</span> {proposal.constraint_respected}</p>}
+                        {proposal.skill_match && <p><span className="font-semibold text-ink/70">技能匹配：</span> {proposal.skill_match}</p>}
+                        {proposal.availability_match && <p><span className="font-semibold text-ink/70">时间匹配：</span> {proposal.availability_match}</p>}
+                        {proposal.preference_match && <p><span className="font-semibold text-ink/70">偏好匹配：</span> {proposal.preference_match}</p>}
+                        {proposal.constraint_respected && <p><span className="font-semibold text-ink/70">限制检查：</span> {proposal.constraint_respected}</p>}
                       </div>
                     )}
                     {proposal.risk_note && (
@@ -159,34 +168,42 @@ export function AssignmentFlowPanel({
                   </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Button
-                    disabled={pending}
-                    className="bg-moss text-white hover:bg-moss/85"
-                    onClick={() =>
-                      onRespondToAssignment?.(
-                        proposal.id,
-                        proposal.recommended_owner_user_id,
-                        "accept",
-                      )
-                    }
-                  >
-                    <CheckCircle2 className="h-4 w-4" />
-                    接受分工
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={pending}
-                    onClick={() => setRejectingProposalId(isRejecting ? null : proposal.id)}
-                  >
-                    <XCircle className="h-4 w-4" />
-                    拒绝分工
-                  </Button>
-                </div>
+                {canRespond(proposal.status) ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button
+                      disabled={pending}
+                      className="bg-moss text-white hover:bg-moss/85"
+                      onClick={() =>
+                        onRespondToAssignment?.(
+                          proposal.id,
+                          proposal.recommended_owner_user_id,
+                          "accept",
+                        )
+                      }
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      接受分工
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={pending}
+                      onClick={() => setRejectingProposalId(isRejecting ? null : proposal.id)}
+                    >
+                      <XCircle className="h-4 w-4" />
+                      拒绝分工
+                    </Button>
+                  </div>
+                ) : (
+                  terminalMsg && (
+                    <p className="mt-4 rounded-md bg-white px-3 py-2 text-sm text-ink/60">
+                      {terminalMsg}
+                    </p>
+                  )
+                )}
 
                 <AnimatePresence>
-                  {isRejecting && (
+                  {canRespond(proposal.status) && isRejecting && (
                     <motion.div
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
@@ -199,7 +216,9 @@ export function AssignmentFlowPanel({
                           <Label htmlFor={`preferred-${proposal.id}`}>偏好任务</Label>
                           <Select value={preferredTaskId} onValueChange={(v) => setPreferredTaskId(v ?? "")}>
                             <SelectTrigger id={`preferred-${proposal.id}`}>
-                              <SelectValue placeholder="选择任务" />
+                              <span data-slot="select-value" className="flex flex-1 text-left">
+                                {selectedPreferredTask?.title ?? "选择任务"}
+                              </span>
                             </SelectTrigger>
                             <SelectContent>
                               {tasks.map((task) => (
@@ -244,13 +263,24 @@ export function AssignmentFlowPanel({
             <ArrowRightLeft className="h-4 w-4 text-harbor" />
             <h3 className="font-semibold text-ink">协商面板</h3>
           </div>
-          {firstNegotiation ? (
-            <div className="mt-3 rounded-md bg-white p-3">
-              <p className="text-sm text-ink/75">{firstNegotiation.agent_message}</p>
-              <div className="mt-2 flex flex-wrap gap-2 text-xs text-ink/55">
-                <Badge variant="outline">来自 {memberName(members, firstNegotiation.from_user_id)}</Badge>
-                <Badge variant="outline">状态 {firstNegotiation.status}</Badge>
-              </div>
+          {negotiations.length > 0 ? (
+            <div className="mt-3 grid gap-3">
+              {negotiations.map((negotiation) => {
+                const desiredTask = taskById.get(negotiation.desired_task_id);
+                return (
+                  <div key={negotiation.id} className="rounded-md bg-white p-3">
+                    <p className="text-sm text-ink/75">{negotiation.agent_message}</p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-ink/55">
+                      <Badge variant="outline">来自 {memberName(members, negotiation.from_user_id)}</Badge>
+                      <Badge variant="outline">偏好任务 {desiredTask?.title ?? "未知任务"}</Badge>
+                      <Badge variant="outline">
+                        当前负责人 {negotiation.current_owner_user_id ? memberName(members, negotiation.current_owner_user_id) : "当前未分配"}
+                      </Badge>
+                      <Badge variant="outline">状态 {negotiation.status}</Badge>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <p className="mt-3 text-sm text-ink/50">暂无交换提议。</p>

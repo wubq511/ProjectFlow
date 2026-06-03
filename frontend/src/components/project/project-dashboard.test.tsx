@@ -262,6 +262,30 @@ describe("ProjectDashboard", () => {
     expect(screen.getByRole("button", { name: "提交拒绝" })).toBeTruthy();
   });
 
+  it("keeps owner coverage finalized-only and shows confirmed pending assignments", () => {
+    render(
+      <ProjectDashboard
+        state={{
+          ...projectState,
+          tasks: projectState.tasks.map((task) =>
+            task.id === "task-1" ? { ...task, owner_user_id: null } : task
+          ),
+          assignment_proposals: [
+            {
+              ...projectState.assignment_proposals[0],
+              status: "owner_confirmed",
+            },
+          ],
+        }}
+        currentUserId="user-lead"
+        onRunAgent={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("50%")).toBeTruthy();
+    expect(screen.getByText("已确认待定 1 条，最终确认后写入负责人")).toBeTruthy();
+  });
+
   it("shows the latest pending replan proposal in the risk adjustment panel", () => {
     render(
       <ProjectDashboard

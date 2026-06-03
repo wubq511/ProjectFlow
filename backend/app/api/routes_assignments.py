@@ -4,6 +4,7 @@ from sqlmodel import Session
 from app.core.database import get_session
 from app.schemas.assignment import (
     AssignmentNegotiationCreate,
+    AssignmentNegotiationFromProposalCreate,
     AssignmentNegotiationRead,
     AssignmentProposalCreate,
     AssignmentProposalRead,
@@ -12,6 +13,7 @@ from app.schemas.assignment import (
 )
 from app.services.assignment_service import (
     create_assignment_negotiation,
+    create_assignment_negotiation_from_proposal,
     create_assignment_proposal,
     create_assignment_response,
     finalize_assignment_proposal,
@@ -123,5 +125,21 @@ def api_create_assignment_negotiation(
 ):
     try:
         return create_assignment_negotiation(session, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post(
+    "/assignment-proposals/{proposal_id}/negotiations",
+    response_model=AssignmentNegotiationRead,
+    status_code=201,
+)
+def api_create_assignment_negotiation_from_proposal(
+    proposal_id: str,
+    data: AssignmentNegotiationFromProposalCreate,
+    session: Session = Depends(get_session),
+):
+    try:
+        return create_assignment_negotiation_from_proposal(session, proposal_id, data)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

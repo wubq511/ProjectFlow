@@ -7,7 +7,7 @@ from pathlib import Path
 os.environ["APP_ENV"] = "development"
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["LLM_PROVIDER"] = "mock"
-os.environ.pop("LLM_API_KEY", None)
+os.environ["LLM_API_KEY"] = ""
 
 import pytest
 from fastapi import FastAPI

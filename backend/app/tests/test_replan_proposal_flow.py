@@ -1,6 +1,5 @@
 """Tests for replan proposal persistence, confirm, and reject lifecycle."""
 
-import json
 
 from fastapi.testclient import TestClient
 
@@ -208,7 +207,7 @@ def test_empty_risk_analysis_no_crash(client: TestClient):
             "created_by": owner["id"],
         },
     ).json()
-    stage = client.post(
+    client.post(
         "/api/stages",
         json={
             "project_id": project["id"],
@@ -218,7 +217,7 @@ def test_empty_risk_analysis_no_crash(client: TestClient):
             "end_date": "2026-06-10",
             "deliverable": "Plan doc",
         },
-    ).json()
+    )
 
     # Run risk analysis - should not crash
     risk_response = client.post(

@@ -68,6 +68,7 @@ def _workspace_state() -> WorkspaceStateResponse:
             tasks=[
                 TaskState(
                     id="task-1",
+                    stage_id="stage-1",
                     title="Build API",
                     status="not_started",
                     priority="P0",
@@ -403,6 +404,7 @@ def _messy_workspace_state() -> WorkspaceStateResponse:
             tasks=[
                 TaskState(
                     id="task-api",
+                    stage_id="stage-1",
                     title="Build event CRUD API",
                     status="done",
                     priority="P0",
@@ -412,6 +414,7 @@ def _messy_workspace_state() -> WorkspaceStateResponse:
                 ),
                 TaskState(
                     id="task-db",
+                    stage_id="stage-1",
                     title="Design database schema",
                     status="done",
                     priority="P0",
@@ -421,6 +424,7 @@ def _messy_workspace_state() -> WorkspaceStateResponse:
                 ),
                 TaskState(
                     id="task-ui",
+                    stage_id="stage-2",
                     title="Build event list page",
                     status="in_progress",
                     priority="P0",
@@ -430,6 +434,7 @@ def _messy_workspace_state() -> WorkspaceStateResponse:
                 ),
                 TaskState(
                     id="task-auth",
+                    stage_id="stage-2",
                     title="Add login flow",
                     status="not_started",
                     priority="P1",
@@ -439,6 +444,7 @@ def _messy_workspace_state() -> WorkspaceStateResponse:
                 ),
                 TaskState(
                     id="task-e2e",
+                    stage_id="stage-2",
                     title="E2E test for registration",
                     status="not_started",
                     priority="P1",
@@ -448,6 +454,7 @@ def _messy_workspace_state() -> WorkspaceStateResponse:
                 ),
                 TaskState(
                     id="task-deploy",
+                    stage_id="stage-2",
                     title="Set up CI/CD pipeline",
                     status="blocked",
                     priority="P0",
@@ -705,3 +712,240 @@ class TestReplanWithMessyProject:
         assert isinstance(output, ReplanOutput)
         assert len(output.stage_adjustments) == 1
         assert len(output.task_changes) == 1
+
+
+# ---------------------------------------------------------------------------
+# T23.B Assignment semantic validation tests
+# ---------------------------------------------------------------------------
+
+
+def _t23b_valid_assignment_output() -> dict:
+    return {
+        "assignments": [
+            {
+                "task_id": "task-auth",
+                "recommended_owner_user_id": "u-alice",
+                "backup_owner_user_id": "u-bob",
+                "reason": "Alice has backend skills suitable for login flow.",
+                "skill_match": "技能匹配：backend",
+                "availability_match": "时间匹配：可用 10h/周",
+                "preference_match": "偏好匹配：backend",
+                "constraint_respected": "无明显冲突",
+            },
+            {
+                "task_id": "task-e2e",
+                "recommended_owner_user_id": "u-dan",
+                "backup_owner_user_id": "u-bob",
+                "reason": "Dan has testing skills and 12h/week.",
+                "skill_match": "技能匹配：testing",
+                "availability_match": "时间匹配：可用 12h/周",
+                "preference_match": "偏好匹配：testing",
+                "constraint_respected": "无明显冲突",
+            },
+        ],
+        "requires_confirmation": True,
+        "reason": "Assignments for stage-2 unassigned tasks.",
+    }
+
+
+class TestT23BAssignmentSemanticValidation:
+    def test_accepts_valid_assignment_with_eligible_tasks(self):
+        """Valid assignment for 2 unassigned tasks in active stage passes."""
+        output = validate_agent_output(
+            AgentEventType.assign,
+            _t23b_valid_assignment_output(),
+            workspace_state=_messy_workspace_state(),
+        )
+        assert isinstance(output, AssignmentRecommendationOutput)
+        assert len(output.assignments) == 2
+
+    def test_rejects_duplicate_task_id(self):
+        payload = _t23b_valid_assignment_output()
+        payload["assignments"].append(payload["assignments"][0])
+        with pytest.raises(AgentOutputValidationError) as exc_info:
+            validate_agent_output(
+                AgentEventType.assign, payload,
+                workspace_state=_messy_workspace_state(),
+            )
+        assert "duplicate task_id" in str(exc_info.value)
+
+    def test_rejects_inactive_stage_task(self):
+        """task-api is in stage-1 (done), not the active stage-2."""
+        payload = _t23b_valid_assignment_output()
+        payload["assignments"].append({
+            "task_id": "task-api",
+            "recommended_owner_user_id": "u-alice",
+            "reason": "Should fail.",
+        })
+        with pytest.raises(AgentOutputValidationError) as exc_info:
+            validate_agent_output(
+                AgentEventType.assign, payload,
+                workspace_state=_messy_workspace_state(),
+            )
+        assert "not in active stage" in str(exc_info.value)
+
+    def test_rejects_done_task(self):
+        payload = _t23b_valid_assignment_output()
+        payload["assignments"].append({
+            "task_id": "task-db",
+            "recommended_owner_user_id": "u-alice",
+            "reason": "Should fail.",
+        })
+        with pytest.raises(AgentOutputValidationError) as exc_info:
+            validate_agent_output(
+                AgentEventType.assign, payload,
+                workspace_state=_messy_workspace_state(),
+            )
+        assert "already done" in str(exc_info.value)
+
+    def test_rejects_task_with_owner(self):
+        payload = _t23b_valid_assignment_output()
+        payload["assignments"].append({
+            "task_id": "task-ui",
+            "recommended_owner_user_id": "u-bob",
+            "reason": "Should fail.",
+        })
+        with pytest.raises(AgentOutputValidationError) as exc_info:
+            validate_agent_output(
+                AgentEventType.assign, payload,
+                workspace_state=_messy_workspace_state(),
+            )
+        assert "already has owner" in str(exc_info.value)
+
+    def test_rejects_owner_equals_backup(self):
+        payload = _t23b_valid_assignment_output()
+        payload["assignments"][0]["backup_owner_user_id"] = "u-alice"
+        with pytest.raises(AgentOutputValidationError) as exc_info:
+            validate_agent_output(
+                AgentEventType.assign, payload,
+                workspace_state=_messy_workspace_state(),
+            )
+        assert "must differ" in str(exc_info.value)
+
+    def test_rejects_missing_eligible_tasks(self):
+        """Must cover all eligible tasks in active stage."""
+        payload = _t23b_valid_assignment_output()
+        # Remove task-e2e so only task-auth remains — task-e2e is also eligible
+        payload["assignments"] = [payload["assignments"][0]]
+        with pytest.raises(AgentOutputValidationError) as exc_info:
+            validate_agent_output(
+                AgentEventType.assign, payload,
+                workspace_state=_messy_workspace_state(),
+            )
+        assert "missing assignment" in str(exc_info.value)
+
+    def test_accepts_empty_assignments_when_no_eligible_tasks(self):
+        """A workspace state with all tasks blocked/done/finalized returns empty list allowed."""
+        ws = _messy_workspace_state()
+        if ws.project:
+            for t in ws.project.tasks:
+                t.status = "done"
+        output = validate_agent_output(
+            AgentEventType.assign,
+            {"assignments": [], "requires_confirmation": True, "reason": "No eligible tasks."},
+            workspace_state=ws,
+        )
+        assert isinstance(output, AssignmentRecommendationOutput)
+        assert len(output.assignments) == 0
+
+
+# ---------------------------------------------------------------------------
+# T23.B IR1 — skill name normalization
+# ---------------------------------------------------------------------------
+
+
+class TestT23BSkillNameNormalization:
+    """Skill names in user-facing text must use Chinese labels, not English underscores."""
+
+    def test_normalizes_skill_names_in_user_facing_fields(self):
+        ws = _messy_workspace_state()
+        payload = _t23b_valid_assignment_output()
+        # Inject raw English skill names
+        payload["assignments"][0]["skill_match"] = "技能匹配：ai_ml等级4、prompt_engineering等级4、backend等级3"
+        payload["assignments"][0]["availability_match"] = "时间匹配：可用 10h/周"
+        payload["assignments"][0]["reason"] = "小赵的ai_ml和prompt_engineering技能完全匹配"
+
+        output = validate_agent_output(
+            AgentEventType.assign, payload, workspace_state=ws,
+        )
+
+        assert isinstance(output, AssignmentRecommendationOutput)
+        a0 = output.assignments[0]
+        assert a0.skill_match is not None
+        assert "ai_ml" not in a0.skill_match, f"Should normalize ai_ml, got: {a0.skill_match}"
+        assert "prompt_engineering" not in a0.skill_match, f"Should normalize prompt_engineering, got: {a0.skill_match}"
+        assert "AI/ML" in a0.skill_match
+        assert "Prompt 工程" in a0.skill_match
+        assert "后端开发" in a0.skill_match
+        assert a0.reason is not None
+        assert "ai_ml" not in a0.reason
+        assert "prompt_engineering" not in a0.reason
+        assert "AI/ML" in a0.reason
+        assert "Prompt 工程" in a0.reason
+
+    def test_normalization_is_idempotent(self):
+        """Already-Chinese field should not be corrupted by normalization."""
+        ws = _messy_workspace_state()
+        payload = _t23b_valid_assignment_output()
+        payload["assignments"][0]["skill_match"] = "技能匹配：后端开发、AI/ML、Prompt 工程"
+
+        output = validate_agent_output(
+            AgentEventType.assign, payload, workspace_state=ws,
+        )
+
+        a0 = output.assignments[0]
+        assert a0.skill_match is not None
+        assert "后端开发" in a0.skill_match
+        assert "AI/ML" in a0.skill_match
+        assert "Prompt 工程" in a0.skill_match
+
+# ---------------------------------------------------------------------------
+# T23.B P0 — stage_id override validation
+# ---------------------------------------------------------------------------
+
+
+def _two_stage_workspace_state() -> WorkspaceStateResponse:
+    return WorkspaceStateResponse(
+        workspace_id='ws-stage-override',
+        workspace_name='Stage Override Team',
+        members=[
+            MemberState(user_id='user-1', display_name='Alice', skills=['backend'], available_hours_per_week=10, role_preference='backend', interests='APIs', constraints=''),
+            MemberState(user_id='user-2', display_name='Bob', skills=['frontend'], available_hours_per_week=8, role_preference='frontend', interests='UI', constraints=''),
+        ],
+        project=ProjectState(
+            id='proj-override', name='Stage Override Project', idea='Test', deadline=date(2026,6,15), status='active', current_stage_id='stage-a',
+            stages=[
+                StageState(id='stage-a', name='Active', goal='Active', status='active', order_index=0),
+                StageState(id='stage-b', name='Pending', goal='Future', status='pending', order_index=1),
+            ],
+            tasks=[
+                TaskState(id='task-a', stage_id='stage-a', title='Active task', status='not_started', priority='P0', owner_user_id=None, due_date=date(2026,6,10), can_cut=False),
+                TaskState(id='task-b', stage_id='stage-b', title='Pending task', status='not_started', priority='P1', owner_user_id=None, due_date=date(2026,6,12), can_cut=False),
+            ],
+        ),
+    )
+
+
+class TestT23BStageOverrideValidation:
+    def test_rejects_task_from_non_current_stage_by_default(self):
+        with pytest.raises(AgentOutputValidationError) as exc_info:
+            validate_agent_output(AgentEventType.assign, {'assignments':[{'task_id':'task-b','recommended_owner_user_id':'user-1','reason':'Should fail.'}],'requires_confirmation':True,'reason':'Testing.'}, workspace_state=_two_stage_workspace_state())
+        assert 'not in active stage' in str(exc_info.value)
+
+    def test_accepts_task_when_current_stage_id_is_overridden(self):
+        ws = _two_stage_workspace_state()
+        if ws.project:
+            ws.project.current_stage_id = 'stage-b'
+        output = validate_agent_output(AgentEventType.assign, {'assignments':[{'task_id':'task-b','recommended_owner_user_id':'user-1','backup_owner_user_id':'user-2','reason':'Alice has skills.'}],'requires_confirmation':True,'reason':'Override.'}, workspace_state=ws)
+        assert isinstance(output, AssignmentRecommendationOutput)
+        assert len(output.assignments) == 1
+        assert output.assignments[0].task_id == 'task-b'
+
+    def test_override_covers_all_eligible_tasks_in_target_stage(self):
+        ws = _two_stage_workspace_state()
+        if ws.project:
+            ws.project.tasks.append(TaskState(id='task-b2', stage_id='stage-b', title='Second', status='not_started', priority='P2', owner_user_id=None, due_date=date(2026,6,14), can_cut=False))
+            ws.project.current_stage_id = 'stage-b'
+        with pytest.raises(AgentOutputValidationError) as exc_info:
+            validate_agent_output(AgentEventType.assign, {'assignments':[{'task_id':'task-b','recommended_owner_user_id':'user-1','reason':'Missing.'}],'requires_confirmation':True,'reason':'Should fail.'}, workspace_state=ws)
+        assert 'missing assignment' in str(exc_info.value)

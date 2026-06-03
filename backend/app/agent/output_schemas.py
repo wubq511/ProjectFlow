@@ -11,6 +11,7 @@ from app.models.enums import (
     TaskPriority,
     TaskStatus,
 )
+from app.agent.modules.common import SKILL_NAME_CN_MAP
 from app.schemas.workspace_state import WorkspaceStateResponse
 
 
@@ -105,7 +106,7 @@ class AssignmentRecommendationItem(BaseModel):
 
 
 class AssignmentRecommendationOutput(AgentOutputBase):
-    assignments: list[AssignmentRecommendationItem] = Field(min_length=1)
+    assignments: list[AssignmentRecommendationItem] = Field(default_factory=list)
     requires_confirmation: bool = True
 
     @model_validator(mode="after")
@@ -243,6 +244,7 @@ def validate_agent_output(
         output = schema.model_validate(payload)
         if workspace_state is not None:
             _validate_references(output, workspace_state)
+            _normalize_user_facing_text(output)
         return output
     except (KeyError, ValueError, ValidationError) as exc:
         raise AgentOutputValidationError(str(exc)) from exc
@@ -266,10 +268,80 @@ def _validate_references(output: AgentOutputBase, workspace_state: WorkspaceStat
                 check(dependency_id, task_ids, "dependency_ids")
 
     if isinstance(output, AssignmentRecommendationOutput):
+        seen_task_ids: set[str] = set()
         for assignment in output.assignments:
             check(assignment.task_id, task_ids, "task_id")
             check(assignment.recommended_owner_user_id, member_ids, "recommended_owner_user_id")
             check(assignment.backup_owner_user_id, member_ids, "backup_owner_user_id")
+
+            # No duplicate task_ids
+            if assignment.task_id in seen_task_ids:
+                errors.append(f"duplicate task_id in assignments: {assignment.task_id}")
+            seen_task_ids.add(assignment.task_id)
+
+            # backup cannot equal owner
+            if assignment.backup_owner_user_id and assignment.backup_owner_user_id == assignment.recommended_owner_user_id:
+                errors.append(f"backup_owner_user_id must differ from recommended_owner_user_id for task {assignment.task_id}")
+
+        # Semantic checks against workspace_state
+        if workspace_state.project:
+            task_by_id = {t.id: t for t in workspace_state.project.tasks}
+            active_stage_id = workspace_state.project.current_stage_id
+            if not active_stage_id:
+                active = next((s for s in workspace_state.project.stages if s.status == "active"), None)
+                active_stage_id = active.id if active else None
+
+            # Collect blocked task ids from assignment proposals
+            terminal_statuses = {"finalized", "owner_confirmed", "proposed", "negotiating"}
+            blocked_task_ids = {
+                proposal.task_id
+                for proposal in workspace_state.project.assignment_proposals
+                if proposal.status in terminal_statuses
+            }
+            rejected_pairs = {
+                (proposal.task_id, proposal.recommended_owner_user_id)
+                for proposal in workspace_state.project.assignment_proposals
+                if proposal.status == "owner_rejected"
+            }
+
+            for assignment in output.assignments:
+                task = task_by_id.get(assignment.task_id)
+                if task is None:
+                    continue
+
+                # Must belong to active stage
+                if active_stage_id and task.stage_id != active_stage_id:
+                    errors.append(f"task {assignment.task_id} is not in active stage {active_stage_id}")
+
+                # Must not have owner_user_id
+                if task.owner_user_id:
+                    errors.append(f"task {assignment.task_id} already has owner {task.owner_user_id}")
+
+                # Must not be done
+                if task.status == "done":
+                    errors.append(f"task {assignment.task_id} is already done")
+
+                # Must not already have a non-rejected proposal
+                if assignment.task_id in blocked_task_ids:
+                    errors.append(f"task {assignment.task_id} already has a proposal in status finalized/owner_confirmed/proposed/negotiating")
+
+                # Must not be a previously rejected pair
+                if (assignment.task_id, assignment.recommended_owner_user_id) in rejected_pairs:
+                    errors.append(f"(task {assignment.task_id}, owner {assignment.recommended_owner_user_id}) was previously rejected")
+
+            # Must cover all eligible tasks (unless zero eligible)
+            if active_stage_id and workspace_state.project.tasks:
+                eligible_tasks = [
+                    t for t in workspace_state.project.tasks
+                    if t.stage_id == active_stage_id
+                    and t.status != "done"
+                    and not t.owner_user_id
+                    and t.id not in blocked_task_ids
+                ]
+                proposed_task_ids = {a.task_id for a in output.assignments}
+                missing = [t.id for t in eligible_tasks if t.id not in proposed_task_ids]
+                if missing:
+                    errors.append(f"missing assignment for eligible tasks: {missing}")
 
     if isinstance(output, AssignmentNegotiationOutput):
         check(output.from_user_id, member_ids, "from_user_id")
@@ -328,6 +400,32 @@ def _validate_risk_references(
         if risk.task_id and risk.task_id not in task_ids:
             errors.append(f"task_id references unknown id: {risk.task_id}")
         _validate_evidence_ids(risk.evidence, stage_ids, task_ids, errors)
+
+
+def _normalize_user_facing_text(output: AgentOutputBase) -> None:
+    """Replace English skill names with Chinese labels in assignment output fields.
+
+    LLM providers may output skill names in their raw form (ai_ml, prompt_engineering).
+    This ensures user-facing text uses Chinese labels (AI/ML, Prompt 工程).
+    """
+    if not isinstance(output, AssignmentRecommendationOutput):
+        return
+
+    for assignment in output.assignments:
+        for field_name in (
+            "skill_match",
+            "availability_match",
+            "preference_match",
+            "constraint_respected",
+            "risk_note",
+            "reason",
+        ):
+            value = getattr(assignment, field_name, None)
+            if not value or not isinstance(value, str):
+                continue
+            for eng_key, cn_label in SKILL_NAME_CN_MAP.items():
+                value = value.replace(eng_key, cn_label)
+            setattr(assignment, field_name, value)
 
 
 def _validate_evidence_ids(

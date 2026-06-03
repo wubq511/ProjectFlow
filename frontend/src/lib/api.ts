@@ -433,11 +433,15 @@ export async function listTimelineByProject(projectId: string): Promise<AgentEve
 }
 
 // --- Agent ---
-async function runAgentFlow(projectId: string, endpoint: string): Promise<AgentFlowResult> {
+async function runAgentFlow(
+  projectId: string,
+  endpoint: string,
+  extraBody?: Record<string, unknown>,
+): Promise<AgentFlowResult> {
   const project = await getProject(projectId);
   return request<AgentFlowResult>(`/agent/${endpoint}`, {
     method: "POST",
-    body: JSON.stringify({ workspace_id: project.workspace_id }),
+    body: JSON.stringify({ workspace_id: project.workspace_id, ...extraBody }),
   });
 }
 
@@ -453,8 +457,8 @@ export async function runBreakdown(projectId: string): Promise<AgentFlowResult> 
   return runAgentFlow(projectId, "breakdown");
 }
 
-export async function runAssignment(projectId: string): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "assign");
+export async function runAssignment(projectId: string, stageId?: string): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "assign", stageId ? { stage_id: stageId } : undefined);
 }
 
 export async function runActivePush(projectId: string): Promise<AgentFlowResult> {
@@ -471,6 +475,10 @@ export async function runRiskAnalysis(projectId: string): Promise<AgentFlowResul
 
 export async function runReplan(projectId: string): Promise<AgentFlowResult> {
   return runAgentFlow(projectId, "replan");
+}
+
+export async function runAgentNegotiate(projectId: string): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "negotiate");
 }
 
 // --- Confirmation ---
@@ -517,16 +525,12 @@ export async function startNegotiation(
   fromUserId: string,
   desiredTaskId: string,
 ): Promise<AssignmentNegotiation> {
-  const proposal = await request<AssignmentProposal>(`/assignment-proposals/${proposalId}`);
-  return request<AssignmentNegotiation>("/assignment-negotiations", {
+  // POST to the new backend endpoint which generates a readable agent_message
+  return request<AssignmentNegotiation>(`/assignment-proposals/${proposalId}/negotiations`, {
     method: "POST",
     body: JSON.stringify({
-      project_id: projectId,
-      stage_id: proposal.stage_id,
       from_user_id: fromUserId,
       desired_task_id: desiredTaskId,
-      current_owner_user_id: proposal.recommended_owner_user_id,
-      agent_message: `成员 ${fromUserId} 拒绝分工 ${proposalId} 后，希望改做 ${desiredTaskId}。`,
     }),
   });
 }

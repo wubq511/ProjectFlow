@@ -1,16 +1,12 @@
 """LLM provider diagnostic service — verify connectivity without exposing secrets."""
 
 from app.agent.llm_client import (
-    LLMClientSettings,
-    LLMConfigurationError,
     LLMConnectionError,
     LLMError,
     LLMAuthError,
     LLMResponseError,
     LLMTimeoutError,
-    MockLLMClient,
     OpenAICompatibleLLMClient,
-    build_llm_client,
 )
 from app.core.config import settings as app_settings
 from app.schemas.llm import LLMDiagnosticRequest, LLMDiagnosticResponse

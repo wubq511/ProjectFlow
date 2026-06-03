@@ -31,8 +31,13 @@ class CoordinatorAgent:
     def generate_task_breakdown(self, workspace_state: WorkspaceStateResponse) -> AgentRunResult:
         return self._run(workspace_state, breakdown.build_request(workspace_state))
 
-    def recommend_assignments(self, workspace_state: WorkspaceStateResponse) -> AgentRunResult:
-        return self._run(workspace_state, assignment_recommendation.build_request(workspace_state))
+    def recommend_assignments(self, workspace_state: WorkspaceStateResponse, *, stage_id: str | None = None) -> AgentRunResult:
+        # When targeting a non-active stage, override current_stage_id on a copy
+        # so that validate_agent_output enforces rules against the correct stage.
+        if stage_id and workspace_state.project:
+            workspace_state = workspace_state.model_copy(deep=True)
+            workspace_state.project.current_stage_id = stage_id
+        return self._run(workspace_state, assignment_recommendation.build_request(workspace_state, stage_id=stage_id))
 
     def negotiate_assignment(self, workspace_state: WorkspaceStateResponse) -> AgentRunResult:
         return self._run(workspace_state, assignment_negotiation.build_request(workspace_state))

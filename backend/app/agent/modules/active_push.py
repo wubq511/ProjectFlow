@@ -6,10 +6,7 @@ from app.schemas.workspace_state import WorkspaceStateResponse
 def build_request(workspace_state: WorkspaceStateResponse) -> AgentModuleRequest:
     fallback_member = workspace_state.members[0] if workspace_state.members else None
     fallback_member_name = fallback_member.display_name if fallback_member else "team"
-    fallback_stage = None
     fallback_task_title = "next task"
-    if workspace_state.project and workspace_state.project.stages:
-        fallback_stage = workspace_state.project.stages[0]
     if workspace_state.project and workspace_state.project.tasks:
         for t in workspace_state.project.tasks:
             if t.status != "done":
@@ -48,7 +45,7 @@ def build_request(workspace_state: WorkspaceStateResponse) -> AgentModuleRequest
                 {
                     "type": "team_next_step",
                     "title": f"Confirm next action: {fallback_task_title}",
-                    "content": f"Pick the smallest useful next step for the active stage.",
+                    "content": "Pick the smallest useful next step for the active stage.",
                     "reason": f"Fallback: {fallback_member_name} should take the next actionable step.",
                     "goal": f"Advance {fallback_task_title} to in_progress",
                     "start_suggestion": f"Start working on {fallback_task_title}",

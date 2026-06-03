@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date
 from pydantic import BaseModel, Field
 
 
@@ -60,6 +60,33 @@ class CheckInResponseState(BaseModel):
     mood_or_confidence: str | None = None
 
 
+class AssignmentProposalState(BaseModel):
+    id: str
+    stage_id: str
+    task_id: str
+    recommended_owner_user_id: str
+    backup_owner_user_id: str | None = None
+    status: str
+
+
+class AssignmentResponseState(BaseModel):
+    id: str
+    proposal_id: str
+    user_id: str
+    response: str
+    preferred_task_id: str | None = None
+    reason: str | None = None
+
+
+class AssignmentNegotiationState(BaseModel):
+    id: str
+    stage_id: str
+    from_user_id: str
+    desired_task_id: str
+    current_owner_user_id: str | None = None
+    status: str
+
+
 class ProjectState(BaseModel):
     id: str
     name: str
@@ -73,6 +100,9 @@ class ProjectState(BaseModel):
     tasks: list[TaskState]
     checkin_cycles: list[CheckInCycleState] = Field(default_factory=list)
     checkin_responses: list[CheckInResponseState] = Field(default_factory=list)
+    assignment_proposals: list[AssignmentProposalState] = Field(default_factory=list)
+    assignment_responses: list[AssignmentResponseState] = Field(default_factory=list)
+    assignment_negotiations: list[AssignmentNegotiationState] = Field(default_factory=list)
 
 
 class WorkspaceStateResponse(BaseModel):

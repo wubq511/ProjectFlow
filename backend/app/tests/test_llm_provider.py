@@ -258,6 +258,13 @@ class TestOpenAICompatibleClientErrors:
 
 
 class TestLLMDiagnostic:
+    def test_test_settings_do_not_load_real_env_key(self):
+        """Pytest conftest sets LLM_API_KEY='' so real .env key is never loaded."""
+        if app_settings.llm_api_key is None:
+            return
+        val = app_settings.llm_api_key.get_secret_value()
+        assert val == "", f"LLM_API_KEY must be empty in tests, got: {val[:8] if val else 'empty'}..."
+
     def test_mock_provider_returns_mock_status(self):
         result = run_diagnostic()
         assert result.status == "mock"

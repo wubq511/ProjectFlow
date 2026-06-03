@@ -70,4 +70,18 @@ describe("AppShell user switcher", () => {
     expect(screen.getByRole("button", { name: /Mia/ })).toBeTruthy();
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
+
+  it("falls back to a valid workspace member when stored user is stale", () => {
+    localStorage.setItem("projectflow:current-user-id", "user-deleted");
+
+    render(
+      <AppShell>
+        <div>Dashboard</div>
+      </AppShell>,
+    );
+
+    expect(screen.getByRole("button", { name: /Lin/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /选择身份/ })).toBeNull();
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
 });

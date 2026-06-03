@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
 from app.core.database import get_session
-from app.models.enums import WorkspaceRole
 from app.schemas.workspace import (
     AddMemberRequest,
     WorkspaceCreate,

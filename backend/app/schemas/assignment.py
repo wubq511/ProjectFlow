@@ -69,6 +69,16 @@ class AssignmentNegotiationCreate(BaseModel):
     agent_message: NonEmptyStr
 
 
+class AssignmentNegotiationFromProposalCreate(BaseModel):
+    """Request schema for creating a negotiation directly from a proposal rejection.
+
+    The backend uses the proposal context to generate a user-readable agent_message
+    with member display names and task titles instead of raw IDs.
+    """
+    from_user_id: NonEmptyStr
+    desired_task_id: NonEmptyStr
+
+
 class AssignmentNegotiationRead(BaseModel):
     id: str
     project_id: str

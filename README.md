@@ -4,7 +4,7 @@ ProjectFlow is a local-first active project agent MVP for college project teams.
 
 ## Current Status
 
-All MVP phases and MVP Usable tasks complete. Phase 24 (Agent Output Quality + Bug Fixes) complete (2026-06-03). Phase 19 (Agent Prompt Refactor), Phase 20 (Workspace Member Management), Phase 21 (Test Docs + User Switcher), and Phase 22 (T23.A Feedback Fixes) complete through 2026-06-02.
+All MVP phases and MVP Usable tasks complete. Phase 24 (Agent Output Quality + Bug Fixes) and Phase 25 (T23.D Feedback Fixes) complete (2026-06-03). Phase 26 (T23.B Round 2 Fixes: skill name normalization, JSON strictness, negotiate endpoint, stage override, negotiation context, stage_id validation threading) complete (2026-06-03).
 
 - Phase 0 / GitHub #2 — Guardrails & Setup
 - Phase 1 / GitHub #3 — Account / Workspace / Member Profile
@@ -25,7 +25,7 @@ All MVP phases and MVP Usable tasks complete. Phase 24 (Agent Output Quality + B
 - Phase 22 — T23.A Feedback Fixes (2026-06-02)
 - Phase 25 — T23.D Feedback Fixes (2026-06-03)
 
-Implemented: FastAPI backend (70 endpoint method/path pairs, 19 persistence tables/domain models), agent infrastructure with mock/OpenAI-compatible provider diagnostics, confirm-to-persist `AgentProposal` flow including replan proposals, seed/reset/export, Next.js frontend (7 routes, project resources panel, user identity switcher), 182 backend tests passing, 15 frontend tests passing, frontend lint+build clean.
+Implemented: FastAPI backend (70 endpoint method/path pairs, 19 persistence tables/domain models), agent infrastructure with mock/OpenAI-compatible provider diagnostics, confirm-to-persist `AgentProposal` flow including replan proposals, seed/reset/export, Next.js frontend (7 routes, project resources panel, user identity switcher), 218 backend tests passing, 24 frontend tests passing, frontend lint+build clean.
 
 ## Stack
 

@@ -220,7 +220,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       ]
     : baseNavItems;
 
-  const currentMember = members.find((m) => m.user_id === storedUserId);
+  const currentMember = members.find((m) => m.user_id === storedUserId) ?? members[0];
+  const activeUserId = currentMember?.user_id ?? null;
 
   return (
     <div className="min-h-screen bg-paper text-ink">
@@ -267,11 +268,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       onClick={() => setCurrentUserId(member.user_id)}
                       className={cn(
                         "cursor-pointer text-sm",
-                        member.user_id === storedUserId && "font-semibold text-moss",
+                        member.user_id === activeUserId && "font-semibold text-moss",
                       )}
                     >
                       {member.display_name}
-                      {member.user_id === storedUserId && " ✓"}
+                      {member.user_id === activeUserId && " ✓"}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>

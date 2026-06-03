@@ -76,6 +76,12 @@ LLM_AGENT_TIMEOUT_SECONDS=120.0
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
+Windows PowerShell 如果已经在本仓库工作区，建议直接固定使用项目虚拟环境解释器，避免系统 Python 与 `.venv` 包混用：
+
+```powershell
+D:\ProjectFlow\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+```
+
 首次启动会自动创建 `backend/data/projectflow.sqlite` 数据库文件。
 
 ### 2.4 验证后端
@@ -122,9 +128,10 @@ npm run dev -- --port 3001
 ```bash
 cd backend
 .venv\Scripts\python -m pytest app/tests/ -v
+.venv\Scripts\python -m ruff check app
 ```
 
-预期：166 个测试全部通过。
+预期：后端测试全部通过，ruff 无问题。当前测试基线为 `218 passed`。
 
 ### 前端验证
 
@@ -135,7 +142,7 @@ npm run lint
 npm run build
 ```
 
-预期：13 个测试通过，lint 无错误，build 成功。
+预期：24 个测试通过，lint 无错误，build 成功。`npm run test` / `npm run lint` / `npm run build` 会先或后归一 `next-env.d.ts`，避免 Next.js dev/build 类型路径切换污染 git diff。
 
 ## 第五步：加载演示数据
 
@@ -290,6 +297,12 @@ Ctrl+C 停止后端，重新运行：
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
+Windows PowerShell 可直接使用项目虚拟环境解释器：
+
+```powershell
+D:\ProjectFlow\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+```
+
 ### 7.4 验证 LLM 连通性
 
 ```bash
@@ -375,6 +388,7 @@ cd backend
 .venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 .venv\Scripts\python -m pytest app/tests/ -v
+.venv\Scripts\python -m ruff check app
 ```
 
 ### 前端 build 失败

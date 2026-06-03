@@ -1,8 +1,7 @@
 """Smoke tests: verify all domain model tables can be created, inserted, and read."""
 import json
-import os
 import uuid
-from datetime import date, datetime
+from datetime import date
 
 import pytest
 from sqlmodel import SQLModel, Session, create_engine

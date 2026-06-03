@@ -1,4 +1,3 @@
-import pytest
 from fastapi.testclient import TestClient
 
 
@@ -66,6 +65,10 @@ def _create_agent_fixture(client: TestClient):
 def test_agent_endpoints_exist_and_persist_execution_proposals(client: TestClient):
     workspace, project, stage, task = _create_agent_fixture(client)
 
+    # Activate the stage so the assignment fallback has a valid active stage
+    client.patch(f"/api/stages/{stage['id']}", json={"status": "active"})
+    client.patch(f"/api/projects/{project['id']}", json={"current_stage_id": stage["id"]})
+
     for path in [
         "/api/agent/clarify",
         "/api/agent/plan",
@@ -80,7 +83,7 @@ def test_agent_endpoints_exist_and_persist_execution_proposals(client: TestClien
 
     assignment_response = client.post("/api/agent/assign", json={"workspace_id": workspace["id"]})
     assert assignment_response.status_code == 200
-    assert assignment_response.json()["created_ids"]
+    assert assignment_response.json()["created_ids"], f"Assign output: {assignment_response.json()}"
 
     proposals = client.get(f"/api/projects/{project['id']}/assignment-proposals").json()
     assert proposals[0]["task_id"] == task["id"]
@@ -102,3 +105,8 @@ def test_agent_endpoints_exist_and_persist_execution_proposals(client: TestClien
     assert "before" in replan_output["output"]
     assert "after" in replan_output["output"]
     assert "impact" in replan_output["output"]
+
+    negotiate_response = client.post("/api/agent/negotiate", json={"workspace_id": workspace["id"]})
+    assert negotiate_response.status_code == 200
+    assert negotiate_response.json()["event_type"] == "negotiate"
+    assert negotiate_response.json()["output"]["reason"]

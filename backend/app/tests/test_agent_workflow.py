@@ -1,14 +1,12 @@
 import json
 from datetime import date
 
-import json
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.agent.llm_client import (
     LLMAuthError,
     LLMClientSettings,
-    LLMConfigurationError,
     LLMTimeoutError,
     MockLLMClient,
     OpenAICompatibleLLMClient,
