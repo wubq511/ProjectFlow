@@ -4,6 +4,7 @@ import { Suspense, use } from "react";
 import { Loader2, AlertTriangle } from "lucide-react";
 
 import { MemberProfileWizard } from "@/components/onboarding/member-profile-wizard";
+import { StepIndicator } from "@/components/ui/step-indicator";
 
 interface ProfilePageProps {
   searchParams: Promise<{ userId?: string; workspaceId?: string }>;
@@ -39,17 +40,16 @@ function ProfileContent({ searchParams }: ProfilePageProps) {
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-5 py-12">
-        <header className="mb-8 text-center">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-moss">
-            ProjectFlow
-          </p>
-          <h1 className="font-display mt-2 text-3xl font-black leading-tight">
-            成员资料
-          </h1>
-          <p className="mt-2 text-sm text-ink/60">
-            补充技能、时间和限制，帮助 Agent 给出更可靠的分工建议。
-          </p>
-        </header>
+        <StepIndicator
+          steps={[
+            { label: "选择身份", description: "创建新账号或选择现有用户" },
+            { label: "创建工作区", description: "设置团队空间" },
+            { label: "完善资料", description: "补充个人信息" },
+            { label: "新建项目", description: "开始第一个项目" },
+          ]}
+          currentStep={2}
+          className="mb-8"
+        />
         <MemberProfileWizard userId={userId} workspaceId={workspaceId} />
       </div>
     </main>

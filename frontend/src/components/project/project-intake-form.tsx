@@ -11,6 +11,7 @@ import {
   Trophy,
   Rocket,
   FlaskConical,
+  CalendarIcon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -303,19 +304,22 @@ export function ProjectIntakeForm({
               />
             </FormField>
             <FormField label="截止日期" required error={errors.deadline}>
-              <Input
-                type="date"
-                value={deadline}
-                onChange={(e) => {
-                  setDeadline(e.target.value)
-                  if (touched.deadline) validateField("deadline", e.target.value)
-                }}
-                onBlur={() => {
-                  setTouched((prev) => ({ ...prev, deadline: true }))
-                  validateField("deadline", deadline)
-                }}
-                className={cn("h-10", errors.deadline && "border-destructive")}
-              />
+              <div className="relative">
+                <Input
+                  type="date"
+                  value={deadline}
+                  onChange={(e) => {
+                    setDeadline(e.target.value)
+                    if (touched.deadline) validateField("deadline", e.target.value)
+                  }}
+                  onBlur={() => {
+                    setTouched((prev) => ({ ...prev, deadline: true }))
+                    validateField("deadline", deadline)
+                  }}
+                  className={cn("h-10 pr-10", errors.deadline && "border-destructive")}
+                />
+                <CalendarIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
             </FormField>
           </div>
           <FormField

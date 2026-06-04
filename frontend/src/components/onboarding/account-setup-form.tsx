@@ -16,7 +16,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { FormField } from "@/components/ui/form-field"
-import { StepIndicator } from "@/components/ui/step-indicator"
 import { cn } from "@/lib/utils"
 import { useRouter } from "next/navigation"
 import { createUser, listUsers } from "@/lib/api"
@@ -33,12 +32,7 @@ export function AccountSetupForm() {
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [showAllUsers, setShowAllUsers] = React.useState(false)
 
-  const steps = [
-    { label: "选择身份", description: "创建新账号或选择现有用户" },
-    { label: "创建工作区", description: "设置团队空间" },
-    { label: "完善资料", description: "补充个人信息" },
-    { label: "新建项目", description: "开始第一个项目" },
-  ]
+
 
   React.useEffect(() => {
     let ignore = false;
@@ -139,11 +133,7 @@ export function AccountSetupForm() {
       animate={{ opacity: 1, y: 0 }}
       className="mx-auto max-w-lg space-y-6 p-4"
     >
-      <StepIndicator
-        steps={steps}
-        currentStep={0}
-      />
-      <div>
+      <div className="mb-6">
         <h2 className="flex items-center gap-2 text-2xl font-bold">
           <UserPlus className="h-6 w-6 text-primary" />
           创建账号

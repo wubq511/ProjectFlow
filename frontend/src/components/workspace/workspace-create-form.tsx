@@ -17,7 +17,6 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { createWorkspace } from "@/lib/api"
 import type { Workspace } from "@/lib/types"
-import { StepIndicator } from "@/components/ui/step-indicator"
 import { FormField } from "@/components/ui/form-field"
 import { cn } from "@/lib/utils"
 
@@ -66,7 +65,6 @@ export function WorkspaceCreateForm({
     if (s === 0) {
       if (!name.trim()) newErrors.name = "请输入工作区名称"
       else if (name.trim().length < 2) newErrors.name = "至少 2 个字符"
-      if (!ownerId.trim()) newErrors.ownerId = "请输入所有者 ID"
     }
     if (s === 1) {
       if (!teamSize) newErrors.teamSize = "请选择团队规模"
@@ -74,7 +72,7 @@ export function WorkspaceCreateForm({
     }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
-  }, [name, ownerId, teamSize, useCase])
+  }, [name, teamSize, useCase])
 
   const validateField = React.useCallback((field: string, value: string) => {
     const newErrors: Record<string, string> = {}
@@ -130,8 +128,6 @@ export function WorkspaceCreateForm({
         </p>
       </div>
 
-      <StepIndicator steps={steps} currentStep={step} />
-
       <form onSubmit={handleSubmit} className="space-y-4">
         {step === 0 && (
           <div className="space-y-4">
@@ -160,7 +156,7 @@ export function WorkspaceCreateForm({
               />
             </FormField>
             {!ownerUserId && (
-              <FormField label="所有者 ID" required error={errors.ownerId}>
+              <FormField label="所有者 ID" error={errors.ownerId}>
                 <Input
                   value={ownerId}
                   onChange={(e) => {
@@ -171,7 +167,7 @@ export function WorkspaceCreateForm({
                     setTouched((prev) => ({ ...prev, ownerId: true }))
                     validateField("ownerId", ownerId)
                   }}
-                  placeholder="UUID of the team lead"
+                  placeholder="选填，默认使用当前用户"
                   className={cn("h-10", errors.ownerId && "border-destructive")}
                 />
               </FormField>

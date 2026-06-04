@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Loader2 } from "lucide-react";
 
 import { AccountSetupForm } from "@/components/onboarding/account-setup-form";
+import { StepIndicator } from "@/components/ui/step-indicator";
 
 function LoadingFallback() {
   return (
@@ -18,17 +19,16 @@ export default function OnboardingPage() {
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-5 py-12">
-        <header className="mb-8 text-center">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-moss">
-            ProjectFlow
-          </p>
-          <h1 className="font-display mt-2 text-3xl font-black leading-tight">
-            账号设置
-          </h1>
-          <p className="mt-2 text-sm text-ink/60">
-            创建或选择一个演示身份开始使用。
-          </p>
-        </header>
+        <StepIndicator
+          steps={[
+            { label: "选择身份", description: "创建新账号或选择现有用户" },
+            { label: "创建工作区", description: "设置团队空间" },
+            { label: "完善资料", description: "补充个人信息" },
+            { label: "新建项目", description: "开始第一个项目" },
+          ]}
+          currentStep={0}
+          className="mb-8"
+        />
         <Suspense fallback={<LoadingFallback />}>
           <AccountSetupForm />
         </Suspense>

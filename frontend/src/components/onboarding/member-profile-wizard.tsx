@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { upsertMemberProfile } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { Skill } from "@/lib/types"
@@ -38,7 +39,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { StepIndicator } from "@/components/ui/step-indicator"
 import { CompletionBar } from "@/components/ui/completion-bar"
 import { FormField } from "@/components/ui/form-field"
 import { TagInput } from "@/components/ui/tag-input"
@@ -83,6 +83,7 @@ export function MemberProfileWizard({
   userId,
   workspaceId,
 }: MemberProfileWizardProps) {
+  const router = useRouter()
   const [currentStep, setCurrentStep] = React.useState(0)
 
   // Step 1: Basic Info
@@ -108,11 +109,7 @@ export function MemberProfileWizard({
   const [errorMessage, setErrorMessage] = React.useState("")
   const [errors, setErrors] = React.useState<Record<string, string>>({})
 
-  const steps = [
-    { label: "基本信息", description: "姓名、角色、专业" },
-    { label: "技能经验", description: "技能和过往项目" },
-    { label: "可用时间", description: "每周投入时间" },
-  ]
+
 
   // Completion calculation
   const completion = React.useMemo(() => {
@@ -215,6 +212,10 @@ export function MemberProfileWizard({
     setErrorMessage("")
   }
 
+  const handleSkip = () => {
+    router.push(`/workspaces/${workspaceId}`)
+  }
+
   // --- Success state ---
   if (submitState === "success") {
     return (
@@ -245,13 +246,22 @@ export function MemberProfileWizard({
                 ))}
               </div>
             </div>
-            <Link
-              href={`/workspaces/${workspaceId}`}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-bold text-primary-foreground transition hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              进入工作台
-              <ArrowRight className="h-4 w-4" />
-            </Link>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Link
+                href={`/workspaces/${workspaceId}`}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-bold text-primary-foreground transition hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                进入工作台
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                href={`/projects/new?workspaceId=${workspaceId}&createdBy=${userId}`}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border-2 border-primary px-5 py-3 text-sm font-bold text-primary transition hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                新建项目
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
           </CardContent>
         </Card>
       </motion.div>
@@ -308,6 +318,9 @@ export function MemberProfileWizard({
               setName(e.target.value)
               if (errors.name) setErrors((prev) => ({ ...prev, name: "" }))
             }}
+            onBlur={() => {
+              if (!name.trim()) setErrors((prev) => ({ ...prev, name: "请输入姓名" }))
+            }}
             placeholder="你的姓名"
             className="h-10"
           />
@@ -318,6 +331,9 @@ export function MemberProfileWizard({
             onChange={(e) => {
               setRolePreference(e.target.value)
               if (errors.role) setErrors((prev) => ({ ...prev, role: "" }))
+            }}
+            onBlur={() => {
+              if (!rolePreference.trim()) setErrors((prev) => ({ ...prev, role: "请输入角色偏好" }))
             }}
             placeholder="例如：前端开发、产品经理"
             className="h-10"
@@ -517,6 +533,9 @@ export function MemberProfileWizard({
               setPreferredTime(e.target.value)
               if (errors.time) setErrors((prev) => ({ ...prev, time: "" }))
             }}
+            onBlur={() => {
+              if (!preferredTime.trim()) setErrors((prev) => ({ ...prev, time: "请输入偏好工作时段" }))
+            }}
             placeholder="例如：晚上 8-11 点、周末下午"
             className="h-10"
           />
@@ -565,8 +584,6 @@ export function MemberProfileWizard({
         </p>
       </div>
 
-      <StepIndicator steps={steps} currentStep={currentStep} />
-
       <AnimatePresence mode="wait">
         <motion.div
           key={currentStep}
@@ -593,28 +610,38 @@ export function MemberProfileWizard({
         </Button>
 
         {currentStep < steps.length - 1 ? (
-          <Button onClick={goNext} className="gap-2">
-            下一步
-            <ArrowRight className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={handleSkip} className="text-muted-foreground">
+              跳过，稍后完善
+            </Button>
+            <Button onClick={goNext} className="gap-2">
+              下一步
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          </div>
         ) : (
-          <Button
-            onClick={handleSubmit}
-            disabled={submitState === "loading"}
-            className="gap-2"
-          >
-            {submitState === "loading" ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                保存中...
-              </>
-            ) : (
-              <>
-                提交资料
-                <CheckCircle2 className="h-4 w-4" />
-              </>
-            )}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={handleSkip} className="text-muted-foreground">
+              跳过，稍后完善
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={submitState === "loading"}
+              className="gap-2"
+            >
+              {submitState === "loading" ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  保存中...
+                </>
+              ) : (
+                <>
+                  提交资料
+                  <CheckCircle2 className="h-4 w-4" />
+                </>
+              )}
+            </Button>
+          </div>
         )}
       </div>
     </div>

@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { WorkspaceCreateForm } from "@/components/workspace/workspace-create-form";
 import { InviteMemberPanel } from "@/components/workspace/invite-member-panel";
 import { Separator } from "@/components/ui/separator";
+import { StepIndicator } from "@/components/ui/step-indicator";
 import { useState } from "react";
 import type { Workspace } from "@/lib/types";
 
@@ -16,13 +17,16 @@ function WorkspaceNewContent() {
 
   return (
     <div className="mx-auto max-w-lg px-5 py-12">
-      <header className="mb-8 text-center">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-moss">ProjectFlow</p>
-        <h1 className="font-display mt-2 text-3xl font-black leading-tight">新建工作区</h1>
-        <p className="mt-2 text-sm text-ink/60">
-          创建团队工作区并邀请成员。
-        </p>
-      </header>
+      <StepIndicator
+        steps={[
+          { label: "选择身份", description: "创建新账号或选择现有用户" },
+          { label: "创建工作区", description: "设置团队空间" },
+          { label: "完善资料", description: "补充个人信息" },
+          { label: "新建项目", description: "开始第一个项目" },
+        ]}
+        currentStep={1}
+        className="mb-8"
+      />
 
       <div className="space-y-6">
         <WorkspaceCreateForm

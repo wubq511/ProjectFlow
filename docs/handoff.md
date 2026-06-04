@@ -29,6 +29,30 @@ GitHub issue #21 (Real-Provider Verification and MVP Usable Runbook) is complete
 - Documentation aligned: T23.B.md seed counts, handoff, runbook, CLAUDE.md, AGENTS.md, README.md updated. Phase 26 recorded.
 - Test baseline: 218 backend / 24 frontend.
 
+### Phase 31 — Onboarding Flow Critique Fixes (2026-06-04)
+
+Applied `$impeccable` critique fixes to the onboarding flow (homepage → workspace → profile → project).
+
+**Step indicator unification:**
+- Added persistent 4-step `StepIndicator` to all onboarding pages: `onboarding/page.tsx`, `workspaces/new/page.tsx`, `onboarding/profile/page.tsx`, `projects/new/page.tsx`.
+- Removed duplicate inner `StepIndicator` from `AccountSetupForm`, `WorkspaceCreateForm`, `MemberProfileWizard` to avoid double-rendering.
+
+**Visual noise reduction:**
+- Replaced uppercase eyebrow `text-xs font-bold uppercase tracking-[0.18em]` with `text-sm font-medium` on all 4 onboarding page headers.
+
+**Profile wizard UX:**
+- Added "跳过，稍后完善" skip button on every step of `MemberProfileWizard`; jumps directly to workspace dashboard.
+- Success state now offers both "进入工作台" and "新建项目" actions.
+
+**Form validation hardening:**
+- Standardized blur validation across `MemberProfileWizard` (name, rolePreference, preferredTime).
+- Made "所有者 ID" optional in `WorkspaceCreateForm` (placeholder: "选填，默认使用当前用户"), removing raw UUID exposure.
+
+**Date picker clarity:**
+- Added `CalendarIcon` to project intake deadline field for better affordance.
+
+---
+
 ### Phase 28 — Frontend Redesign Migration (2026-06-04)
 
 Migrated frontend visual and layout foundation from `ProjectFlow_Frontend_Redesign` reference repo while preserving all existing backend-backed MVP flows.
