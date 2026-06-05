@@ -31,6 +31,41 @@ Frontend UX improvements for onboarding and member management forms.
 
 **Files modified:** `frontend/src/components/member/member-management-dialog.tsx`, `frontend/src/components/onboarding/member-profile-wizard.tsx`.
 
+### Phase 36 — File Upload, Resource Management & Project Deletion (2026-06-06)
+
+Full resource lifecycle management with file upload support and project deletion.
+
+**Changes:**
+
+**File Upload:**
+- New `POST /api/uploads` endpoint accepting `multipart/form-data`, requires `python-multipart`.
+- Uploaded files stored in `backend/data/uploads/` with UUID-based filenames, server returns absolute `saved_path`.
+- Frontend `uploadFile()` in `api.ts` sends `FormData`; file-input components in `resource-input-panel.tsx` and `project-resources-panel.tsx` auto-upload on selection and store returned path.
+- Agent `_read_resource_file()` in `prompts.py` reads uploaded file content (up to 8000 bytes) via absolute path and includes it as resource `summary` for clarify/plan/breakdown.
+
+**Resource Management:**
+- New `DELETE /api/resources/{resource_id}` — deletes resource record and removes uploaded file from disk (only for files under `uploads/` directory, not externally-referenced paths).
+- Resource `title` field auto-fallback: empty string → file name → URL → "未命名资源".
+- Resource schema validator converts empty strings to `None` for optional fields (`content_text`, `file_name`, `url`), preventing 422 errors from frontend form submissions.
+- Project overview resource panel now supports file upload via "选择文件" button + delete via hover-X button.
+- New-project dialog resource panel (collapsible form) supports file upload, auto-fills title from original filename.
+- New-project dialog width increased to full-screen (`!max-w-none w-[45vw]`).
+
+**Project Deletion:**
+- New `DELETE /api/projects/{project_id}` endpoint — cascading delete of all child data (stages, tasks, assignments, check-ins, risks, action cards, agent events, agent proposals, resources).
+- Frontend project list in workspace-content shows delete button (trash icon) on hover, with confirmation step.
+- Deleted projects also remove associated uploaded files from disk.
+
+**Agent File Reading:**
+- `_read_resource_file()` searches absolute path first, then falls back to `backend/data/uploads/` and `D:\ProjectFlow_Agent` directories by base filename.
+- File content injected as resource `summary` (limited to 8000 bytes) when `content_text` is empty.
+
+**Other Fixes:**
+- `ProjectResourcesPanel` select dropdown now closes on page scroll to prevent floating popover in dialog.
+- Resource form confirms trigger auto-title fill when title is empty.
+
+**Files modified:** `backend/app/api/routes_resources.py`, `backend/app/api/routes_uploads.py` (new), `backend/app/api/routes_projects.py`, `backend/app/services/resource_service.py`, `backend/app/services/project_service.py`, `backend/app/schemas/resource.py`, `backend/app/agent/prompts.py`, `backend/app/main.py`, `frontend/src/lib/api.ts`, `frontend/src/components/project/resource-input-panel.tsx`, `frontend/src/components/project/project-resources-panel.tsx`, `frontend/src/components/project/new-project-dialog.tsx`, `frontend/src/components/project/workspace-content.tsx`, `frontend/src/components/project/project-intake-form.tsx`, `frontend/src/components/project/project-content.tsx`, `frontend/src/components/project/workspace-layout.tsx`, `frontend/src/app/workspaces/[workspaceId]/page.tsx`, `frontend/src/components/ui/select.tsx`.
+
 ### Phase 29 — Agent Output Quality & Reliability Hardening (2026-06-05)
 
 - WorkspaceState now includes `current_date`, `current_datetime`, and `timezone`; prompts inject them inside `<time_info>` so Agent runs can reason about deadlines and cycles against the current date.

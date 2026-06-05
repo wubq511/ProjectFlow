@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Users,
@@ -11,6 +11,7 @@ import {
   Archive,
   TriangleAlert,
   Search,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,7 +21,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { MemberManagementDialog } from "@/components/member/member-management-dialog";
 import { NewProjectDialog } from "./new-project-dialog";
-import type { ProjectState, WorkspaceState } from "@/lib/types";
+import { deleteProject } from "@/lib/api";
+import type { ProjectState, WorkspaceState, Project } from "@/lib/types";
 
 const statusLabelMap: Record<string, string> = {
   draft: "草稿",
@@ -88,22 +90,43 @@ interface WorkspaceContentProps {
 }
 
 export function WorkspaceContent({ state, currentUserId, onNavigateToProject }: WorkspaceContentProps) {
-  const [memberMgmtOpen, setMemberMgmtOpen] = useState(false);
-  const [newProjectOpen, setNewProjectOpen] = useState(false);
-  const [memberSearch, setMemberSearch] = useState("");
-  const [projectSearch, setProjectSearch] = useState("");
-
   const workspace = state.workspace;
   const memberships = state.memberships ?? [];
   const projects = state.projects ?? [];
   const members = state.members;
   const profiles = state.member_profiles;
 
-  const activeProjects = projects.filter((p) => p.status === "active");
-  const completedProjects = projects.filter((p) => p.status === "completed");
+  const [memberMgmtOpen, setMemberMgmtOpen] = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [memberSearch, setMemberSearch] = useState("");
+  const [projectSearch, setProjectSearch] = useState("");
+  const [localProjects, setLocalProjects] = useState(projects);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Sync local projects when state changes
+  React.useEffect(() => {
+    setLocalProjects(projects);
+  }, [projects]);
+
+  const activeProjects = localProjects.filter((p) => p.status === "active");
+  const completedProjects = localProjects.filter((p) => p.status === "completed");
 
   const currentMembership = memberships.find((m) => m.user_id === currentUserId);
   const isOwner = currentMembership?.role === "owner";
+
+  const handleDeleteProject = async (projectId: string) => {
+    setDeleting(true);
+    try {
+      await deleteProject(projectId);
+      setLocalProjects((prev) => prev.filter((p) => p.id !== projectId));
+      setDeleteConfirmId(null);
+    } catch {
+      // keep confirmation open on error
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const filteredMemberships = memberships.filter((m) => {
     const user = members.find((u) => u.user_id === m.user_id);
@@ -117,7 +140,7 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject }: 
     );
   });
 
-  const filteredProjects = projects.filter((p) => {
+  const filteredProjects = localProjects.filter((p) => {
     const query = projectSearch.trim().toLowerCase();
     if (!query) return true;
     return p.name.toLowerCase().includes(query);
@@ -288,7 +311,7 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject }: 
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 pt-4">
-            {projects.length > 0 && (
+            {localProjects.length > 0 && (
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
                 <Input
@@ -299,7 +322,7 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject }: 
                 />
               </div>
             )}
-            {projects.length === 0 ? (
+            {localProjects.length === 0 ? (
               <EmptyState
                 icon={
                   <FolderOpen className="h-10 w-10 text-muted-foreground/60" />
@@ -322,56 +345,101 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject }: 
               </div>
             ) : (
               <>
-                {filteredProjects.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      onNavigateToProject?.(p.id);
-                    }}
-                    className="group flex w-full items-center justify-between rounded-xl border border-neutral-100 bg-white px-3 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
-                    aria-label={`打开项目 ${p.name}`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
-                          p.status === "at_risk"
-                            ? "bg-coral/10 text-coral"
-                            : p.status === "completed"
-                              ? "bg-neutral-100 text-neutral-500"
-                              : "bg-emerald-100 text-emerald-600"
-                        }`}
-                      >
-                        {p.status === "at_risk" ? (
-                          <TriangleAlert className="h-5 w-5" />
-                        ) : p.status === "completed" ? (
-                          <Archive className="h-5 w-5" />
-                        ) : (
-                          <FolderOpen className="h-5 w-5" />
-                        )}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-neutral-800">
-                          {p.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {statusLabelMap[p.status] ?? p.status}
-                        </p>
-                      </div>
-                    </div>
-                    <Badge
-                      variant={
-                        p.status === "active"
-                          ? "default"
-                          : p.status === "at_risk"
-                            ? "destructive"
-                            : "secondary"
-                      }
-                      className="shrink-0 ml-2"
+                {filteredProjects.map((p) => {
+                  const showDeleteConfirm = deleteConfirmId === p.id
+                  return (
+                    <div
+                      key={p.id}
+                      className="group flex w-full items-center justify-between rounded-xl border border-neutral-100 bg-white"
                     >
-                      {statusLabelMap[p.status] ?? p.status}
-                    </Badge>
-                  </button>
-                ))}
+                      <button
+                        onClick={() => {
+                          onNavigateToProject?.(p.id);
+                        }}
+                        className="flex flex-1 items-center justify-between px-3 py-3 text-left transition-colors hover:bg-primary/5 rounded-l-xl"
+                        aria-label={`打开项目 ${p.name}`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span
+                            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+                              p.status === "at_risk"
+                                ? "bg-coral/10 text-coral"
+                                : p.status === "completed"
+                                  ? "bg-neutral-100 text-neutral-500"
+                                  : "bg-emerald-100 text-emerald-600"
+                            }`}
+                          >
+                            {p.status === "at_risk" ? (
+                              <TriangleAlert className="h-5 w-5" />
+                            ) : p.status === "completed" ? (
+                              <Archive className="h-5 w-5" />
+                            ) : (
+                              <FolderOpen className="h-5 w-5" />
+                            )}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-neutral-800">
+                              {p.name}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {statusLabelMap[p.status] ?? p.status}
+                            </p>
+                          </div>
+                        </div>
+                        <Badge
+                          variant={
+                            p.status === "active"
+                              ? "default"
+                              : p.status === "at_risk"
+                                ? "destructive"
+                                : "secondary"
+                          }
+                          className="shrink-0 ml-2"
+                        >
+                          {statusLabelMap[p.status] ?? p.status}
+                        </Badge>
+                      </button>
+                      {
+                        showDeleteConfirm ? (
+                          <div className="flex items-center gap-1 pr-2 shrink-0">
+                            <span className="text-xs text-destructive">确认删除？</span>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => handleDeleteProject(p.id)}
+                              disabled={deleting}
+                              className="h-7 text-xs"
+                            >
+                              确定
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleteConfirmId(null)}
+                              disabled={deleting}
+                              className="h-7 text-xs"
+                            >
+                              取消
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setDeleteConfirmId(p.id)
+                            }}
+                            className="h-8 w-8 p-0 mr-1 shrink-0 text-muted-foreground hover:text-destructive"
+                            aria-label="删除项目"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )
+                      }
+                    </div>
+                  )
+                })}
                 <Separator className="my-2" />
                 <Button
                   variant="outline"

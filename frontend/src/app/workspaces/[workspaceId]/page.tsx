@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { setLastWorkspaceId, useCurrentUserId, setCurrentUserId, setWorkspaceMembers } from "@/components/app-shell";
 import {
   addResource,
+  deleteResource,
   finalizeAssignments,
   confirmAgentProposal,
   createCheckinCycle,
@@ -322,6 +323,16 @@ export default function WorkspaceDashboardPage() {
     }
   };
 
+  const handleDeleteResource = async (resourceId: string) => {
+    setActionError(null);
+    try {
+      await deleteResource(resourceId);
+      await reloadProject();
+    } catch {
+      setActionError("资源删除失败，请重试。");
+    }
+  };
+
   const handleAddResource = async (resource: AddResourceRequest) => {
     setActionError(null);
     setActionSuccess(null);
@@ -483,6 +494,7 @@ export default function WorkspaceDashboardPage() {
       onConfirmProposal={handleConfirmProposal}
       onRejectProposal={handleRejectProposal}
       onAddResource={handleAddResource}
+      onDeleteResource={handleDeleteResource}
       onResetDemo={handleResetDemo}
     />
   );

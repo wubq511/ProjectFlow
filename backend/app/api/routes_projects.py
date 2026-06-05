@@ -7,6 +7,7 @@ from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectRead
 from app.schemas.project_state import ProjectStateRead
 from app.services.project_service import (
     create_project,
+    delete_project,
     get_project,
     list_projects_by_workspace,
     normalize_direction_card,
@@ -81,5 +82,16 @@ def api_update_project(
 ):
     try:
         return _project_to_read(update_project(session, project_id, data))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+
+@router.delete("/projects/{project_id}", status_code=204)
+def api_delete_project(
+    project_id: str,
+    session: Session = Depends(get_session),
+):
+    try:
+        delete_project(session, project_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Project not found")

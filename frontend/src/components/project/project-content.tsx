@@ -129,6 +129,7 @@ interface ProjectContentProps {
   onConfirmProposal?: (proposalId: string) => void;
   onRejectProposal?: (proposalId: string) => void;
   onAddResource?: (resource: AddResourceRequest) => void | Promise<void>;
+  onDeleteResource?: (resourceId: string) => void | Promise<void>;
   onResetDemo?: () => void | Promise<void>;
 }
 
@@ -193,6 +194,7 @@ function ViewRenderer({
   onConfirmProposal,
   onRejectProposal,
   onAddResource,
+  onDeleteResource,
 }: ProjectContentProps & { view: ProjectView }) {
   const { project, stages, tasks, action_cards, risks, timeline } = state;
   const currentStage =
@@ -357,6 +359,7 @@ function ViewRenderer({
             resources={state.resources}
             pending={Boolean(pendingAction)}
             onAddResource={onAddResource}
+            onDeleteResource={onDeleteResource}
           />
 
           {/* Action Cards — personal first, then team */}

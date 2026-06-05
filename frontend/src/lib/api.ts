@@ -160,6 +160,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     }
 
     const text = await response.text();
+    if (!text) return undefined as unknown as T;
     try {
       return JSON.parse(text) as T;
     } catch {
@@ -312,6 +313,10 @@ export async function createProject(
   });
 }
 
+export async function deleteProject(projectId: string): Promise<void> {
+  return request<void>(`/projects/${projectId}`, { method: "DELETE" });
+}
+
 export async function getProject(projectId: string): Promise<Project> {
   return request<Project>(`/projects/${projectId}`);
 }
@@ -401,6 +406,27 @@ export async function listProjectsByWorkspace(workspaceId: string): Promise<Proj
   return request<Project[]>(`/workspaces/${workspaceId}/projects`);
 }
 
+// --- File Upload ---
+export type UploadResult = {
+  file_id: string
+  original_name: string
+  saved_path: string
+}
+
+export async function uploadFile(file: File): Promise<UploadResult> {
+  const formData = new FormData()
+  formData.append("file", file)
+  const response = await fetch(`${API_BASE_URL}/uploads`, {
+    method: "POST",
+    body: formData,
+  })
+  if (!response.ok) {
+    const body = await response.text().catch(() => "")
+    throw new Error(`上传失败：${response.status} ${body}`)
+  }
+  return response.json()
+}
+
 // --- Project Resources ---
 export async function addResource(
   projectId: string,
@@ -413,6 +439,10 @@ export async function addResource(
       project_id: projectId,
     }),
   });
+}
+
+export async function deleteResource(resourceId: string): Promise<void> {
+  return request<void>(`/resources/${resourceId}`, { method: "DELETE" });
 }
 
 export async function listResourcesByProject(projectId: string): Promise<ProjectResource[]> {

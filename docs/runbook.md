@@ -33,6 +33,10 @@ Install dependencies:
 python -m pip install -e ".[dev]"
 ```
 
+File upload support requires `python-multipart` (installed as part of `[dev]` above, or manually via `pip install python-multipart`).
+
+```
+
 Run the API:
 
 ```bash
@@ -267,6 +271,37 @@ curl -X POST http://localhost:8000/api/seed/demo
 ```
 
 The seed uses fixed IDs, so repeated `POST /api/seed/demo` calls are idempotent (they update in place).
+
+### Resource Management
+
+Create a resource (text note):
+
+```bash
+curl -X POST http://localhost:8000/api/resources \
+  -H "Content-Type: application/json" \
+  -d '{"project_id":"<id>","type":"text_note","title":"标题","content_text":"内容"}'
+```
+
+Upload a file (multipart):
+
+```bash
+curl -X POST http://localhost:8000/api/uploads \
+  -F "file=@/path/to/document.md"
+```
+
+Delete a resource:
+
+```bash
+curl -X DELETE http://localhost:8000/api/resources/<resource_id>
+```
+
+Delete a project (cascading):
+
+```bash
+curl -X DELETE http://localhost:8000/api/projects/<project_id>
+```
+
+Uploaded files are stored in `backend/data/uploads/`. Deleting a file-type resource that points to an uploads directory file also removes the file from disk.
 
 ### Review Summary Export
 
@@ -571,7 +606,7 @@ Use this checklist to manually verify the full MVP flow. It covers both mock mod
 | Multi-workspace | MVP is single-workspace |
 | Multi-project | MVP is single-project per workspace |
 | Production deployment | Local demo only |
-| File upload / document parsing | Resources are text metadata only |
+| File upload / document parsing | TODO: current upload is metadata + disk save, no full-text parsing yet |
 | Real-time collaboration | No WebSocket or live sync |
 | Email notifications | No email integration |
 | Mobile app | Web only |

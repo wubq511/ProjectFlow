@@ -357,7 +357,7 @@ generate_structured_output()
 | [member_profile_service.py](backend/app/services/member_profile_service.py) | create/get/update/list/delete | 成员画像 CRUD |
 | [checkin_service.py](backend/app/services/checkin_service.py) | create_cycle/list, create_response/list | 签到周期与响应 |
 | [risk_service.py](backend/app/services/risk_service.py) | create/list/update_status | 风险 CRUD（支持 auto_commit） |
-| [resource_service.py](backend/app/services/resource_service.py) | create/list | 资源 CRUD |
+| [resource_service.py](backend/app/services/resource_service.py) | create/list/delete | 资源 CRUD + 上传文件删除 |
 | [invitation_service.py](backend/app/services/invitation_service.py) | create/accept | 邀请创建与接受（自动创建 User + Membership） |
 | [action_card_service.py](backend/app/services/action_card_service.py) | create/list/update_status | 行动卡 CRUD |
 | [agent_flow_service.py](backend/app/services/agent_flow_service.py) | run_agent_flow, _persist_agent_output | Agent 执行编排：获取状态→调 coordinator→按类型持久化 |
@@ -379,8 +379,9 @@ generate_structured_output()
 | routes_workspaces | 5 | POST/GET /workspaces, POST/DELETE members |
 | routes_invitations | 2 | POST /invitations, POST /invitations/accept |
 | routes_member_profiles | 4 | POST/GET/PATCH profiles |
-| routes_projects | 4 | POST/GET/PATCH projects |
-| routes_resources | 2 | POST/GET resources |
+| routes_projects | 5 | POST/GET/PATCH/DELETE projects |
+| routes_resources | 3 | POST/GET/DELETE resources |
+| routes_uploads | 1 | POST /uploads (multipart file upload) |
 | routes_stages | 4 | POST/GET/PATCH stages |
 | routes_tasks | 6 | POST/GET/PATCH tasks, POST status-updates |
 | routes_assignments | 9 | proposals + responses + negotiations + finalize |
@@ -536,7 +537,8 @@ Base URL: `http://localhost:8000/api`
 | 邀请 | POST | /invitations, /invitations/accept |
 | 成员画像 | POST/GET/PATCH | /member-profiles, /workspaces/{id}/profiles |
 | 项目 | POST/GET/PATCH | /projects, /workspaces/{id}/projects |
-| 资源 | POST/GET | /resources, /projects/{id}/resources |
+| 资源 | POST/GET/DELETE | /resources, /projects/{id}/resources |
+| 文件上传 | POST (multipart) | /uploads |
 | 阶段 | POST/GET/PATCH | /stages, /projects/{id}/stages |
 | 任务 | POST/GET/PATCH | /tasks, /stages/{id}/tasks, /projects/{id}/tasks |
 | 任务状态 | POST | /tasks/{id}/status-updates |
@@ -701,6 +703,7 @@ cd backend
 python -m venv .venv
 .venv\Scripts\Activate.ps1          # Windows
 python -m pip install -e ".[dev]"
+# includes python-multipart for file upload support
 python -m uvicorn app.main:app --reload --port 8000
 python -m pytest app/tests/ -v      # 跑测试
 ```

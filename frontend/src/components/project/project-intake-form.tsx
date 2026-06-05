@@ -290,7 +290,8 @@ export function ProjectIntakeForm({
       for (const res of resources) {
         try {
           await addResource(project.id, res)
-        } catch {
+        } catch (err) {
+          console.error(`资源"${res.title || 'untitled'}"保存失败:`, err)
           failedResources.push(res.title || "untitled")
         }
       }

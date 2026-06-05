@@ -83,6 +83,55 @@ def normalize_direction_card(value: str | dict | None) -> dict | None:
     }
 
 
+def delete_project(session: Session, project_id: str) -> None:
+    """删除项目及其所有关联数据（阶段、任务、资源、风险等）。"""
+    from app.models.stage import Stage
+    from app.models.task import Task
+    from app.models.resource import ProjectResource
+    from app.models.risk import Risk
+    from app.models.action_card import ActionCard
+    from app.models.assignment import AssignmentProposal, AssignmentResponse, AssignmentNegotiation
+    from app.models.checkin import CheckInCycle, CheckInResponse
+    from app.models.timeline import AgentEvent
+    from app.models.task import TaskStatusUpdate
+    from app.models.agent_proposal import AgentProposal
+
+    project = session.get(Project, project_id)
+    if project is None:
+        raise ValueError(f"Project {project_id} not found")
+
+    from sqlalchemy import delete as sa_delete
+    project_tables = [AgentProposal, AgentEvent, ActionCard, Risk,
+                      CheckInCycle, AssignmentNegotiation, AssignmentProposal,
+                      Task, Stage, ProjectResource]
+    for model in project_tables:
+        session.exec(sa_delete(model).where(model.project_id == project_id))  # type: ignore[arg-type]
+
+    # 无 project_id 列，通过父表关联删除
+    from sqlalchemy import select
+    cycle_ids = session.exec(
+        select(CheckInCycle.id).where(CheckInCycle.project_id == project_id)
+    ).all()
+    session.exec(
+        sa_delete(CheckInResponse).where(CheckInResponse.cycle_id.in_(cycle_ids))
+    )
+    proposal_ids = session.exec(
+        select(AssignmentProposal.id).where(AssignmentProposal.project_id == project_id)
+    ).all()
+    session.exec(
+        sa_delete(AssignmentResponse).where(AssignmentResponse.proposal_id.in_(proposal_ids))
+    )
+    task_ids = session.exec(
+        select(Task.id).where(Task.project_id == project_id)
+    ).all()
+    session.exec(
+        sa_delete(TaskStatusUpdate).where(TaskStatusUpdate.task_id.in_(task_ids))
+    )
+
+    session.delete(project)
+    session.commit()
+
+
 def update_project(session: Session, project_id: str, data: ProjectUpdate) -> Project:
     project = session.get(Project, project_id)
     if project is None:

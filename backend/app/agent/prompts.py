@@ -1,7 +1,48 @@
 import json
+import logging
+import os
 
 from app.models.enums import AgentEventType
 from app.schemas.workspace_state import WorkspaceStateResponse
+
+logger = logging.getLogger(__name__)
+
+# Agent 读取本地文件时会搜索的目录
+_AGENT_FILE_SEARCH_PATHS = [
+    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "backend", "data", "uploads"),
+    r"D:\ProjectFlow_Agent",
+]
+
+_MAX_RESOURCE_FILE_BYTES = 8000
+
+
+def _read_resource_file(file_name: str) -> str | None:
+    """尝试从已知目录查找并读取资源文件内容。"""
+    # 如果是绝对路径，先尝试直接读取
+    if os.path.isabs(file_name) and os.path.isfile(file_name):
+        try:
+            with open(file_name, encoding="utf-8") as f:
+                return f.read(_MAX_RESOURCE_FILE_BYTES)
+        except Exception:
+            pass
+
+    # 在已知搜索目录中按文件名查找
+    base = os.path.basename(file_name)  # 去掉可能的前缀路径
+    for search_dir in _AGENT_FILE_SEARCH_PATHS:
+        if not os.path.isdir(search_dir):
+            continue
+        candidate = os.path.join(search_dir, base)
+        if os.path.isfile(candidate):
+            try:
+                with open(candidate, encoding="utf-8") as f:
+                    content = f.read(_MAX_RESOURCE_FILE_BYTES)
+                    logger.info("Agent read resource file: %s (%d chars)", candidate, len(content))
+                    return content
+            except Exception as exc:
+                logger.warning("Agent could not read %s: %s", candidate, exc)
+                continue
+
+    return None
 
 
 AGENT_SYSTEM_PROMPT = """You are ProjectFlow's Coordinator Agent for Chinese-speaking student teams.
@@ -220,16 +261,22 @@ def _compact_workspace_state_json(event_type: AgentEventType, workspace_state: W
             AgentEventType.plan,
             AgentEventType.breakdown,
         } and project.resources:
-            payload["project"]["resources"] = [
-                _without_none({
+            rich_resources = []
+            for r in project.resources:
+                entry: dict = {
                     "type": r.type,
                     "title": r.title,
-                    "summary": r.content_text[:150] if r.content_text else None,
                     "file_name": r.file_name,
                     "url": r.url,
-                })
-                for r in project.resources
-            ]
+                }
+                if r.content_text:
+                    entry["summary"] = r.content_text[:3000]
+                elif r.type == "file_stub" and r.file_name:
+                    file_content = _read_resource_file(r.file_name)
+                    if file_content:
+                        entry["summary"] = file_content
+                rich_resources.append(_without_none(entry))
+            payload["project"]["resources"] = rich_resources
     return json.dumps(
         _without_none(payload),
         ensure_ascii=False,

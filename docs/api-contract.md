@@ -1,6 +1,6 @@
 # ProjectFlow API Contract
 
-Status: current as of 2026-06-05. All planned MVP endpoints are implemented; confirmation-to-persist flow for clarify/plan/breakdown/replan; negotiate agent output is timeline-only; Agent workspace context includes current time and project resources; structured assignment citations and action card fields; resource CRUD; reject endpoint accepts empty body and persists rejection_reason; confirmed_by validated against User table.
+Status: current as of 2026-06-06. All planned MVP endpoints are implemented; confirmation-to-persist flow for clarify/plan/breakdown/replan; negotiate agent output is timeline-only; Agent workspace context includes current time and project resources; structured assignment citations and action card fields; resource CRUD with file upload and delete; reject endpoint accepts empty body and persists rejection_reason; confirmed_by validated against User table; project delete cascades through all child data; file upload via multipart/form-data with server-side persistence.
 
 This document records the implemented MVP API surface. Post-MVP ideas should be tracked in roadmap docs, not mixed into this contract.
 
@@ -92,14 +92,39 @@ POST /api/projects
 GET /api/projects/{project_id}
 GET /api/workspaces/{workspace_id}/projects
 PATCH /api/projects/{project_id}
+DELETE /api/projects/{project_id}
 ```
+
+`DELETE /api/projects/{project_id}` returns 204. Server-side delete cascades through all child data (stages, tasks, assignments, check-ins, risks, action cards, agent events, agent proposals, resources) before removing the project itself. Uploaded resource files under `backend/data/uploads/` are also removed from disk.
 
 ### Resources
 
 ```http
 POST /api/resources
 GET /api/projects/{project_id}/resources
+DELETE /api/resources/{resource_id}
 ```
+
+`DELETE /api/resources/{resource_id}` returns 204. For `file_stub` resources pointing to files under `backend/data/uploads/`, the uploaded file is also removed from disk.
+
+### File Upload
+
+```http
+POST /api/uploads
+Content-Type: multipart/form-data
+```
+
+Accepts a single `file` field. Returns:
+
+```json
+{
+  "file_id": "uuid.ext",
+  "original_name": "document.md",
+  "saved_path": "D:\\...\\backend\\data\\uploads\\uuid.ext"
+}
+```
+
+Requires `python-multipart` package. Uploaded files are stored in `backend/data/uploads/`. The frontend file-input components automatically upload on selection and store the returned `saved_path` in the resource's `file_name` field. Agent prompts read uploaded file content (up to 8000 bytes) via `_read_resource_file()` and include it as the resource `summary`.
 
 ### Stages
 

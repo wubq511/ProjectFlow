@@ -62,6 +62,7 @@ interface WorkspaceLayoutProps {
   onConfirmProposal?: (proposalId: string) => void;
   onRejectProposal?: (proposalId: string) => void;
   onAddResource?: (resource: AddResourceRequest) => void | Promise<void>;
+  onDeleteResource?: (resourceId: string) => void | Promise<void>;
   onResetDemo?: () => void | Promise<void>;
 }
 
@@ -94,6 +95,7 @@ export function WorkspaceLayout({
   onConfirmProposal,
   onRejectProposal,
   onAddResource,
+  onDeleteResource,
   onResetDemo,
 }: WorkspaceLayoutProps) {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
@@ -171,6 +173,7 @@ export function WorkspaceLayout({
             onConfirmProposal={onConfirmProposal}
             onRejectProposal={onRejectProposal}
             onAddResource={onAddResource}
+            onDeleteResource={onDeleteResource}
             onResetDemo={onResetDemo}
           />
         )}

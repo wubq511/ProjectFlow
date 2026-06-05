@@ -5,6 +5,9 @@
 *.sqlite
 *.sqlite3
 backend/data/
+!backend/data/uploads/
+backend/data/uploads/*
+!backend/data/uploads/.gitkeep
 
 node_modules/
 frontend/.next/
