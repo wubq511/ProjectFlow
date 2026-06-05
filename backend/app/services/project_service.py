@@ -85,49 +85,64 @@ def normalize_direction_card(value: str | dict | None) -> dict | None:
 
 def delete_project(session: Session, project_id: str) -> None:
     """删除项目及其所有关联数据（阶段、任务、资源、风险等）。"""
+    import os
+    from sqlalchemy import delete as sa_delete, select
+    from app.core.db_utils import require_row
     from app.models.stage import Stage
-    from app.models.task import Task
+    from app.models.task import Task, TaskStatusUpdate
     from app.models.resource import ProjectResource
     from app.models.risk import Risk
     from app.models.action_card import ActionCard
     from app.models.assignment import AssignmentProposal, AssignmentResponse, AssignmentNegotiation
     from app.models.checkin import CheckInCycle, CheckInResponse
     from app.models.timeline import AgentEvent
-    from app.models.task import TaskStatusUpdate
     from app.models.agent_proposal import AgentProposal
 
-    project = session.get(Project, project_id)
-    if project is None:
-        raise ValueError(f"Project {project_id} not found")
+    project = require_row(session, Project, project_id, "project")
 
-    from sqlalchemy import delete as sa_delete
-    project_tables = [AgentProposal, AgentEvent, ActionCard, Risk,
-                      CheckInCycle, AssignmentNegotiation, AssignmentProposal,
-                      Task, Stage, ProjectResource]
-    for model in project_tables:
-        session.exec(sa_delete(model).where(model.project_id == project_id))  # type: ignore[arg-type]
-
-    # 无 project_id 列，通过父表关联删除
-    from sqlalchemy import select
+    # ── 1. 先查出子表需要的父表 ID（父表删后就查不到了）──
     cycle_ids = session.exec(
         select(CheckInCycle.id).where(CheckInCycle.project_id == project_id)
     ).all()
-    session.exec(
-        sa_delete(CheckInResponse).where(CheckInResponse.cycle_id.in_(cycle_ids))
-    )
     proposal_ids = session.exec(
         select(AssignmentProposal.id).where(AssignmentProposal.project_id == project_id)
     ).all()
-    session.exec(
-        sa_delete(AssignmentResponse).where(AssignmentResponse.proposal_id.in_(proposal_ids))
-    )
     task_ids = session.exec(
         select(Task.id).where(Task.project_id == project_id)
     ).all()
-    session.exec(
-        sa_delete(TaskStatusUpdate).where(TaskStatusUpdate.task_id.in_(task_ids))
-    )
 
+    # ── 2. 清理上传文件（先于 DB 删除）──
+    UPLOAD_DIR = os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "data", "uploads")
+    )
+    resources = session.exec(
+        select(ProjectResource).where(ProjectResource.project_id == project_id)
+    ).all()
+    for r in resources:
+        if r.type == "file_stub" and r.file_name:
+            file_path = r.file_name
+            if os.path.isfile(file_path) and os.path.normpath(file_path).startswith(UPLOAD_DIR):
+                try:
+                    os.remove(file_path)
+                except OSError:
+                    pass
+
+    # ── 3. 先删叶子表（无 project_id 列，通过父表 ID 关联）──
+    if cycle_ids:
+        session.exec(sa_delete(CheckInResponse).where(CheckInResponse.cycle_id.in_(cycle_ids)))
+    if proposal_ids:
+        session.exec(sa_delete(AssignmentResponse).where(AssignmentResponse.proposal_id.in_(proposal_ids)))
+    if task_ids:
+        session.exec(sa_delete(TaskStatusUpdate).where(TaskStatusUpdate.task_id.in_(task_ids)))
+
+    # ── 4. 再删有 project_id 列的父表 ──
+    parent_tables = [AgentProposal, AgentEvent, ActionCard, Risk,
+                     CheckInCycle, AssignmentNegotiation, AssignmentProposal,
+                     Task, Stage, ProjectResource]
+    for model in parent_tables:
+        session.exec(sa_delete(model).where(model.project_id == project_id))  # type: ignore[arg-type]
+
+    # ── 5. 最后删项目本身 ──
     session.delete(project)
     session.commit()
 
