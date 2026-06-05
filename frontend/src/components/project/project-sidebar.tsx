@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MemberManagementDialog } from "@/components/member/member-management-dialog";
 import { NewWorkspaceDialog } from "@/components/workspace/new-workspace-dialog";
+import { setCurrentUserId } from "@/components/app-shell";
 
 export type ProjectView =
   | "overview"
@@ -412,30 +413,46 @@ export function ProjectSidebar({
         </ul>
       </nav>
 
-      {/* Footer: User info */}
+      {/* Footer: User switcher */}
       <div className="border-t border-neutral-100 p-2">
-        <button
-          type="button"
-          className={cn(
-            "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-neutral-500 transition hover:bg-neutral-50",
-            !isExpanded && "justify-center"
-          )}
-        >
-          <Briefcase className="h-4 w-4 shrink-0" />
-          <AnimatePresence>
-            {isExpanded && (
-              <motion.span
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="overflow-hidden whitespace-nowrap"
-              >
-                {(state.members ?? []).find((m) => m.user_id === currentUserId)
-                  ?.display_name ?? "负责人"}
-              </motion.span>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            className={cn(
+              "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-neutral-500 transition hover:bg-neutral-50 focus:outline-none",
+              !isExpanded && "justify-center"
             )}
-          </AnimatePresence>
-        </button>
+          >
+            <Briefcase className="h-4 w-4 shrink-0" />
+            <AnimatePresence>
+              {isExpanded && (
+                <motion.span
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="overflow-hidden whitespace-nowrap"
+                >
+                  {(state.members ?? []).find((m) => m.user_id === currentUserId)
+                    ?.display_name ?? "选择身份"}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-40">
+            {(state.members ?? []).map((member) => (
+              <DropdownMenuItem
+                key={member.user_id}
+                onClick={() => setCurrentUserId(member.user_id)}
+                className={cn(
+                  "cursor-pointer text-sm",
+                  member.user_id === currentUserId && "font-semibold text-moss",
+                )}
+              >
+                {member.display_name}
+                {member.user_id === currentUserId && " ✓"}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Member Management Dialog */}
