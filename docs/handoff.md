@@ -1,6 +1,6 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-06-05.
+Status: current as of 2026-06-06.
 
 ## Completed
 
@@ -53,8 +53,13 @@ Full resource lifecycle management with file upload support and project deletion
 
 **Project Deletion:**
 - New `DELETE /api/projects/{project_id}` endpoint — cascading delete of all child data (stages, tasks, assignments, check-ins, risks, action cards, agent events, agent proposals, resources).
-- Frontend project list in workspace-content shows delete button (trash icon) on hover, with confirmation step.
+- Frontend project list in workspace-content shows delete button (trash icon) on hover, with AlertDialog confirmation (shadcn/ui). Delete failure shows inline error message with retry guidance.
 - Deleted projects also remove associated uploaded files from disk.
+
+**Workspace UI Fixes (PR #36 + follow-up, 2026-06-06):**
+- "查看项目" StatCard action fixed: was opening new-project dialog, now navigates to first active project.
+- "查看归档" StatCard action fixed: was opening new-project dialog, now navigates to first completed project.
+- Direction card text overflow: added `break-all` to all list items in `DirectionDecisionView` and `DirectionCardPanel`; "边界" section changed from `Badge` to `<ul><li>` list for long text.
 
 **Agent File Reading:**
 - `_read_resource_file()` searches absolute path first, then falls back to `backend/data/uploads/` and `D:\ProjectFlow_Agent` directories by base filename.
@@ -64,7 +69,7 @@ Full resource lifecycle management with file upload support and project deletion
 - `ProjectResourcesPanel` select dropdown now closes on page scroll to prevent floating popover in dialog.
 - Resource form confirms trigger auto-title fill when title is empty.
 
-**Files modified:** `backend/app/api/routes_resources.py`, `backend/app/api/routes_uploads.py` (new), `backend/app/api/routes_projects.py`, `backend/app/services/resource_service.py`, `backend/app/services/project_service.py`, `backend/app/schemas/resource.py`, `backend/app/agent/prompts.py`, `backend/app/main.py`, `frontend/src/lib/api.ts`, `frontend/src/components/project/resource-input-panel.tsx`, `frontend/src/components/project/project-resources-panel.tsx`, `frontend/src/components/project/new-project-dialog.tsx`, `frontend/src/components/project/workspace-content.tsx`, `frontend/src/components/project/project-intake-form.tsx`, `frontend/src/components/project/project-content.tsx`, `frontend/src/components/project/workspace-layout.tsx`, `frontend/src/app/workspaces/[workspaceId]/page.tsx`, `frontend/src/components/ui/select.tsx`.
+**Files modified:** `backend/app/api/routes_resources.py`, `backend/app/api/routes_uploads.py` (new), `backend/app/api/routes_projects.py`, `backend/app/services/resource_service.py`, `backend/app/services/project_service.py`, `backend/app/schemas/resource.py`, `backend/app/agent/prompts.py`, `backend/app/main.py`, `frontend/src/lib/api.ts`, `frontend/src/components/project/resource-input-panel.tsx`, `frontend/src/components/project/project-resources-panel.tsx`, `frontend/src/components/project/new-project-dialog.tsx`, `frontend/src/components/project/workspace-content.tsx`, `frontend/src/components/project/project-intake-form.tsx`, `frontend/src/components/project/project-content.tsx`, `frontend/src/components/project/workspace-layout.tsx`, `frontend/src/app/workspaces/[workspaceId]/page.tsx`, `frontend/src/components/ui/select.tsx`, `frontend/src/components/agent/direction-card-panel.tsx`, `frontend/src/components/agent/direction-decision-view.tsx`.
 
 ### Phase 29 — Agent Output Quality & Reliability Hardening (2026-06-05)
 
