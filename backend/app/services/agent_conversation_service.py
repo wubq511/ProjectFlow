@@ -231,7 +231,18 @@ def _plan_turn(
             "content": (
                 "You are ProjectFlow's Agent conversation planner. Return exactly one JSON object "
                 "matching AgentTurnPlan. Decide whether to answer, ask a clarifying question, run an "
-                "agent module, or revise a pending proposal. Do not produce business artifacts here."
+                "agent module, or revise a pending proposal. Do not produce business artifacts here.\n\n"
+                "When the user message is a quick reply action label (短快捷回复标签), you MUST return "
+                "response_type='run_module' with the correct selected_module. These are the known mappings:\n"
+                "- 用户说「生成下一步行动卡」或类似 → response_type='run_module', selected_module='push'\n"
+                "- 用户说「分析当前风险」或类似 → response_type='run_module', selected_module='risk'\n"
+                "- 用户说「根据签到调整计划」或类似 → response_type='run_module', selected_module='replan'\n"
+                "- 用户说「根据成员情况推荐分工」或类似 → response_type='run_module', selected_module='assign'\n"
+                "- 用户说「把当前阶段拆成任务」或类似 → response_type='run_module', selected_module='breakdown'\n"
+                "- 用户说「按三周节奏生成阶段计划」或类似 → response_type='run_module', selected_module='plan'\n"
+                "- 用户说「先帮我澄清方向」或类似 → response_type='run_module', selected_module='clarify'\n\n"
+                "Even if the user message is very short (just a label), treat action-like labels as "
+                "module execution requests, not as casual conversation."
             ),
         },
         {
@@ -596,6 +607,21 @@ def _has_finalized_assignment(project) -> bool:
     return any(proposal.status == "finalized" for proposal in project.assignment_proposals)
 
 
+QUICK_REPLY_INSTRUCTION_MAP: dict[str, str] = {
+    "生成下一步行动卡": "请执行 push 模块：生成下一步行动卡。用户点击了快捷回复「生成下一步行动卡」，请直接运行 push 模块生成行动卡。",
+    "分析当前风险": "请执行 risk 模块：分析当前风险。用户点击了快捷回复「分析当前风险」，请直接运行 risk 模块进行风险分析。",
+    "根据签到调整计划": "请执行 replan 模块：根据签到结果调整项目计划。用户点击了快捷回复「根据签到调整计划」，请直接运行 replan 模块生成计划调整草案。",
+    "根据成员情况推荐分工": "请执行 assign 模块：根据成员情况推荐分工。用户点击了快捷回复「根据成员情况推荐分工」，请直接运行 assign 模块。",
+    "把当前阶段拆成任务": "请执行 breakdown 模块：把当前阶段拆成可执行任务。用户点击了快捷回复「把当前阶段拆成任务」，请直接运行 breakdown 模块。",
+    "按三周节奏生成阶段计划": "请执行 plan 模块：按三周节奏生成阶段计划。用户点击了快捷回复「按三周节奏生成阶段计划」，请直接运行 plan 模块。",
+    "先帮我澄清方向": "请执行 clarify 模块：澄清项目方向。用户点击了快捷回复「先帮我澄清方向」，请直接运行 clarify 模块。",
+}
+
+
+def _map_quick_reply_instruction(label: str) -> str:
+    return QUICK_REPLY_INSTRUCTION_MAP.get(label, label)
+
+
 def _structured_suggestions(labels: list[str]) -> list[AgentSuggestionRead]:
     suggestions: list[AgentSuggestionRead] = []
     for index, label in enumerate(labels[:3]):
@@ -603,7 +629,7 @@ def _structured_suggestions(labels: list[str]) -> list[AgentSuggestionRead]:
             AgentSuggestionRead(
                 id=f"suggestion-{index + 1}",
                 label=label,
-                user_instruction=label,
+                user_instruction=_map_quick_reply_instruction(label),
                 priority="primary" if index == 0 else "secondary",
             )
         )

@@ -81,7 +81,19 @@ const baseProjectState: ProjectState = {
   memberships: [],
   member_profiles: [],
   projects: [],
-  assignment_proposals: [],
+  assignment_proposals: [
+    {
+      id: "ap-1",
+      project_id: "proj-1",
+      stage_id: "stage-1",
+      task_id: "task-1",
+      recommended_owner_user_id: "user-1",
+      reason: "测试",
+      status: "finalized" as const,
+      created_by_agent: true,
+      created_at: "2026-06-01T00:00:00Z",
+    },
+  ],
   assignment_responses: [],
   assignment_negotiations: [],
   agent_proposals: [],
@@ -393,6 +405,66 @@ describe("AgentSidebar", () => {
     fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
     expect(onSendMessage).toHaveBeenCalledTimes(1);
     expect(onSendMessage).toHaveBeenCalledWith("分析当前风险");
+  });
+
+  it("sends explicit executable instruction for fallback quick reply labeled '根据签到调整计划'", () => {
+    const onSendMessage = vi.fn();
+
+    render(
+      <AgentSidebar
+        state={baseProjectState}
+        onRunAgent={vi.fn()}
+        onSendMessage={onSendMessage}
+      />
+    );
+
+    const button = screen.getByRole("button", { name: "根据签到调整计划" });
+    fireEvent.click(button);
+
+    const sentInstruction = onSendMessage.mock.calls[0][0] as string;
+    expect(sentInstruction).toContain("replan");
+    expect(sentInstruction).toContain("根据签到调整计划");
+    expect(sentInstruction).not.toBe("根据签到调整计划");
+  });
+
+  it("sends explicit executable instruction for fallback quick reply labeled '生成下一步行动卡'", () => {
+    const onSendMessage = vi.fn();
+
+    render(
+      <AgentSidebar
+        state={baseProjectState}
+        onRunAgent={vi.fn()}
+        onSendMessage={onSendMessage}
+      />
+    );
+
+    const button = screen.getByRole("button", { name: "生成下一步行动卡" });
+    fireEvent.click(button);
+
+    const sentInstruction = onSendMessage.mock.calls[0][0] as string;
+    expect(sentInstruction).toContain("push");
+    expect(sentInstruction).toContain("生成下一步行动卡");
+    expect(sentInstruction).not.toBe("生成下一步行动卡");
+  });
+
+  it("sends explicit executable instruction for fallback quick reply labeled '分析当前风险'", () => {
+    const onSendMessage = vi.fn();
+
+    render(
+      <AgentSidebar
+        state={baseProjectState}
+        onRunAgent={vi.fn()}
+        onSendMessage={onSendMessage}
+      />
+    );
+
+    const button = screen.getByRole("button", { name: "分析当前风险" });
+    fireEvent.click(button);
+
+    const sentInstruction = onSendMessage.mock.calls[0][0] as string;
+    expect(sentInstruction).toContain("risk");
+    expect(sentInstruction).toContain("分析当前风险");
+    expect(sentInstruction).not.toBe("分析当前风险");
   });
 
   it("disables error retry button while pending conversation", () => {

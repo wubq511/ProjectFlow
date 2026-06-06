@@ -459,6 +459,69 @@ describe("frontend API layer", () => {
     expect(result.next_suggestions).toEqual(["确认阶段计划", "查看风险分析"]);
   });
 
+  it("maps action-like next_suggestions to explicit executable user_instructions in fallback normalization", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/agent/conversations/conversation-1/messages")) {
+        expect(init?.method).toBe("POST");
+        return jsonResponse({
+          conversation: {
+            id: "conversation-1",
+            workspace_id: "workspace-1",
+            project_id: "project-1",
+            status: "active",
+            summary: "",
+            current_focus: "执行推进",
+            messages: [],
+            created_at: "2026-06-06T00:00:00Z",
+            updated_at: "2026-06-06T00:00:00Z",
+          },
+          user_message: {
+            id: "message-user",
+            conversation_id: "conversation-1",
+            role: "user",
+            content: "下一步",
+            structured_payload: {},
+            linked_event_id: null,
+            linked_proposal_id: null,
+            created_at: "2026-06-06T00:00:00Z",
+          },
+          assistant_message: {
+            id: "message-assistant",
+            conversation_id: "conversation-1",
+            role: "assistant",
+            content: "好的。",
+            structured_payload: {},
+            linked_event_id: null,
+            linked_proposal_id: null,
+            created_at: "2026-06-06T00:00:00Z",
+          },
+          run: null,
+          turn_plan: null,
+          next_suggestions: ["生成下一步行动卡", "分析当前风险", "根据签到调整计划"],
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await sendAgentConversationMessage("conversation-1", "下一步");
+
+    expect(result.suggestions).toHaveLength(3);
+
+    const pushSuggestion = result.suggestions.find((s) => s.label === "生成下一步行动卡")!;
+    expect(pushSuggestion.user_instruction).toContain("push");
+    expect(pushSuggestion.user_instruction).not.toBe("生成下一步行动卡");
+
+    const riskSuggestion = result.suggestions.find((s) => s.label === "分析当前风险")!;
+    expect(riskSuggestion.user_instruction).toContain("risk");
+    expect(riskSuggestion.user_instruction).not.toBe("分析当前风险");
+
+    const replanSuggestion = result.suggestions.find((s) => s.label === "根据签到调整计划")!;
+    expect(replanSuggestion.user_instruction).toContain("replan");
+    expect(replanSuggestion.user_instruction).not.toBe("根据签到调整计划");
+  });
+
   it("loads dashboard state from the aggregate project-state endpoint", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

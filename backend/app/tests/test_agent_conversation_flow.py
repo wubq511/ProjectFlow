@@ -468,6 +468,81 @@ def test_conversation_models_persist_linked_artifacts():
         assert saved_run.user_instruction == "按三周倒排"
 
 
+def test_structured_suggestions_map_action_labels_to_explicit_executable_instructions():
+    from app.services.agent_conversation_service import _structured_suggestions
+
+    labels = ["生成下一步行动卡", "分析当前风险", "根据签到调整计划"]
+    suggestions = _structured_suggestions(labels)
+
+    for suggestion in suggestions:
+        assert suggestion.user_instruction != suggestion.label, (
+            f"user_instruction should differ from display label for '{suggestion.label}'"
+        )
+        assert "replan" in suggestion.user_instruction or "push" in suggestion.user_instruction or "risk" in suggestion.user_instruction, (
+            f"user_instruction for '{suggestion.label}' should contain an explicit module keyword, got: {suggestion.user_instruction}"
+        )
+
+    replan_suggestion = next(s for s in suggestions if s.label == "根据签到调整计划")
+    assert "replan" in replan_suggestion.user_instruction
+    assert "根据签到调整计划" in replan_suggestion.user_instruction
+
+    push_suggestion = next(s for s in suggestions if s.label == "生成下一步行动卡")
+    assert "push" in push_suggestion.user_instruction
+
+    risk_suggestion = next(s for s in suggestions if s.label == "分析当前风险")
+    assert "risk" in risk_suggestion.user_instruction
+
+
+def test_planner_prompt_includes_quick_reply_action_mapping_examples():
+    from app.services.agent_conversation_service import _plan_turn
+    from app.models.agent_conversation import AgentConversation
+
+    recorded_messages: list = []
+
+    class RecordingLLM:
+        model = "recording-test"
+
+        def complete(self, messages, max_tokens=1200):
+            recorded_messages.extend(messages)
+            return json.dumps(
+                {
+                    "response_type": "run_module",
+                    "selected_module": "replan",
+                    "user_instruction": "根据签到结果调整项目计划",
+                    "rationale": "用户要求根据签到调整计划",
+                    "required_inputs": [],
+                    "expected_artifact": "计划调整草案",
+                    "risk_level": "medium",
+                    "requires_confirmation": True,
+                },
+                ensure_ascii=False,
+            )
+
+    engine = _session_fixture()
+    with Session(engine) as session:
+        seed_demo_data(session)
+        conversation = get_or_create_project_conversation(session, "demo-project-001")
+        from app.services.agent_conversation_service import get_workspace_state
+
+        workspace_state = get_workspace_state(session, conversation.workspace_id, project_id=conversation.project_id)
+
+        plan = _plan_turn(
+            RecordingLLM(),
+            content="根据签到调整计划",
+            conversation=conversation,
+            workspace_state=workspace_state,
+            recent_messages=[],
+        )
+
+        assert plan.response_type == "run_module"
+        assert plan.selected_module == "replan"
+
+        system_msg = recorded_messages[0]["content"]
+        assert "run_module" in system_msg
+        assert "replan" in system_msg
+        assert "根据签到调整计划" in system_msg
+
+
 def test_get_or_create_project_conversation_reuses_existing_record(client: TestClient):
     owner, workspace, project = _create_project_fixture(client)
     engine = _session_fixture()
