@@ -27,6 +27,7 @@ import type {
   AgentConversation,
   AgentConversationTurn,
   AgentSuggestion,
+  AgentArtifact,
   AgentFlowResult,
   DemoResetResult,
 } from "./types";
@@ -55,6 +56,11 @@ type BackendProjectState = Omit<ProjectState, "workspace" | "members" | "risks">
   workspace: BackendWorkspace;
   members: BackendUser[];
   risks: BackendRisk[];
+};
+type BackendAgentConversationTurn = Omit<AgentConversationTurn, "next_suggestions" | "suggestions" | "artifacts"> & {
+  next_suggestions?: string[] | null;
+  suggestions?: AgentSuggestion[] | null;
+  artifacts?: AgentArtifact[] | null;
 };
 
 const EVIDENCE_LABELS: Record<string, string> = {
@@ -514,7 +520,7 @@ export async function getAgentConversation(projectId: string): Promise<AgentConv
   return request<AgentConversation>(`/projects/${projectId}/agent-conversation`);
 }
 
-function normalizeAgentConversationTurn(turn: AgentConversationTurn): AgentConversationTurn {
+function normalizeAgentConversationTurn(turn: BackendAgentConversationTurn): AgentConversationTurn {
   const suggestions = Array.isArray(turn.suggestions) && turn.suggestions.length > 0
     ? turn.suggestions
     : (turn.next_suggestions ?? []).slice(0, 3).map((label, index): AgentSuggestion => ({
@@ -526,9 +532,9 @@ function normalizeAgentConversationTurn(turn: AgentConversationTurn): AgentConve
 
   return {
     ...turn,
+    next_suggestions: turn.next_suggestions ?? suggestions.map((suggestion) => suggestion.label),
     suggestions,
     artifacts: Array.isArray(turn.artifacts) ? turn.artifacts : [],
-    next_suggestions: turn.next_suggestions ?? suggestions.map((suggestion) => suggestion.label),
   };
 }
 
@@ -536,7 +542,7 @@ export async function sendAgentConversationMessage(
   conversationId: string,
   content: string,
 ): Promise<AgentConversationTurn> {
-  const turn = await request<AgentConversationTurn>(`/agent/conversations/${conversationId}/messages`, {
+  const turn = await request<BackendAgentConversationTurn>(`/agent/conversations/${conversationId}/messages`, {
     method: "POST",
     body: JSON.stringify({ content }),
   });
