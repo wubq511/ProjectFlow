@@ -71,28 +71,37 @@ Each task: "stage_id" existing stage id or null, "title" string, "description" s
 Use only existing stage_id and dependency_ids from WorkspaceState. Assign order_index in execution order: 0 first, then 1, 2, etc.""",
     AgentEventType.assign: """AssignmentRecommendationOutput JSON object:
 Required keys: "assignments" array, "reason" string, "requires_confirmation" true.
-Each assignment: "task_id" existing task id, "recommended_owner_user_id" existing member id, "backup_owner_user_id" existing member id or null, "reason" string, "skill_match" string, "availability_match" string, "preference_match" string, "constraint_respected" string, "risk_note" string or null.
+Each assignment: "task_id" existing task id, "recommended_owner_user_id" existing member id, "backup_owner_user_id" existing member id or null, "reason" string, "skill_match" string, "availability_match" string, "preference_match" string, "constraint_respected" string, "risk_note" string or null, "evidence_refs" array.
+Each evidence_refs item: {"entity_type": "member|task|stage", "entity_id": "...", "field": "skills|hours|status|deadline", "value": "..."}.
+Every assignment must include at least one evidence_ref citing concrete workspace state.
 Recommend only existing members for existing tasks.""",
     AgentEventType.negotiate: """AssignmentNegotiationOutput JSON object:
 Required keys: "from_user_id" existing member id, "desired_task_id" existing task id, "current_owner_user_id" existing member id or null, "message" string, "options" string[], "reason" string, "requires_confirmation" true.""",
     AgentEventType.push: """ActivePushOutput JSON object:
 Required keys: "action_cards" array, "reason" string.
-Each action card: "type" one of personal_task/team_next_step/reminder/risk_action/kickoff_tip/checkin_prompt/assignment_request, "title" string, "content" string, "reason" string, "goal" string, "start_suggestion" string, "completion_standard" string, optional "user_id" existing member id or null, optional "task_id" existing task id or null, optional "stage_id" existing stage id or null, optional "due_date" YYYY-MM-DD or null.
+Each action card: "type" one of personal_task/team_next_step/reminder/risk_action/kickoff_tip/checkin_prompt/assignment_request, "title" string, "content" string, "reason" string, "goal" string, "start_suggestion" string, "completion_standard" string, optional "user_id" existing member id or null, optional "task_id" existing task id or null, optional "stage_id" existing stage id or null, optional "due_date" YYYY-MM-DD or null, "evidence_refs" array.
+Each evidence_refs item: {"entity_type": "member|task|stage|project", "entity_id": "...", "field": "...", "value": "..."}.
+Include evidence_refs citing the concrete state that makes this action urgent.
 All text fields (title, content, reason, goal, start_suggestion, completion_standard) MUST be written in Chinese.
 Create exactly 1 card for the highest-priority next action.""",
     AgentEventType.checkin: """CheckInAnalysisOutput JSON object:
 Required keys: "summary" string, "task_updates" array, "risks" array, "reason" string.
 Each task update: "task_id" existing task id, "user_id" existing member id, "status" one of not_started/in_progress/done/blocked, optional "progress_note", "blocker", "available_hours_change".
-Each risk must use exact keys: "type" deadline/dependency/workload/scope/review/assignment/checkin, "severity" low/medium/high, "title", "description", "evidence" non-empty string array (readable Chinese sentences, not dicts or IDs), "recommendation", optional "stage_id", optional "task_id".
+Each risk must use exact keys: "type" deadline/dependency/workload/scope/review/assignment/checkin, "severity" low/medium/high, "title", "description", "evidence" non-empty string array (readable Chinese sentences, not dicts or IDs), "recommendation", optional "stage_id", optional "task_id", "evidence_refs" array.
+Each evidence_refs item: {"entity_type": "member|task|stage|checkin", "entity_id": "...", "field": "...", "value": "..."}.
 Do not use risk_type, mitigation, or affected_task_ids.""",
     AgentEventType.risk: """RiskAnalysisOutput JSON object:
 Required keys: "risks" array, "reason" string, optional "requires_confirmation" boolean.
-Each risk: "type" one of deadline/dependency/workload/scope/review/assignment/checkin, "severity" one of low/medium/high, "title" string, "description" string, "evidence" non-empty string array (readable Chinese sentences, not dicts or IDs), "recommendation" string, optional "stage_id" existing stage id or null, optional "task_id" existing task id or null.
+Each risk: "type" one of deadline/dependency/workload/scope/review/assignment/checkin, "severity" one of low/medium/high, "title" string, "description" string, "evidence" non-empty string array (readable Chinese sentences, not dicts or IDs), "recommendation" string, optional "stage_id" existing stage id or null, optional "task_id" existing task id or null, "evidence_refs" array.
+Each evidence_refs item: {"entity_type": "member|task|stage|project", "entity_id": "...", "field": "...", "value": "..."}.
+Every risk must include at least one evidence_ref citing the concrete state that triggered it.
 Return up to 3 concrete risks with different types when evidence exists; otherwise return an empty risks array. Each risk must have actual evidence from task status, check-ins, deadlines, dependencies, workload, or review pressure. Do not fabricate evidence. Set requires_confirmation true when severity is high.""",
     AgentEventType.replan: """ReplanOutput JSON object:
 Required keys: "before", "after", "impact" string, "stage_adjustments" array, "task_changes" array, "action_cards" array, "reason" string, "requires_confirmation" true.
 Stage adjustment: "stage_id" existing stage id, optional "new_start_date", optional "new_end_date", "reason" string.
-Task change: "task_id" existing task id, optional "title", "status", "owner_user_id", "due_date", "can_cut", "reason" string.
+Task change: "task_id" existing task id, optional "title", "status", "owner_user_id", "due_date", "can_cut", "reason" string, "evidence_refs" array.
+Action card: include "evidence_refs" array citing the state that justifies this action.
+Each evidence_refs item: {"entity_type": "member|task|stage|project", "entity_id": "...", "field": "...", "value": "..."}.
 Return the smallest useful proposal: at most 1 stage_adjustment, 1 task_change, and 1 action_card. Never change finalized owners without explicit evidence and confirmation.""",
 }
 
