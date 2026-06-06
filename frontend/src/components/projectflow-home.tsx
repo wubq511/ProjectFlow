@@ -54,11 +54,11 @@ async function checkWorkspaceExists(workspaceId: string, signal?: AbortSignal): 
 
 const heroMetrics = [
   { value: "Phase 35", label: "演示闭环" },
-  { value: "4 stages", label: "规划到监控" },
-  { value: "human check", label: "高影响先确认" },
+  { value: "4 阶段", label: "规划到监控" },
+  { value: "人工确认", label: "高影响先确认" },
 ] as const;
 
-const productNavItems = ["Project Room", "Direction Card", "Stage Plan", "Team Actions", "Risk Review"] as const;
+const productNavItems = ["项目空间", "方向卡", "阶段计划", "团队行动", "风险审查"] as const;
 
 const actionRows = [
   { title: "把社交动态移出 MVP", owner: "负责人确认", due: "09:40", accent: "bg-coral" },
@@ -67,9 +67,9 @@ const actionRows = [
 ] as const;
 
 const agentSignals = [
-  { label: "Direction", value: "先锁定二手交易 MVP，不进入社区功能。" },
-  { label: "Assignment", value: "陈沐适合后端 API；林舟负责演示链路。" },
-  { label: "Risk", value: "支付与实时聊天会拖慢交付，建议放入二期。" },
+  { label: "方向", value: "先锁定二手交易 MVP，不进入社区功能。" },
+  { label: "分工", value: "陈沐适合后端 API；林舟负责演示链路。" },
+  { label: "风险", value: "支付与实时聊天会拖慢交付，建议放入二期。" },
 ] as const;
 
 const timelineEvents = [
@@ -81,25 +81,25 @@ const timelineEvents = [
 const workflowItems = [
   {
     icon: Compass,
-    title: "Direction",
+    title: "方向澄清",
     eyebrow: "先把方向说清楚",
     text: "项目想法、假设、未知问题和 MVP 边界被整理成可以确认的方向卡。",
   },
   {
     icon: Users,
-    title: "Assignment",
+    title: "分工推荐",
     eyebrow: "分工有依据",
     text: "推荐 owner 时引用技能、时间、意向和限制，不再靠群聊里谁先回复。",
   },
   {
     icon: ClipboardCheck,
-    title: "Execution",
+    title: "执行追踪",
     eyebrow: "下一步很具体",
     text: "阶段目标被拆成行动卡、检查点和签到反馈，团队知道今天该推进什么。",
   },
   {
     icon: Radar,
-    title: "Risk",
+    title: "风险监控",
     eyebrow: "风险会被推到眼前",
     text: "范围、依赖、deadline 和 workload 的异常会被记录证据，再给出重排建议。",
   },
@@ -241,7 +241,7 @@ export function ProjectFlowHome() {
               className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.08] px-3.5 py-2 text-sm font-medium text-white/72 shadow-[0_18px_60px_rgba(0,0,0,0.24),inset_0_1px_0_rgba(255,255,255,0.14)]"
             >
               <GitBranch className="h-4 w-4 text-[#ff4055]" aria-hidden />
-              ProjectFlow / project operating system
+              ProjectFlow / 项目操作系统
             </motion.div>
 
             <motion.h1
@@ -401,7 +401,7 @@ export function ProjectFlowHome() {
                     <div>
                       <div className="inline-flex items-center gap-2 rounded-full border border-moss/15 bg-white/80 px-3 py-1.5 text-xs font-semibold text-moss shadow-[0_8px_20px_rgba(45,109,195,0.08),inset_0_1px_0_rgba(255,255,255,0.9)]">
                         <Route className="h-3.5 w-3.5" aria-hidden />
-                        Direction Card
+                        方向卡
                       </div>
                       <h2 className="mt-4 max-w-2xl text-2xl font-semibold leading-tight text-neutral-950 md:text-3xl">
                         校园二手交易平台，先交付可演示的发布与搜索闭环。
@@ -413,7 +413,7 @@ export function ProjectFlowHome() {
                         <p className="mt-1 text-xs text-neutral-500">方向清晰度</p>
                       </div>
                       <div className="p-3">
-                        <p className="font-semibold text-coral">1 high</p>
+                        <p className="font-semibold text-coral">1 个高风险</p>
                         <p className="mt-1 text-xs text-neutral-500">范围风险</p>
                       </div>
                     </div>
@@ -426,7 +426,7 @@ export function ProjectFlowHome() {
                           <Clock3 className="h-4 w-4 text-moss" aria-hidden />
                           项目时间线
                         </h3>
-                        <span className="text-xs text-neutral-500">today</span>
+                        <span className="text-xs text-neutral-500">今天</span>
                       </div>
                       <div className="overflow-hidden rounded-[20px] border border-white bg-white/90 shadow-[0_18px_42px_rgba(28,40,54,0.08),inset_0_1px_0_rgba(255,255,255,0.92)]">
                         {timelineEvents.map((event) => (
@@ -461,7 +461,7 @@ export function ProjectFlowHome() {
                 <aside className="border-t border-neutral-200/80 bg-[linear-gradient(180deg,#ffffff,#f8faf7)] p-5 lg:border-l lg:border-t-0">
                   <div className="flex items-center justify-between gap-3">
                     <h3 className="text-sm font-semibold text-neutral-950">下一步行动</h3>
-                    <span className="rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-xs text-neutral-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">3 pending</span>
+                    <span className="rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-xs text-neutral-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">3 项待处理</span>
                   </div>
                   <div className="mt-4 space-y-2.5">
                     {actionRows.map((row) => (
@@ -535,7 +535,7 @@ export function ProjectFlowHome() {
         <div className="site-container py-28">
           <Reveal className="max-w-2xl">
             <p className="inline-flex rounded-full border border-neutral-950/10 bg-white/75 px-3 py-1.5 text-xs font-semibold uppercase text-neutral-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
-              Project operating loop
+              项目推进回路
             </p>
             <h2 className="mt-5 text-4xl font-semibold leading-tight text-neutral-950 md:text-5xl">
               从想法到复盘，每一步都留下可执行的判断。

@@ -28,8 +28,8 @@ export type CreateWorkspaceRequest = {
   name: string;
   owner_user_id: string;
   description?: string | null;
-  team_size: number;
-  use_case: string;
+  team_size?: number;
+  use_case?: string;
 };
 
 export type WorkspaceMembership = {

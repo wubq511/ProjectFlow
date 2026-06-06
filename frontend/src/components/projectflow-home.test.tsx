@@ -24,7 +24,7 @@ describe("ProjectFlowHome", () => {
     render(<ProjectFlowHome />);
 
     expect(screen.getByRole("heading", { name: /学生项目的主动推进工作台/ })).toBeTruthy();
-    expect(screen.getByText("ProjectFlow / project operating system")).toBeTruthy();
+    expect(screen.getByText("ProjectFlow / 项目操作系统")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /开始使用/ }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /加载演示数据/ })).toBeTruthy();
     expect(screen.getByText("Campus Demo Workspace")).toBeTruthy();

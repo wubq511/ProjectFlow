@@ -110,15 +110,16 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject }: 
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [memberSearch, setMemberSearch] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
-  const [localProjects, setLocalProjects] = useState(projects);
+  const [deletedProjectIds, setDeletedProjectIds] = useState<string[]>([]);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Sync local projects when state changes
-  React.useEffect(() => {
-    setLocalProjects(projects);
-  }, [projects]);
+  const localProjects = React.useMemo(() => {
+    if (deletedProjectIds.length === 0) return projects;
+    const hiddenIds = new Set(deletedProjectIds);
+    return projects.filter((project) => !hiddenIds.has(project.id));
+  }, [deletedProjectIds, projects]);
 
   const activeProjects = localProjects.filter((p) => p.status === "active");
   const completedProjects = localProjects.filter((p) => p.status === "completed");
@@ -131,7 +132,7 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject }: 
     setDeleteError(null);
     try {
       await deleteProject(projectId);
-      setLocalProjects((prev) => prev.filter((p) => p.id !== projectId));
+      setDeletedProjectIds((prev) => [...prev, projectId]);
       setDeleteConfirmId(null);
     } catch {
       setDeleteError("删除失败，请检查网络后重试。");

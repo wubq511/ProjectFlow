@@ -96,7 +96,6 @@ export function WorkspaceCreateForm({
   }, [])
 
   const goBack = () => {
-    console.log("goBack triggered, current step:", step);
     setStep((prev) => Math.max(0, prev - 1));
   };
 

@@ -10,6 +10,8 @@ def create_workspace(session: Session, data: WorkspaceCreate, owner_user_id: str
         name=data.name,
         owner_user_id=owner_user_id,
         description=data.description,
+        team_size=data.team_size,
+        use_case=data.use_case,
     )
     session.add(workspace)
     session.flush()
