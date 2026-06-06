@@ -432,22 +432,22 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject }: 
                       }}>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>确认删除项目 “{p.name}”？</AlertDialogTitle>
+                            <AlertDialogTitle>确认删除项目 "{p.name}"？</AlertDialogTitle>
                             <AlertDialogDescription>
                               删除后项目将无法恢复。所有相关的阶段、任务、Agent 提案等数据都将被永久删除。
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           {deleteError && (
-                            <p className=”text-sm text-destructive px-1”>{deleteError}</p>
+                            <p className="text-sm text-destructive px-1">{deleteError}</p>
                           )}
                           <AlertDialogFooter>
                             <AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
                             <AlertDialogAction
                               onClick={() => handleDeleteProject(p.id)}
                               disabled={deleting}
-                              className=”bg-destructive hover:bg-destructive/90”
+                              className="bg-destructive hover:bg-destructive/90"
                             >
-                              {deleting ? “删除中...” : “确认删除”}
+                              {deleting ? "删除中..." : "确认删除"}
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
