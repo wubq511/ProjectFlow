@@ -353,6 +353,7 @@ export function AgentSidebar({
                     type="button"
                     onClick={() => setActivityOpen((open) => !open)}
                     className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-xs font-semibold text-neutral-500 transition hover:bg-neutral-50 hover:text-neutral-700"
+                    aria-expanded={activityOpen}
                   >
                     <span className="flex items-center gap-1.5">
                       <Clock className="h-3.5 w-3.5" />
@@ -409,6 +410,7 @@ export function AgentSidebar({
                     type="button"
                     onClick={() => setAdvancedOpen((open) => !open)}
                     className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-xs font-semibold text-neutral-500 transition hover:bg-neutral-50 hover:text-neutral-700"
+                    aria-expanded={advancedOpen}
                   >
                     <span className="flex items-center gap-1.5">
                       <MoreHorizontal className="h-3.5 w-3.5" />
