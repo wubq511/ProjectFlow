@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Instrument_Serif, Inter } from "next/font/google";
+import { Instrument_Serif, Inter, Space_Grotesk } from "next/font/google";
 
 import "../styles/globals.css";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,11 @@ const body = Inter({
   variable: "--font-body",
 });
 
+const grotesk = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-grotesk",
+});
+
 export const metadata: Metadata = {
   title: "ProjectFlow",
   description: "面向大学生项目小队的主动推进型 AI Agent",
@@ -30,7 +35,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" className={cn("font-sans", display.variable, body.variable)}>
+    <html lang="zh-CN" className={cn("font-sans", display.variable, body.variable, grotesk.variable)}>
       <body>
         <AppShell>{children}</AppShell>
       </body>

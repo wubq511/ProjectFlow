@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useSyncExternalStore } from "react";
 import { motion } from "framer-motion";
-import { ChevronDown, Home, Layers3, LayoutDashboard, Menu, Plus, Users } from "lucide-react";
+import { ChevronDown, GitBranch, Home, Layers3, LayoutDashboard, Menu, Sparkles, Users } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,13 @@ function getServerSnapshot() {
 
 const baseNavItems = [
   { label: "首页", href: "/", icon: Home },
+] as const;
+
+const landingNavItems = [
+  { label: "首页", href: "/", icon: Home },
+  { label: "场景", href: "/#scenarios", icon: Users },
+  { label: "工作流", href: "/#operating-loop", icon: GitBranch },
+  { label: "能力", href: "/#capabilities", icon: Sparkles },
 ] as const;
 
 function useWorkspaceNav() {
@@ -135,17 +142,17 @@ function NavLink({
   href: string;
   icon: React.ElementType;
   active: boolean;
-  tone?: "light" | "dark";
+  tone?: "light" | "landing";
 }) {
   return (
     <Link
       href={href}
       className={cn(
         "inline-flex items-center gap-2 rounded-[12px] px-3 py-2 text-sm font-medium transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]",
-        tone === "dark"
+        tone === "landing"
           ? active
-            ? "bg-white text-neutral-950 shadow-[0_10px_24px_rgba(255,255,255,0.12),inset_0_1px_0_rgba(255,255,255,0.95)]"
-            : "text-white/54 hover:bg-white/[0.08] hover:text-white"
+            ? "bg-neutral-950 text-white shadow-[0_12px_26px_rgba(16,22,31,0.16),inset_0_1px_0_rgba(255,255,255,0.14)]"
+            : "text-neutral-500 hover:bg-white/70 hover:text-neutral-950"
           : active
             ? "bg-neutral-950 text-white"
             : "text-neutral-500 hover:bg-white hover:text-neutral-950"
@@ -157,8 +164,18 @@ function NavLink({
   );
 }
 
-function MobileNav({ pathname, workspaceId }: { pathname: string; workspaceId: string | null }) {
-  const navItems = workspaceId
+function MobileNav({
+  pathname,
+  workspaceId,
+  isLandingPage,
+}: {
+  pathname: string;
+  workspaceId: string | null;
+  isLandingPage: boolean;
+}) {
+  const navItems = isLandingPage
+    ? landingNavItems
+    : workspaceId
     ? [
         { label: "首页", href: "/", icon: Home },
         { label: "工作台", href: `/workspaces/${workspaceId}`, icon: LayoutDashboard },
@@ -221,7 +238,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     (pathname.startsWith("/projects/") && pathname.split("/").length >= 3 && !pathname.includes("/new")) ||
     (pathname.startsWith("/workspaces/") && pathname.split("/").length >= 3 && !pathname.includes("/new"));
 
-  const navItems = workspaceId
+  const isLandingPage = pathname === "/";
+  const navItems = isLandingPage
+    ? landingNavItems
+    : workspaceId
     ? [
         { label: "首页", href: "/", icon: Home },
         { label: "工作台", href: `/workspaces/${workspaceId}`, icon: LayoutDashboard },
@@ -230,7 +250,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const currentMember = members.find((m) => m.user_id === storedUserId) ?? members[0];
   const activeUserId = currentMember?.user_id ?? null;
-  const isLandingPage = pathname === "/";
 
   return (
     <div className={cn("bg-paper text-ink", isProjectDashboard ? "h-screen overflow-hidden" : "min-h-screen")}>
@@ -251,7 +270,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className={cn(
                 "mx-auto flex h-16 max-w-7xl items-center justify-between px-5 lg:px-8",
                 isLandingPage &&
-                  "rounded-[28px] border border-white/10 bg-[#07090d]/72 text-white shadow-[0_18px_70px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl",
+                  "rounded-[26px] border border-neutral-950/10 bg-white/72 text-neutral-950 shadow-[0_18px_54px_rgba(25,34,47,0.10),inset_0_1px_0_rgba(255,255,255,0.96)] backdrop-blur-xl",
               )}
             >
               <div className="flex items-center gap-6">
@@ -260,13 +279,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     className={cn(
                       "flex h-7 w-7 items-center justify-center rounded-[8px] shadow-sm",
                       isLandingPage
-                        ? "bg-white text-neutral-950 shadow-[0_0_24px_rgba(255,54,77,0.22)]"
+                        ? "bg-neutral-950 text-white shadow-[0_12px_26px_rgba(16,22,31,0.16)]"
                         : "bg-neutral-950 text-white",
                     )}
                   >
                     <Layers3 className="h-4 w-4" aria-hidden />
                   </span>
-                  <span className={cn("text-base font-semibold", isLandingPage ? "text-white" : "text-neutral-950")}>
+                  <span className={cn("font-display text-xl font-normal leading-none", isLandingPage ? "text-neutral-950" : "text-neutral-950")}>
                     ProjectFlow
                   </span>
                 </Link>
@@ -279,7 +298,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       href={item.href}
                       icon={item.icon}
                       active={pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href))}
-                      tone={isLandingPage ? "dark" : "light"}
+                      tone={isLandingPage ? "landing" : "light"}
                     />
                   ))}
                 </nav>
@@ -295,7 +314,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         className={cn(
                           "gap-2 text-xs",
                           isLandingPage &&
-                            "border-white/12 bg-white/[0.06] text-white hover:bg-white/[0.12] hover:text-white",
+                            "border-neutral-950/10 bg-white/70 text-neutral-700 hover:bg-white hover:text-neutral-950",
                         )}
                       >
                         <Users className="h-3.5 w-3.5" />
@@ -325,7 +344,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
 
               <div className="md:hidden">
-                <MobileNav pathname={pathname} workspaceId={workspaceId} />
+                <MobileNav pathname={pathname} workspaceId={workspaceId} isLandingPage={isLandingPage} />
               </div>
             </div>
           </motion.header>
