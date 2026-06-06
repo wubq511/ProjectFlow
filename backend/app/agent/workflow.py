@@ -30,6 +30,43 @@ class AgentRunResult:
     raw_output: str | None
 
 
+def _rejection_feedback_text(
+    session: Session | None, project_id: str | None, event_type: AgentEventType
+) -> str:
+    """Query recent rejected proposals of the same type and format their reasons for injection into the prompt."""
+    if session is None or project_id is None:
+        return ""
+    from sqlmodel import select
+    from app.models import AgentProposal
+    from app.models.enums import AgentProposalStatus
+
+    proposal_type = event_type.value
+    if proposal_type not in {"clarify", "plan", "breakdown", "replan"}:
+        return ""
+
+    stmt = (
+        select(AgentProposal)
+        .where(
+            AgentProposal.project_id == project_id,
+            AgentProposal.proposal_type == proposal_type,
+            AgentProposal.status == AgentProposalStatus.rejected,
+            AgentProposal.rejection_reason.is_not(None),
+        )
+        .order_by(AgentProposal.created_at.desc())
+        .limit(3)
+    )
+    rows = list(session.exec(stmt).all())
+    if not rows:
+        return ""
+
+    lines = [f"以下是对此前 {proposal_type} 提案的拒绝反馈（请在新输出中避免重复这些问题）："]
+    for i, row in enumerate(rows, 1):
+        reason = (row.rejection_reason or "").strip()
+        if reason:
+            lines.append(f"{i}. {reason}")
+    return "\n".join(lines)
+
+
 def generate_structured_output(
     *,
     session: Session | None,
@@ -40,6 +77,14 @@ def generate_structured_output(
     fallback_payload: dict[str, Any],
     user_instruction: str | None = None,
 ) -> AgentRunResult:
+    feedback = _rejection_feedback_text(
+        session,
+        workspace_state.project.id if workspace_state.project else None,
+        event_type,
+    )
+    if feedback:
+        user_prompt = f"{feedback}\n\n{user_prompt}"
+
     messages = build_prompt_messages(
         event_type=event_type,
         workspace_state=workspace_state,
