@@ -41,18 +41,24 @@ const buttonVariants = cva(
   }
 )
 
-type ButtonProps = ButtonPrimitive.Props & VariantProps<typeof buttonVariants>
+type ButtonProps = ButtonPrimitive.Props &
+  VariantProps<typeof buttonVariants> & {
+    asChild?: boolean;
+  };
 
 const Button = React.forwardRef<HTMLElement, ButtonProps>(
-  ({ className, variant = "default", size = "default", ...props }, ref) => (
-    <ButtonPrimitive
-      ref={ref}
-      data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
-      {...props}
-    />
-  )
-)
+  ({ className, variant = "default", size = "default", asChild, ...props }, ref) => {
+    const Comp = asChild ? React.Fragment : ButtonPrimitive;
+    return (
+      <Comp
+        ref={ref}
+        data-slot="button"
+        className={cn(buttonVariants({ variant, size, className }))}
+        {...props}
+      />
+    );
+  }
+);
 Button.displayName = "Button"
 
 export { Button, buttonVariants }

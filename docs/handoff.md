@@ -4,38 +4,6 @@ Status: current as of 2026-06-06.
 
 ## Completed
 
-### Phase 37 — Workspace Creation UX, Landing Page Redesign & Bug Fixes (2026-06-06, PR #37)
-
-Workspace creation flow enhanced with team context, landing page fully redesigned to dark theme, and multiple bug fixes from code review.
-
-**Changes:**
-
-**Workspace Creation Flow:**
-- Added team size and use case collection in workspace creation form (step 2: "团队上下文").
-- `team_size` and `use_case` fields added to backend `WorkspaceCreate` schema, `Workspace` model, and `workspace_service.create_workspace()`. Frontend `CreateWorkspaceRequest` type updated accordingly.
-- Custom use case input appears when "其他" is selected.
-- `teamSize` string values ("1-2", "3-5", "6-10", "10+") parsed to integers before sending to backend.
-
-**Landing Page Redesign:**
-- Full redesign from light theme (`#f7f7f1`) to dark theme (`#050608`).
-- New cinematic hero background image with animated motion layers.
-- Replaced old sections (SignalRail, ProductPreview, scene cards, feature cards) with new metrics, workflow items, comparison layout.
-- Navigation bar adapted with dark tone for landing page.
-- Removed `Space_Grotesk` font and all `font-grotesk` CSS references.
-- All UI labels translated to Chinese (Direction→方向澄清, Assignment→分工推荐, Execution→执行追踪, Risk→风险监控, etc.).
-
-**Member Management:**
-- Edit button now visible for workspace owner (previously hidden for owner role). Delete button still restricted to non-owners.
-
-**Bug Fixes (from code review):**
-- `next-env.d.ts`: Reverted dev-only path (`.next/dev/types/routes.d.ts`) back to production path (`.next/types/routes.d.ts`) to prevent CI build failures.
-- `workspace-content.tsx`: Reverted `useState+useEffect` sync back to `useMemo+deletedProjectIds` pattern to fix optimistic delete being overwritten on parent re-render.
-- `workspace-create-form.tsx`: Removed debug `console.log` from `goBack` function.
-
-**Files modified:** `frontend/src/components/projectflow-home.tsx`, `frontend/src/components/app-shell.tsx`, `frontend/src/components/workspace/workspace-create-form.tsx`, `frontend/src/components/member/member-management-dialog.tsx`, `frontend/src/components/onboarding/member-profile-wizard.tsx`, `frontend/src/components/project/workspace-content.tsx`, `frontend/src/components/projectflow-home.test.tsx`, `frontend/src/lib/api.ts`, `frontend/src/lib/types.ts`, `frontend/src/app/layout.tsx`, `frontend/tailwind.config.ts`, `frontend/next-env.d.ts`, `backend/app/models/workspace.py`, `backend/app/schemas/workspace.py`, `backend/app/services/workspace_service.py`.
-
----
-
 Phase 0 / GitHub issue #2 is complete and closed.
 Phase 1 (models) / GitHub issue #3 is complete and closed.
 Phase 2 (core APIs) / GitHub issue #4 is complete and closed.
@@ -649,3 +617,18 @@ Ignored install/build artifacts may exist locally after verification:
 - `frontend/.next/`
 
 They are intentionally ignored and must not be committed.
+
+### Phase 37 — My Tasks View Enhancements (2026-06-06)
+
+Enhanced the "我的任务" (My Tasks) view to improve usability and eliminate nested HTML button hydration errors.
+
+**Changes:**
+- Removed hover requirement for quick actions on pending tasks; quick actions (start, complete, blocked) are now always visible.
+- Added a "..." (MoreHorizontal) DropdownMenu to `TaskRow` for both pending and completed tasks, triggering "签到" (Checkin) and "更新任务状态" (Update Status) actions.
+- Checkin and TaskStatusUpdate components are now rendered inside `Dialog` modals triggered by the DropdownMenu instead of inline blocks at the top of the view.
+- Removed duplicated `DialogHeader` from the Checkin Dialog and simplified the internal `CheckInForm` title/description text.
+- Unified the "Checkin" dialog style with the "Update Task Status" dialog style by restoring `<DialogHeader>` in the view component and simplifying the form component wrapper.
+- Fixed HTML button nesting hydration error caused by `DropdownMenuTrigger asChild` conflicting with the Shadcn `Button` component by applying custom styles directly to the `DropdownMenuTrigger` instead of nesting `<Button>`.
+
+**Files modified:** `project-task-views.tsx`, `checkin-form.tsx`, `button.tsx`, `dropdown-menu.tsx`.
+

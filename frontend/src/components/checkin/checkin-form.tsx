@@ -74,15 +74,8 @@ export function CheckInForm({ tasks, userId, onSubmit, pending }: CheckInFormPro
   };
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-lg border border-ink/10 bg-white p-5 shadow-sm">
-      <div>
-        <h2 className="text-lg font-bold text-ink">签到</h2>
-        <p className="mt-1 text-sm text-ink/60">
-          汇报进度、阻塞和下一周期可用时间
-        </p>
-      </div>
-
-      <div className="mt-5 grid gap-4">
+    <form onSubmit={handleSubmit} className="grid gap-4 py-2">
+      <div className="grid gap-4">
         {userTasks.length > 0 && (
           <div className="space-y-2">
             <Label htmlFor="checkin-task">关联任务</Label>

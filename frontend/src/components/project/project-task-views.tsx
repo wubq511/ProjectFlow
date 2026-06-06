@@ -10,6 +10,7 @@ import {
   Filter,
   FolderKanban,
   ListTodo,
+  MoreHorizontal,
   OctagonAlert,
   Play,
   UserCircle,
@@ -20,12 +21,25 @@ import { CheckInForm } from "@/components/checkin/checkin-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { TaskStatusUpdateList } from "@/components/task/task-status-update";
 import { cn } from "@/lib/utils";
 import type { ProjectState, Task } from "@/lib/types";
@@ -91,6 +105,23 @@ export function MyTasksView({
   );
 
   const [showDone, setShowDone] = useState(false);
+  const [showCheckinDialog, setShowCheckinDialog] = useState(false);
+  const [showUpdateStatusDialog, setShowUpdateStatusDialog] = useState(false);
+  const [selectedTaskIdForDialog, setSelectedTaskIdForDialog] = useState<string | null>(null);
+
+  const handleCheckinClick = (taskId: string) => {
+    setSelectedTaskIdForDialog(taskId);
+    setShowCheckinDialog(true);
+  };
+
+  const handleUpdateStatusDetailsClick = (taskId: string) => {
+    setSelectedTaskIdForDialog(taskId);
+    setShowUpdateStatusDialog(true);
+  };
+
+  const selectedTaskForDialog = selectedTaskIdForDialog
+    ? tasks.find((t) => t.id === selectedTaskIdForDialog)
+    : undefined;
 
   return (
     <div className="space-y-6">
@@ -103,11 +134,6 @@ export function MyTasksView({
                 {myPending.length}
               </span>
             </h2>
-            {myPending.length > 0 && (
-              <span className="text-xs text-neutral-400">
-                悬停任务可快速操作
-              </span>
-            )}
           </div>
         </div>
 
@@ -131,6 +157,8 @@ export function MyTasksView({
                     status,
                   })
                 }
+                onCheckinClick={handleCheckinClick}
+                onUpdateStatusDetailsClick={handleUpdateStatusDetailsClick}
               />
             ))}
           </div>
@@ -222,7 +250,11 @@ export function MyTasksView({
               >
                 <div className="divide-y divide-neutral-50">
                   {myDone.map((task) => (
-                    <TaskRow key={task.id} task={task} />
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      onUpdateStatusDetailsClick={handleUpdateStatusDetailsClick}
+                    />
                   ))}
                 </div>
               </motion.div>
@@ -231,28 +263,49 @@ export function MyTasksView({
         </section>
       )}
 
-      {currentUserId && onSubmitCheckin && (
-        <CheckInForm
-          tasks={tasks}
-          userId={currentUserId}
-          onSubmit={onSubmitCheckin}
-          pending={Boolean(pendingAction)}
-        />
-      )}
-
-      {currentUserId && onUpdateTaskStatus && myPending.length > 0 && (
-        <section className="rounded-xl border border-neutral-200 bg-white p-5">
-          <h2 className="text-base font-semibold text-ink">详细状态更新</h2>
-          <div className="mt-4">
-            <TaskStatusUpdateList
-              tasks={tasks.filter((t) => t.owner_user_id === currentUserId)}
+      <Dialog open={showCheckinDialog} onOpenChange={setShowCheckinDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>签到</DialogTitle>
+            <DialogDescription>
+              记录你在任务上的进展和遇到的问题。
+            </DialogDescription>
+          </DialogHeader>
+          {selectedTaskForDialog && currentUserId && onSubmitCheckin && (
+            <CheckInForm
+              tasks={[selectedTaskForDialog]}
               userId={currentUserId}
-              onUpdate={onUpdateTaskStatus}
+              onSubmit={(data) => {
+                onSubmitCheckin(data);
+                setShowCheckinDialog(false);
+              }}
               pending={Boolean(pendingAction)}
             />
-          </div>
-        </section>
-      )}
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showUpdateStatusDialog} onOpenChange={setShowUpdateStatusDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>更新任务状态</DialogTitle>
+            <DialogDescription>
+              详细更新任务的进度、阻塞情况等。
+            </DialogDescription>
+          </DialogHeader>
+          {selectedTaskForDialog && currentUserId && onUpdateTaskStatus && (
+            <TaskStatusUpdateList
+              tasks={[selectedTaskForDialog]}
+              userId={currentUserId}
+              onUpdate={(data) => {
+                onUpdateTaskStatus(data);
+                setShowUpdateStatusDialog(false);
+              }}
+              pending={Boolean(pendingAction)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -439,14 +492,17 @@ function TaskRow({
   showOwner = false,
   showQuickActions = false,
   onQuickUpdate,
+  onCheckinClick,
+  onUpdateStatusDetailsClick,
 }: {
   task: Task;
   members?: ProjectState["members"];
   showOwner?: boolean;
   showQuickActions?: boolean;
   onQuickUpdate?: (status: Task["status"]) => void;
+  onCheckinClick?: (taskId: string) => void;
+  onUpdateStatusDetailsClick?: (taskId: string) => void;
 }) {
-  const [hovered, setHovered] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [optimisticStatus, setOptimisticStatus] = useState<Task["status"] | null>(null);
 
@@ -483,8 +539,6 @@ function TaskRow({
   return (
     <div
       className="group flex items-center gap-3 px-5 py-3 transition-colors hover:bg-neutral-50/60"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
     >
       <span
         className={cn("h-2 w-2 rounded-full shrink-0", priorityConfig[task.priority].color)}
@@ -493,9 +547,14 @@ function TaskRow({
       />
 
       <div className="min-w-0 flex-1">
-        <p className={cn("text-sm font-medium truncate", displayStatus === "done" && "line-through text-neutral-400")}>
-          {task.title}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className={cn("text-sm font-medium truncate", displayStatus === "done" && "line-through text-neutral-400")}>
+            {task.title}
+          </p>
+          <Badge variant="outline" className={cn("text-xs shrink-0", statusConfig[displayStatus].color)}>
+            {statusConfig[displayStatus].label}
+          </Badge>
+        </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
           <span className="text-xs text-neutral-400">
             预计 {task.estimated_hours}h · 截止 {task.due_date}
@@ -511,10 +570,7 @@ function TaskRow({
 
       {showQuickActions && displayStatus !== "done" && (
         <div
-          className={cn(
-            "flex items-center gap-1 shrink-0 transition-opacity duration-150",
-            hovered ? "opacity-100" : "opacity-0 group-focus-within:opacity-100"
-          )}
+          className="flex items-center gap-1 shrink-0"
         >
           {displayStatus !== "in_progress" && (
             <button
@@ -550,9 +606,26 @@ function TaskRow({
         </div>
       )}
 
-      <Badge variant="outline" className={cn("text-xs shrink-0", statusConfig[displayStatus].color)}>
-        {statusConfig[displayStatus].label}
-      </Badge>
+      {(onCheckinClick || onUpdateStatusDetailsClick) && (
+        <DropdownMenu>
+          <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-neutral-100 text-neutral-500 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20">
+            <span className="sr-only">打开菜单</span>
+            <MoreHorizontal className="h-4 w-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {onCheckinClick && (
+              <DropdownMenuItem onClick={() => onCheckinClick(task.id)}>
+                签到
+              </DropdownMenuItem>
+            )}
+            {onUpdateStatusDetailsClick && (
+              <DropdownMenuItem onClick={() => onUpdateStatusDetailsClick(task.id)}>
+                更新任务状态
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }
