@@ -198,9 +198,10 @@ class OpenAICompatibleLLMClient:
                         if content:
                             yield content
                     except (json.JSONDecodeError, IndexError, KeyError):
+                        logger.warning("Skipping malformed SSE chunk")
                         continue
         except (urllib_error.HTTPError, urllib_error.URLError, TimeoutError) as exc:
-            # Fall back to non-streaming on error
+            logger.warning("Streaming failed, falling back to non-streaming: %s", exc)
             yield self.complete(messages, max_tokens=max_tokens)
 
     # ------------------------------------------------------------------
