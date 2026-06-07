@@ -14,6 +14,7 @@ import {
   OctagonAlert,
   Play,
   UserCircle,
+  XCircle,
 } from "lucide-react";
 
 import { AssignmentFlowPanel } from "@/components/assignment/assignment-flow-panel";
@@ -44,6 +45,29 @@ import { TaskStatusUpdateList } from "@/components/task/task-status-update";
 import { cn } from "@/lib/utils";
 import type { ProjectState, Task } from "@/lib/types";
 import type { AgentAction } from "./project-actions";
+
+function cleanJsonString(text: string) {
+  if (!text) return text;
+  // Replace raw dictionary strings like {'name': '产品设计', 'level': 3} with just the name
+  return text.replace(/\{['"]name['"]:\s*['"]([^'"]+)['"][^}]*\}/g, '$1');
+}
+
+function MatchText({ label, text }: { label: string; text: string }) {
+  let cleanedText = cleanJsonString(text);
+  
+  // Strip duplicate label prefix if it exists
+  const labelWithoutColon = label.replace(/[：:]$/, '');
+  const prefixRegex = new RegExp(`^${labelWithoutColon}[：:]\s*`);
+  if (prefixRegex.test(cleanedText)) {
+    cleanedText = cleanedText.replace(prefixRegex, '');
+  }
+
+  return (
+    <p>
+      <span className="font-semibold text-ink/70">{label}</span> {cleanedText}
+    </p>
+  );
+}
 
 type AssignmentResponseHandler = (
   proposalId: string,
@@ -185,13 +209,21 @@ export function MyTasksView({
                       {tasks.find((t) => t.id === proposal.task_id)?.title}
                     </p>
                     <p className="text-xs text-neutral-500 mt-0.5">
-                      {proposal.reason}
+                      {cleanJsonString(proposal.reason)}
                     </p>
+                    {(proposal.skill_match || proposal.availability_match || proposal.preference_match || proposal.constraint_respected) && (
+                      <div className="mt-2 grid gap-1 text-xs text-ink/55">
+                        {proposal.skill_match && <MatchText label="技能匹配：" text={proposal.skill_match} />}
+                        {proposal.availability_match && <MatchText label="时间匹配：" text={proposal.availability_match} />}
+                        {proposal.preference_match && <MatchText label="偏好匹配：" text={proposal.preference_match} />}
+                        {proposal.constraint_respected && <MatchText label="限制检查：" text={proposal.constraint_respected} />}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2 shrink-0">
                     <Button
                       size="sm"
-                      className="h-8 text-xs"
+                      className="h-8 px-3 text-xs rounded-full bg-ink text-white hover:bg-ink/85 transition-colors"
                       onClick={() =>
                         onRespondToAssignment?.(
                           proposal.id,
@@ -200,12 +232,13 @@ export function MyTasksView({
                         )
                       }
                     >
+                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
                       接受
                     </Button>
                     <Button
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
-                      className="h-8 text-xs"
+                      className="h-8 px-3 text-xs rounded-full text-ink/60 hover:text-ink/90 hover:bg-ink/5 transition-colors"
                       onClick={() =>
                         onRespondToAssignment?.(
                           proposal.id,
@@ -214,6 +247,7 @@ export function MyTasksView({
                         )
                       }
                     >
+                      <XCircle className="mr-1.5 h-3.5 w-3.5" />
                       拒绝
                     </Button>
                   </div>

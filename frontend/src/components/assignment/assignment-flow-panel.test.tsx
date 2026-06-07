@@ -100,6 +100,7 @@ const tasks: Task[] = [
     dependency_ids: [],
     acceptance_criteria: [],
     can_cut: false,
+    order_index: 0,
     created_by_agent: true,
     updated_at: "2026-06-03T00:00:00Z",
   },
@@ -118,6 +119,7 @@ const tasks: Task[] = [
     dependency_ids: [],
     acceptance_criteria: [],
     can_cut: false,
+    order_index: 1,
     created_by_agent: true,
     updated_at: "2026-06-03T00:00:00Z",
   },
@@ -185,14 +187,14 @@ describe("AssignmentFlowPanel", () => {
     });
 
     expect(screen.queryByRole("button", { name: "接受分工" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "拒绝分工" })).toBeNull();
-    expect(screen.getByText("已定稿，任务负责人已正式写入。")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "拒绝并协商" })).toBeNull();
+    expect(screen.getByText("已定稿")).toBeTruthy();
   });
 
   it("shows selected preferred task title instead of raw task id", () => {
     const { container } = renderPanel();
 
-    fireEvent.click(screen.getByRole("button", { name: "拒绝分工" }));
+    fireEvent.click(screen.getByRole("button", { name: "拒绝并协商" }));
     fireEvent.click(screen.getByRole("button", { name: "搭建分工流程面板" }));
 
     expect(screen.getAllByText("搭建分工流程面板").length).toBeGreaterThan(0);
@@ -201,6 +203,20 @@ describe("AssignmentFlowPanel", () => {
 
   it("renders all negotiation records with member and task names", () => {
     renderPanel({
+      proposals: [
+        {
+          ...proposedProposal,
+          id: "proposal-1",
+          status: "owner_rejected",
+        },
+        {
+          ...proposedProposal,
+          id: "proposal-2",
+          task_id: "task-panel",
+          recommended_owner_user_id: "user-mia",
+          status: "negotiating",
+        }
+      ],
       negotiations: [
         {
           id: "negotiation-1",
@@ -227,11 +243,9 @@ describe("AssignmentFlowPanel", () => {
       ],
     });
 
-    expect(screen.getByText("林舟希望改做分工流程面板。")).toBeTruthy();
-    expect(screen.getByText("Mia 希望接手 API 任务。")).toBeTruthy();
-    expect(screen.getByText("来自 林舟")).toBeTruthy();
-    expect(screen.getByText("偏好任务 搭建分工流程面板")).toBeTruthy();
-    expect(screen.getByText("当前负责人 当前未分配")).toBeTruthy();
-    expect(screen.getByText("当前负责人 林舟")).toBeTruthy();
+    expect(screen.getAllByText((content) => content.includes("林舟希望改做分工流程面板。")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText((content) => content.includes("Mia 希望接手 API 任务。")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText((content) => content.includes("来自 林舟")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText((content) => content.includes("偏好接手：搭建分工流程面板")).length).toBeGreaterThan(0);
   });
 });

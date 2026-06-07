@@ -369,7 +369,7 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject }: 
                         onClick={() => {
                           onNavigateToProject?.(p.id);
                         }}
-                        className="flex flex-1 items-center justify-between px-3 py-3 text-left transition-colors hover:bg-primary/5 rounded-l-xl"
+                        className="flex flex-1 min-w-0 items-center justify-between px-3 py-3 text-left transition-colors hover:bg-primary/5 rounded-l-xl"
                         aria-label={`打开项目 ${p.name}`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
@@ -399,18 +399,6 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject }: 
                             </p>
                           </div>
                         </div>
-                        <Badge
-                          variant={
-                            p.status === "active"
-                              ? "default"
-                              : p.status === "at_risk"
-                                ? "destructive"
-                                : "secondary"
-                          }
-                          className="shrink-0 ml-2"
-                        >
-                          {statusLabelMap[p.status] ?? p.status}
-                        </Badge>
                       </button>
                       <Button
                         variant="ghost"
@@ -432,7 +420,7 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject }: 
                       }}>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>确认删除项目 "{p.name}"？</AlertDialogTitle>
+                            <AlertDialogTitle>确认删除项目 &quot;{p.name}&quot;？</AlertDialogTitle>
                             <AlertDialogDescription>
                               删除后项目将无法恢复。所有相关的阶段、任务、Agent 提案等数据都将被永久删除。
                             </AlertDialogDescription>

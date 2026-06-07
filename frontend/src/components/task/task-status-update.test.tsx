@@ -20,6 +20,7 @@ const task: Task = {
   acceptance_criteria: [],
   can_cut: false,
   assignment_reason: null,
+  order_index: 0,
   created_by_agent: true,
   updated_at: "2026-05-30T00:00:00Z",
 };
