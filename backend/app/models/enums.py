@@ -43,6 +43,7 @@ class TaskStatus(str, Enum):
     in_progress = "in_progress"
     done = "done"
     blocked = "blocked"
+    cancelled = "cancelled"
 
 
 class AssignmentProposalStatus(str, Enum):
@@ -108,6 +109,7 @@ class ActionCardType(str, Enum):
     kickoff_tip = "kickoff_tip"
     checkin_prompt = "checkin_prompt"
     assignment_request = "assignment_request"
+    suggestion = "suggestion"
 
 
 class ActionCardStatus(str, Enum):

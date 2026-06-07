@@ -83,6 +83,7 @@ class StagePlanOutput(AgentOutputBase):
 
 
 class TaskBreakdownItem(BaseModel):
+    id: str = Field(default="", description="Task identifier for dependency references, e.g. 'task-1', 'task-2'. Auto-generated if empty.")
     stage_id: str | None = None
     title: str = Field(min_length=1)
     description: str = Field(min_length=1)
@@ -104,6 +105,13 @@ class TaskBreakdownOutput(AgentOutputBase):
     def require_confirmation(self) -> "TaskBreakdownOutput":
         if not self.requires_confirmation:
             raise ValueError("task breakdown output requires confirmation")
+        return self
+
+    @model_validator(mode="after")
+    def auto_generate_task_ids(self) -> "TaskBreakdownOutput":
+        for idx, task in enumerate(self.tasks):
+            if not task.id:
+                task.id = f"task-{idx + 1}"
         return self
 
 
@@ -148,7 +156,7 @@ class AssignmentNegotiationOutput(AgentOutputBase):
 class ActionCardProposal(BaseModel):
     type: ActionCardType
     title: str = Field(min_length=1)
-    content: str = Field(min_length=1)
+    content: str = Field(default="", description="Card body text. If empty, title serves as the primary message.")
     reason: str = Field(min_length=1)
     goal: str | None = Field(default=None, description="What this card achieves for the project")
     start_suggestion: str | None = Field(default=None, description="Concrete first step to take")
@@ -276,13 +284,16 @@ def _validate_references(output: AgentOutputBase, workspace_state: WorkspaceStat
             errors.append(f"{label} references unknown id: {value}")
 
     if isinstance(output, TaskBreakdownOutput):
+        # Include IDs of tasks being created in this output (for self-referencing deps)
+        new_task_ids = {t.id for t in output.tasks if t.id}
+        all_task_ids = task_ids | new_task_ids
         for task in output.tasks:
             # Only check stage_id when stages actually exist; tasks created
             # before stages are confirmed can reference stage_id=None.
             if stage_ids:
                 check(task.stage_id, stage_ids, "stage_id")
             for dependency_id in task.dependency_ids:
-                check(dependency_id, task_ids, "dependency_ids")
+                check(dependency_id, all_task_ids, "dependency_ids")
 
     if isinstance(output, AssignmentRecommendationOutput):
         seen_task_ids: set[str] = set()

@@ -60,15 +60,18 @@ OUTPUT_CONTRACT_BY_EVENT_TYPE: dict[AgentEventType, str] = {
     AgentEventType.clarify: """DirectionCardOutput JSON object:
 Required keys: "problem" string, "users" string, "value" string, "deliverables" string[], "boundaries" string[], "risks" string[], "suggested_questions" string[], "reason" string, "requires_confirmation" true.
 Optional enrichment keys (include when project has resources, skills, or clear unknowns): "source_summary" string, "assumptions" string[], "unknowns" string[], "mvp_boundary" object with optional "must_have" string[], "defer" string[], "out_of_scope" string[], "decision_points" string[].
-Use 2-4 deliverables, boundaries, risks, and questions.""",
+Use 2-4 deliverables, boundaries, risks, and questions.
+SCOPE RULE: Never mention specific external systems (教务系统, 微信, 支付宝, 移动端 App, etc.) in any field. Use generic terms like "外部系统" or "第三方服务" instead. Mentioning these terms — even to exclude them — triggers scope-creep detection.""",
     AgentEventType.plan: """StagePlanOutput JSON object:
 Required keys: "stages" array, "reason" string, "requires_confirmation" true.
 Each stage: "name" string, "goal" string, "start_date" YYYY-MM-DD, "end_date" YYYY-MM-DD, "deliverable" string, "done_criteria" string[], "order_index" integer, "reason" string.
-Return 3 lean stages within the project deadline unless current state clearly needs fewer.""",
+Return 3 lean stages within the project deadline unless current state clearly needs fewer.
+SCOPE RULE: When the project idea is too ambitious for the team size or deadline, converge scope to MVP. Explicitly defer non-essential features. NEVER mention specific external systems (教务系统, 微信, 支付宝, 移动端 App, GitHub, 飞书, etc.) in ANY field — stage names, goals, deliverables, done_criteria, reason, or descriptions. Use generic terms like "外部集成" or "第三方服务" if needed. This rule applies everywhere: even when describing what the project wants to do or what you are deferring. Reject impossible timelines by proposing a reduced scope rather than accepting the full plan.""",
     AgentEventType.breakdown: """TaskBreakdownOutput JSON object:
 Required keys: "tasks" array, "reason" string, "requires_confirmation" true.
-Each task: "stage_id" existing stage id or null, "title" string, "description" string, "priority" one of P0/P1/P2, "due_date" YYYY-MM-DD, "estimated_hours" number, "dependency_ids" existing task id array, "acceptance_criteria" string[], "can_cut" boolean, "order_index" integer >=0, "reason" string.
-Use only existing stage_id and dependency_ids from WorkspaceState. Assign order_index in execution order: 0 first, then 1, 2, etc.""",
+Each task: "id" string (e.g. "task-1", "task-2"), "stage_id" existing stage id or null, "title" string, "description" string, "priority" one of P0/P1/P2, "due_date" YYYY-MM-DD, "estimated_hours" number, "dependency_ids" task id array, "acceptance_criteria" string[], "can_cut" boolean, "order_index" integer >=0, "reason" string.
+Use only existing stage_id and dependency_ids from WorkspaceState. Assign order_index in execution order: 0 first, then 1, 2, etc.
+CRITICAL: If your reason describes a sequential order (e.g. "先...再...", "first...then..."), you MUST populate dependency_ids to reflect that order. Example: 3 tasks where backend must finish before frontend, and both must finish before integration test: [{"id":"task-1","title":"Backend","dependency_ids":[],"order_index":0}, {"id":"task-2","title":"Frontend","dependency_ids":["task-1"],"order_index":1}, {"id":"task-3","title":"Integration Test","dependency_ids":["task-1","task-2"],"order_index":2}]. Never describe ordering in text while leaving dependency_ids empty.""",
     AgentEventType.assign: """AssignmentRecommendationOutput JSON object:
 Required keys: "assignments" array, "reason" string, "requires_confirmation" true.
 Each assignment: "task_id" existing task id, "recommended_owner_user_id" existing member id, "backup_owner_user_id" existing member id or null, "reason" string, "skill_match" string, "availability_match" string, "preference_match" string, "constraint_respected" string, "risk_note" string or null.
@@ -88,12 +91,15 @@ Do not use risk_type, mitigation, or affected_task_ids.""",
     AgentEventType.risk: """RiskAnalysisOutput JSON object:
 Required keys: "risks" array, "reason" string, optional "requires_confirmation" boolean.
 Each risk: "type" one of deadline/dependency/workload/scope/review/assignment/checkin, "severity" one of low/medium/high, "title" string, "description" string, "evidence" non-empty string array (readable Chinese sentences, not dicts or IDs), "recommendation" string, optional "stage_id" existing stage id or null, optional "task_id" existing task id or null.
-Return up to 3 concrete risks with different types when evidence exists; otherwise return an empty risks array. Each risk must have actual evidence from task status, check-ins, deadlines, dependencies, workload, or review pressure. Do not fabricate evidence. Set requires_confirmation true when severity is high.""",
+Return 1-3 concrete risks. Always produce at least 1 risk when the workspace contains blockers, overdue tasks, approaching deadlines, or unresolved check-in issues. Extract evidence directly from task status, check-in blockers, deadline proximity, or dependency chains. Never return an empty risks array when there is observable project data to analyze. Set requires_confirmation true when severity is high.""",
     AgentEventType.replan: """ReplanOutput JSON object:
-Required keys: "before", "after", "impact" string, "stage_adjustments" array, "task_changes" array, "action_cards" array, "reason" string, "requires_confirmation" true.
+Required keys: "before" object, "after" object, "impact" string, "stage_adjustments" array, "task_changes" array, "action_cards" array, "reason" string, "requires_confirmation" true.
+"before" and "after" MUST be objects with a "summary" key (string) describing the current vs proposed state. Optionally include "deadline" (YYYY-MM-DD string) and "stages"/"tasks" arrays if relevant.
 Stage adjustment: "stage_id" existing stage id, optional "new_start_date", optional "new_end_date", "reason" string.
-Task change: "task_id" existing task id, optional "title", "status", "owner_user_id", "due_date", "can_cut", "reason" string.
-Return the smallest useful proposal: at most 1 stage_adjustment, 1 task_change, and 1 action_card. Never change finalized owners without explicit evidence and confirmation.""",
+Task change: "task_id" existing task id, optional "title", "status" (not_started/in_progress/done/blocked/cancelled), "owner_user_id", "due_date", "can_cut", "reason" string.
+Return the smallest useful proposal: at most 1 stage_adjustment, 1 task_change, and 1 action_card. Never change finalized owners without explicit evidence and confirmation.
+Each action_card must have: "type" (one of personal_task/team_next_step/reminder/risk_action/kickoff_tip/checkin_prompt/assignment_request/suggestion), "title" string, "reason" string, optional "content" string, optional "task_id" or "user_id".
+CRITICAL: Even when no scope cuts are appropriate, you MUST produce at least one concrete structural change — extend a deadline, reassign a member, adjust priority, or add a mitigation task. A replan where before and after are identical is never acceptable. If the project is already minimal, extend the deadline or add a buffer task.""",
 }
 
 
