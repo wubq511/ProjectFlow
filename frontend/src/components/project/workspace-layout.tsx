@@ -6,7 +6,7 @@ import { ProjectSidebar, type ProjectView } from "./project-sidebar";
 import { AgentSidebar } from "./agent-sidebar";
 import { ProjectContent } from "./project-content";
 import { WorkspaceContent } from "./workspace-content";
-import type { AddResourceRequest, AgentArtifact, AgentConversation, AgentSuggestion, ProjectState, WorkspaceState } from "@/lib/types";
+import type { AddResourceRequest, AgentArtifact, AgentConversation, AgentStreamPhase, AgentSuggestion, ProjectState, WorkspaceState } from "@/lib/types";
 import type { AgentAction } from "./project-actions";
 
 interface WorkspaceLayoutProps {
@@ -23,6 +23,9 @@ interface WorkspaceLayoutProps {
   pendingAgentInstruction?: string | null;
   agentConversationError?: string | null;
   pendingAgentConversation?: boolean;
+  streamingBuffer?: string;
+  streamStatus?: { phase: AgentStreamPhase; module?: string; message: string } | null;
+  onStopStreaming?: () => void;
   actionError?: string | null;
   actionSuccess?: string | null;
   viewParam?: ProjectView | null;
@@ -88,6 +91,9 @@ export function WorkspaceLayout({
   pendingAgentInstruction,
   agentConversationError,
   pendingAgentConversation,
+  streamingBuffer = "",
+  streamStatus = null,
+  onStopStreaming,
   actionError,
   actionSuccess,
   viewParam,
@@ -212,6 +218,9 @@ export function WorkspaceLayout({
         actionSuccess={actionSuccess}
         onRunAgent={onRunAgent ?? (() => {})}
         onSendMessage={onSendAgentMessage}
+        streamingBuffer={streamingBuffer}
+        streamStatus={streamStatus}
+        onStopStreaming={onStopStreaming}
         onConfirmArtifact={onConfirmAgentArtifact}
         onResetDemo={onResetDemo}
       />

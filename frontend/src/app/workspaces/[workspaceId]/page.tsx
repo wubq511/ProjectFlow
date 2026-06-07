@@ -29,6 +29,7 @@ import {
   runReplan,
   runRiskAnalysis,
   sendAgentConversationMessage,
+  sendAgentConversationMessageStream,
   startNegotiation,
   submitCheckinResponse,
   updateActionCardStatus,
@@ -40,6 +41,7 @@ import type {
   AgentArtifact,
   AgentConversation,
   AgentFlowResult,
+  AgentStreamPhase,
   AgentSuggestion,
   ProjectState,
   WorkspaceState,
@@ -122,6 +124,9 @@ export default function WorkspaceDashboardPage() {
 
   const [pendingAction, setPendingAction] = useState<AgentAction | null>(null);
   const [pendingAgentConversation, setPendingAgentConversation] = useState(false);
+  const [streamingBuffer, setStreamingBuffer] = useState("");
+  const [streamStatus, setStreamStatus] = useState<{ phase: AgentStreamPhase; module?: string; message: string } | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
@@ -302,24 +307,53 @@ export default function WorkspaceDashboardPage() {
     setAgentConversationError(null);
     setActionError(null);
     setActionSuccess(null);
+
+    abortRef.current = new AbortController();
+
     try {
-      const result = await sendAgentConversationMessage(agentConversation.id, content);
-      setAgentConversation(result.conversation);
-      setAgentConversationSuggestions(result.suggestions ?? []);
-      setAgentConversationArtifacts(result.artifacts ?? []);
-      setPendingAgentInstruction(null);
-      await reloadProject();
-      const hasPendingArtifact = (result.artifacts ?? []).some(
-        (a) => a.status === "pending_confirmation",
+      await sendAgentConversationMessageStream(
+        agentConversation.id,
+        content,
+        {
+          onStatus: (status) => setStreamStatus(status as { phase: AgentStreamPhase; module?: string; message: string }),
+          onToken: (token) => setStreamingBuffer((prev) => prev + token),
+          onDone: (turn) => {
+            setAgentConversation(turn.conversation);
+            setAgentConversationSuggestions(turn.suggestions ?? []);
+            setAgentConversationArtifacts(turn.artifacts ?? []);
+            setPendingAgentInstruction(null);
+            setStreamingBuffer("");
+            setStreamStatus(null);
+            reloadProject();
+            const hasPendingArtifact = (turn.artifacts ?? []).some(
+              (a) => a.status === "pending_confirmation",
+            );
+            if (!hasPendingArtifact && turn.run?.proposal_id) {
+              setActionSuccess("Agent 已生成提案，等待你确认后应用");
+            }
+          },
+          onError: (msg) => {
+            setStreamingBuffer("");
+            setStreamStatus(null);
+            setAgentConversationError(msg || "这次没有生成可用结果，我保留了你的请求。");
+          },
+        },
+        abortRef.current.signal,
       );
-      if (!hasPendingArtifact && result.run?.proposal_id) {
-        setActionSuccess("Agent 已生成提案，等待你确认后应用");
-      }
     } catch {
-      setAgentConversationError("这次没有生成可用结果，我保留了你的请求。你可以重新发送或换一种说法。");
+      if (!abortRef.current?.signal.aborted) {
+        setAgentConversationError("这次没有生成可用结果，我保留了你的请求。你可以重新发送或换一种说法。");
+      }
+      setStreamingBuffer("");
+      setStreamStatus(null);
     } finally {
       setPendingAgentConversation(false);
+      abortRef.current = null;
     }
+  };
+
+  const handleStopStreaming = () => {
+    abortRef.current?.abort();
   };
 
   const handleAssignmentResponse = async (
@@ -571,6 +605,9 @@ export default function WorkspaceDashboardPage() {
       pendingAgentInstruction={pendingAgentInstruction}
       agentConversationError={agentConversationError}
       pendingAgentConversation={pendingAgentConversation}
+      streamingBuffer={streamingBuffer}
+      streamStatus={streamStatus}
+      onStopStreaming={handleStopStreaming}
       actionError={actionError}
       actionSuccess={actionSuccess}
       viewParam={viewParam}

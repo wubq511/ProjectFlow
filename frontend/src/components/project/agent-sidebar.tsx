@@ -1,6 +1,6 @@
 "use client";
 
-import type { ElementType, FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { ElementType } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -17,10 +17,8 @@ import {
   Loader2,
   MessageSquare,
   MoreHorizontal,
-  PlayCircle,
   RefreshCw,
   Rocket,
-  Send,
   Sparkles,
   Users,
 } from "lucide-react";
@@ -29,6 +27,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { AgentArtifact, AgentConversation, AgentEvent, AgentSuggestion, ProjectState } from "@/lib/types";
+import {
+  ChatMessage,
+  StreamingText,
+  AgentStepIndicator,
+  ChatComposer,
+  StarterPrompts,
+} from "./agent";
+import type { AgentStreamStatus } from "./agent/AgentStepIndicator";
 import type { AgentAction } from "./project-actions";
 import {
   AgentArtifactCard,
@@ -102,6 +108,9 @@ interface AgentSidebarProps {
   conversationError?: string | null;
   onRunAgent: (action: AgentAction) => void;
   onSendMessage?: (content: string) => void | Promise<void>;
+  streamingBuffer?: string;
+  streamStatus?: AgentStreamStatus | null;
+  onStopStreaming?: () => void;
   onConfirmArtifact?: (artifact: AgentArtifact) => void | Promise<void>;
   onResetDemo?: () => void | Promise<void>;
 }
@@ -120,6 +129,9 @@ export function AgentSidebar({
   conversationError = null,
   onRunAgent,
   onSendMessage,
+  streamingBuffer = "",
+  streamStatus = null,
+  onStopStreaming,
   onConfirmArtifact,
   onResetDemo,
 }: AgentSidebarProps) {
@@ -186,17 +198,6 @@ export function AgentSidebar({
     await onSendMessage(trimmed);
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    void submitMessage(draft);
-  };
-
-  const handleComposerKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Enter" || event.shiftKey) return;
-    event.preventDefault();
-    void submitMessage(draft);
-  };
-
   return (
     <motion.aside
       className={cn(
@@ -259,37 +260,46 @@ export function AgentSidebar({
                     Agent 对话
                   </div>
                   <div className="space-y-2">
-                    {messages.length === 0 && (
-                      <div className="rounded-lg border border-neutral-200 bg-white p-3 text-xs leading-5 text-neutral-600">
-                        {focusReason(focus)}
-                      </div>
+                    {messages.length === 0 && !pendingConversationInstruction && (
+                      <StarterPrompts
+                        focus={focus}
+                        onSelect={(instruction) => void submitMessage(instruction)}
+                        disabled={Boolean(pendingConversation)}
+                      />
                     )}
-                    {messages.map((message) => (
-                      <div
+                    {messages.map((message, index) => (
+                      <ChatMessage
                         key={message.id}
-                        className={cn(
-                          "rounded-lg border p-3 text-xs leading-5",
-                          message.role === "user"
-                            ? "ml-5 border-neutral-200 bg-white text-neutral-700"
-                            : "mr-5 border-moss/20 bg-moss/5 text-neutral-700"
-                        )}
-                      >
-                        <div className="mb-1 text-[10px] font-semibold text-neutral-400">
-                          {message.role === "user" ? "你" : "Agent"}
-                        </div>
-                        {message.role === "user" ? mapQuickReplyDisplay(message.content) : message.content}
-                      </div>
+                        message={message}
+                        isLast={index === messages.length - 1}
+                        onRetry={pendingConversationInstruction ? () => void submitMessage(pendingConversationInstruction) : undefined}
+                        onAction={(instruction) => void submitMessage(instruction)}
+                      />
                     ))}
 
-                    {pendingConversationInstruction && (
-                      <div className="ml-5 rounded-lg border border-neutral-200 bg-white p-3 text-xs leading-5 text-neutral-700">
-                        <div className="mb-1 text-[10px] font-semibold text-neutral-400">你</div>
-                        {mapQuickReplyDisplay(pendingConversationInstruction)}
+                    {pendingConversationInstruction && !streamingBuffer && (
+                      <ChatMessage
+                        message={{
+                          id: "pending",
+                          conversation_id: "",
+                          role: "user",
+                          content: pendingConversationInstruction,
+                          structured_payload: {},
+                          created_at: new Date().toISOString(),
+                        }}
+                      />
+                    )}
+
+                    {streamingBuffer && (
+                      <div className="mr-0 rounded-lg border border-moss/20 bg-moss/5 p-3">
+                        <div className="mb-1 text-[10px] font-semibold text-neutral-400">Agent</div>
+                        <StreamingText buffer={streamingBuffer} />
                       </div>
                     )}
                   </div>
 
-                  {pendingConversation && <AgentRunStatusCard />}
+                  {streamStatus && <AgentStepIndicator status={streamStatus} />}
+                  {pendingConversation && !streamStatus && <AgentRunStatusCard />}
 
                   {visibleArtifacts.map((artifact) => (
                     <AgentArtifactCard
@@ -316,34 +326,14 @@ export function AgentSidebar({
                     onPick={(instruction) => void submitMessage(instruction)}
                   />
 
-                  <form onSubmit={handleSubmit} className="mt-3">
-                    <div className="rounded-lg border border-neutral-200 bg-white p-2 focus-within:border-moss/40">
-                      <textarea
-                        value={draft}
-                        onChange={(event) => setDraft(event.target.value)}
-                        onKeyDown={handleComposerKeyDown}
-                        rows={3}
-                        placeholder="告诉 Agent 你的具体要求..."
-                        className="min-h-16 w-full resize-none bg-transparent text-sm text-neutral-800 outline-none placeholder:text-neutral-400"
-                        disabled={Boolean(pendingConversation)}
-                      />
-                      <div className="mt-2 flex justify-end">
-                        <Button
-                          type="submit"
-                          size="sm"
-                          className="h-7 gap-1 bg-moss px-2.5 text-xs text-white hover:bg-moss/90"
-                          disabled={!draft.trim() || Boolean(pendingConversation)}
-                        >
-                          {pendingConversation ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Send className="h-3.5 w-3.5" />
-                          )}
-                          发送
-                        </Button>
-                      </div>
-                    </div>
-                  </form>
+                  <ChatComposer
+                    value={draft}
+                    onChange={setDraft}
+                    onSubmit={(text) => void submitMessage(text)}
+                    onStop={onStopStreaming}
+                    disabled={Boolean(pendingConversation)}
+                    isStreaming={Boolean(streamingBuffer)}
+                  />
                 </div>
               )}
 
@@ -528,14 +518,6 @@ const QUICK_REPLY_INSTRUCTION_MAP: Record<string, string> = {
 
 function mapQuickReplyInstruction(label: string): string {
   return QUICK_REPLY_INSTRUCTION_MAP[label] ?? label;
-}
-
-const QUICK_REPLY_DISPLAY_MAP: Record<string, string> = Object.fromEntries(
-  Object.entries(QUICK_REPLY_INSTRUCTION_MAP).map(([label, instruction]) => [instruction, label]),
-);
-
-function mapQuickReplyDisplay(text: string): string {
-  return QUICK_REPLY_DISPLAY_MAP[text] ?? text;
 }
 
 function normalizeSuggestions(items: AgentSuggestion[] | string[]): AgentSuggestion[] {
