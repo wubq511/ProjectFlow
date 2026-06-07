@@ -20,3 +20,9 @@ def test_mock_stream_complete_multiple_calls():
     second = list(client.stream_complete([{"role": "user", "content": "b"}]))
     assert first == ["A", "B"]
     assert second == ["C", "D"]
+
+
+def test_sse_event_format():
+    from app.services.agent_conversation_service import _sse_event
+    result = _sse_event("status", {"phase": "planning", "message": "test"})
+    assert result == 'event: status\ndata: {"phase": "planning", "message": "test"}\n\n'
