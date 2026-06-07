@@ -191,6 +191,7 @@ export type AssignmentProposal = {
   preference_match?: string | null;
   constraint_respected?: string | null;
   risk_note?: string | null;
+  evidence_refs?: EvidenceRef[];
   status: "proposed" | "owner_confirmed" | "owner_rejected" | "negotiating" | "finalized";
   created_by_agent: boolean;
   created_at: string;
@@ -245,6 +246,14 @@ export type CheckInResponse = {
   created_at: string;
 };
 
+// --- Evidence Ref (Agent explainability) ---
+export type EvidenceRef = {
+  entity_type: string;
+  entity_id?: string | null;
+  field: string;
+  value: string;
+};
+
 // --- Risk ---
 export type RiskEvidence = string | Record<string, unknown>;
 
@@ -258,6 +267,7 @@ export type Risk = {
   title: string;
   description: string;
   evidence: RiskEvidence[];
+  evidence_refs?: EvidenceRef[];
   recommendation: string;
   status: "open" | "accepted" | "ignored" | "resolved";
   created_by_agent: boolean;
@@ -279,6 +289,7 @@ export type ActionCard = {
   start_suggestion?: string | null;
   completion_standard?: string | null;
   due_date?: string | null;
+  evidence_refs?: EvidenceRef[];
   status: "active" | "done" | "dismissed";
   created_by_agent: boolean;
   created_at: string;
