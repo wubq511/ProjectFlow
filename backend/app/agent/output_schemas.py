@@ -25,6 +25,19 @@ class AgentOutputValidationError(ValueError):
     """Raised when an agent payload cannot be trusted as structured output."""
 
 
+class EvidenceRef(BaseModel):
+    entity_type: str = Field(
+        min_length=1,
+        description="Type of referenced entity: member, task, stage, checkin, project",
+    )
+    entity_id: str | None = Field(
+        default=None,
+        description="ID of the referenced entity; omit for project-level refs",
+    )
+    field: str = Field(min_length=1, description="Which field was used as evidence")
+    value: str = Field(min_length=1, description="The concrete value observed")
+
+
 class AgentOutputBase(BaseModel):
     reason: str = Field(min_length=1)
     requires_confirmation: bool = False
@@ -125,6 +138,7 @@ class AssignmentRecommendationItem(BaseModel):
     preference_match: str | None = Field(default=None, description="How member role_preference/interests align with the task")
     constraint_respected: str | None = Field(default=None, description="Which member constraints were checked and not violated")
     risk_note: str | None = None
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list, description="Concrete state references that support this recommendation")
 
 
 class AssignmentRecommendationOutput(AgentOutputBase):
@@ -165,6 +179,7 @@ class ActionCardProposal(BaseModel):
     task_id: str | None = None
     stage_id: str | None = None
     due_date: date | None = None
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list, description="State references that justify why this action is needed now")
 
 
 class ActivePushOutput(AgentOutputBase):
@@ -189,6 +204,7 @@ class RiskProposal(BaseModel):
     recommendation: str = Field(min_length=1)
     stage_id: str | None = None
     task_id: str | None = None
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list, description="Structured references to the state that triggered this risk")
 
 
 class CheckInAnalysisOutput(AgentOutputBase):
@@ -223,6 +239,7 @@ class TaskChange(BaseModel):
     due_date: date | None = None
     can_cut: bool | None = None
     reason: str = Field(min_length=1)
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list, description="State references that support this change")
 
 
 class ReplanOutput(AgentOutputBase):
@@ -283,6 +300,15 @@ def _validate_references(output: AgentOutputBase, workspace_state: WorkspaceStat
         if value and value not in valid_ids:
             errors.append(f"{label} references unknown id: {value}")
 
+    def _validate_evidence_refs(evidence_refs: list[EvidenceRef]) -> None:
+        for ref in evidence_refs:
+            if ref.entity_type in {"member", "user"} and ref.entity_id and ref.entity_id not in member_ids:
+                errors.append(f"evidence_ref references unknown member id: {ref.entity_id}")
+            if ref.entity_type == "task" and ref.entity_id and ref.entity_id not in task_ids:
+                errors.append(f"evidence_ref references unknown task id: {ref.entity_id}")
+            if ref.entity_type == "stage" and ref.entity_id and ref.entity_id not in stage_ids:
+                errors.append(f"evidence_ref references unknown stage id: {ref.entity_id}")
+
     if isinstance(output, TaskBreakdownOutput):
         # Include IDs of tasks being created in this output (for self-referencing deps)
         new_task_ids = {t.id for t in output.tasks if t.id}
@@ -301,6 +327,7 @@ def _validate_references(output: AgentOutputBase, workspace_state: WorkspaceStat
             check(assignment.task_id, task_ids, "task_id")
             check(assignment.recommended_owner_user_id, member_ids, "recommended_owner_user_id")
             check(assignment.backup_owner_user_id, member_ids, "backup_owner_user_id")
+            _validate_evidence_refs(assignment.evidence_refs)
 
             # No duplicate task_ids
             if assignment.task_id in seen_task_ids:
@@ -353,15 +380,21 @@ def _validate_references(output: AgentOutputBase, workspace_state: WorkspaceStat
 
     if isinstance(output, ActivePushOutput):
         _validate_action_card_references(output.action_cards, member_ids, stage_ids, task_ids, errors)
+        for card in output.action_cards:
+            _validate_evidence_refs(card.evidence_refs)
 
     if isinstance(output, CheckInAnalysisOutput):
         for update in output.task_updates:
             check(update.task_id, task_ids, "task_id")
             check(update.user_id, member_ids, "user_id")
         _validate_risk_references(output.risks, stage_ids, task_ids, errors)
+        for risk in output.risks:
+            _validate_evidence_refs(risk.evidence_refs)
 
     if isinstance(output, RiskAnalysisOutput):
         _validate_risk_references(output.risks, stage_ids, task_ids, errors)
+        for risk in output.risks:
+            _validate_evidence_refs(risk.evidence_refs)
 
     if isinstance(output, ReplanOutput):
         for adjustment in output.stage_adjustments:
@@ -369,7 +402,10 @@ def _validate_references(output: AgentOutputBase, workspace_state: WorkspaceStat
         for change in output.task_changes:
             check(change.task_id, task_ids, "task_id")
             check(change.owner_user_id, member_ids, "owner_user_id")
+            _validate_evidence_refs(change.evidence_refs)
         _validate_action_card_references(output.action_cards, member_ids, stage_ids, task_ids, errors)
+        for card in output.action_cards:
+            _validate_evidence_refs(card.evidence_refs)
 
     if errors:
         raise ValueError("; ".join(errors))
