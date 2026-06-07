@@ -233,6 +233,7 @@ POST /api/agent/active-push
 POST /api/agent/check-in-analysis
 POST /api/agent/risk-analysis
 POST /api/agent/replan
+POST /api/agent/retrospective
 ```
 
 Agent outputs are validated before persistence. Clarification, stage planning, task breakdown, and replan outputs create `AgentProposal` records (pending confirmation) instead of directly mutating project state. Assignment, active-push, check-in-analysis, and risk-analysis endpoints persist their validated proposals or records through services. Negotiate records the structured output in the AgentEvent timeline only; the concrete assignment negotiation records are owned by the assignment negotiation flow, not the generic AgentProposal confirm service. Replan proposals do not apply changes until they are confirmed through `/api/agent-proposals/{proposal_id}/confirm`, which delegates to the same deterministic replan service used by `/api/replans/confirm`.

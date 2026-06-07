@@ -43,10 +43,27 @@ def _json_value(value: Any, default: Any) -> Any:
         return default
 
 
+STATUS_ZH = {
+    "draft": "草稿", "active": "进行中", "at_risk": "有风险", "completed": "已完成",
+    "pending": "待开始", "not_started": "未开始", "in_progress": "进行中",
+    "done": "已完成", "blocked": "受阻", "open": "待处理", "accepted": "已接受",
+    "ignored": "已忽略", "resolved": "已解决", "proposed": "待确认",
+    "owner_confirmed": "已确认", "owner_rejected": "已拒绝",
+    "negotiating": "协调中", "finalized": "已定稿",
+}
+SEVERITY_ZH = {"high": "高危", "medium": "中危", "low": "低危"}
+PRIORITY_ZH = {"P0": "P0（最高）", "P1": "P1", "P2": "P2"}
+RISK_TYPE_ZH = {
+    "deadline": "截止风险", "dependency": "依赖风险", "workload": "工作量风险",
+    "scope": "范围风险", "review": "评审风险", "assignment": "分工风险", "checkin": "签到风险",
+}
+
+
 def _enum_value(value: Any) -> str:
     if value is None:
         return "-"
-    return str(getattr(value, "value", value))
+    raw = str(getattr(value, "value", value))
+    return STATUS_ZH.get(raw, raw)
 
 
 @router.post("/projects/{project_id}/export/review-summary", response_model=ExportResponse)
@@ -176,7 +193,7 @@ def export_review_summary(project_id: str, session: Session = Depends(get_sessio
 
     lines.extend(["## 任务状态", ""])
     for priority in ["P0", "P1", "P2"]:
-        group = [task for task in tasks if _enum_value(task.priority) == priority]
+        group = [task for task in tasks if str(getattr(task.priority, "value", task.priority)) == priority]
         if not group:
             continue
         lines.extend(
@@ -208,13 +225,17 @@ def export_review_summary(project_id: str, session: Session = Depends(get_sessio
         for risk in risks:
             recommendation = risk.recommendation[:40]
             suffix = "..." if len(risk.recommendation) > 40 else ""
+            sev_raw = str(getattr(risk.severity, "value", risk.severity))
+            type_raw = str(getattr(risk.type, "value", risk.type))
             lines.append(
-                f"| {_enum_value(risk.severity)} | {_enum_value(risk.type)} | {risk.title} | {_enum_value(risk.status)} | {recommendation}{suffix} |"
+                f"| {SEVERITY_ZH.get(sev_raw, sev_raw)} | {RISK_TYPE_ZH.get(type_raw, type_raw)} | {risk.title} | {_enum_value(risk.status)} | {recommendation}{suffix} |"
             )
         lines.extend(["", "### 风险详情", ""])
         for risk in risks:
             evidence = _json_value(risk.evidence, [])
-            lines.append(f"**{risk.title}**（{_enum_value(risk.severity)}/{_enum_value(risk.type)}）")
+            sev_raw = str(getattr(risk.severity, "value", risk.severity))
+            type_raw = str(getattr(risk.type, "value", risk.type))
+            lines.append(f"**{risk.title}**（{SEVERITY_ZH.get(sev_raw, sev_raw)}/{RISK_TYPE_ZH.get(type_raw, type_raw)}）")
             lines.append(f"- 描述：{risk.description}")
             lines.append("- 证据：")
             for item in evidence:
@@ -246,7 +267,7 @@ def export_review_summary(project_id: str, session: Session = Depends(get_sessio
         lines.append("")
 
     if checkin_cycles or checkin_responses:
-        lines.extend(["## Check-in 摘要", ""])
+        lines.extend(["## 签到摘要", ""])
         for response in checkin_responses:
             name = member_map.get(response.user_id, "未知")
             blocker = f" Blocker: {response.blocker}" if response.blocker else ""

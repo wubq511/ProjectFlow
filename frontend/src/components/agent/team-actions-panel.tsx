@@ -19,7 +19,7 @@ export function TeamActionsPanel({ cards, onDismiss, onComplete, pending, canOpe
   );
 
   return (
-    <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-sm">
+    <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-ink">团队下一步</h2>

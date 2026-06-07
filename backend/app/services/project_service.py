@@ -72,7 +72,7 @@ def normalize_direction_card(value: str | dict | None) -> dict | None:
     if not risks:
         risks = _string_list(value.get("initial_risks"))
 
-    return {
+    result = {
         "problem": _first_text(value.get("problem")),
         "users": _first_text(value.get("users"), value.get("target_users")),
         "value": _first_text(value.get("value"), value.get("core_value")),
@@ -81,6 +81,26 @@ def normalize_direction_card(value: str | dict | None) -> dict | None:
         "risks": risks,
         "suggested_questions": _string_list(value.get("suggested_questions")),
     }
+
+    # Preserve extended clarification fields when present
+    if value.get("source_summary"):
+        result["source_summary"] = _first_text(value.get("source_summary"))
+    if value.get("assumptions"):
+        result["assumptions"] = _string_list(value.get("assumptions"))
+    if value.get("unknowns"):
+        result["unknowns"] = _string_list(value.get("unknowns"))
+    if value.get("mvp_boundary") and isinstance(value["mvp_boundary"], dict):
+        result["mvp_boundary"] = {
+            "must_have": _string_list(value["mvp_boundary"].get("must_have")),
+            "defer": _string_list(value["mvp_boundary"].get("defer")),
+            "out_of_scope": _string_list(value["mvp_boundary"].get("out_of_scope")),
+        }
+    if value.get("decision_points"):
+        result["decision_points"] = _string_list(value.get("decision_points"))
+    if value.get("reason"):
+        result["reason"] = _first_text(value.get("reason"))
+
+    return result
 
 
 def delete_project(session: Session, project_id: str) -> None:

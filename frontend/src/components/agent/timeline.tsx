@@ -210,7 +210,7 @@ export function AgentTimeline({ events }: AgentTimelineProps) {
       <div className="mt-5 space-y-6">
         {sortedDates.map((date) => (
           <div key={date}>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">
+            <p className="text-xs font-semibold text-ink/45">
               {date}
             </p>
             <div className="mt-3 space-y-3">
@@ -267,13 +267,13 @@ export function AgentTimeline({ events }: AgentTimelineProps) {
                     {isExpanded && (
                       <div className="mt-2 space-y-3">
                         <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">
+                          <p className="text-xs font-semibold text-ink/45">
                             输入
                           </p>
                           <SnapshotPreview snapshot={event.input_snapshot} />
                         </div>
                         <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">
+                          <p className="text-xs font-semibold text-ink/45">
                             输出
                           </p>
                           <SnapshotPreview snapshot={event.output_snapshot} />

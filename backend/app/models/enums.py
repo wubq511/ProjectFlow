@@ -129,6 +129,7 @@ class AgentEventType(str, Enum):
     risk = "risk"
     replan = "replan"
     export = "export"
+    retrospective = "retrospective"
 
 
 class AgentEventStatus(str, Enum):

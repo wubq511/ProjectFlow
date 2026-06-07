@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, EyeOff, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useInlineConfirm } from "@/lib/use-inline-confirm";
 import type { Risk } from "@/lib/types";
 
 type RiskCardProps = {
@@ -130,6 +131,8 @@ export function RiskCard({ risk, onAccept, onIgnore, onResolve, pending }: RiskC
   const isOpen = risk.status === "open";
   const isAccepted = risk.status === "accepted";
   const isHighRisk = risk.severity === "high";
+  const confirmResolve = useInlineConfirm();
+  const confirmIgnore = useInlineConfirm();
 
   return (
     <article className={`rounded-lg border bg-paper/60 p-4 ${isHighRisk ? "border-coral/30" : "border-ink/10"}`}>
@@ -161,7 +164,7 @@ export function RiskCard({ risk, onAccept, onIgnore, onResolve, pending }: RiskC
 
           {risk.evidence.length > 0 && (
             <div className="mt-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">证据</p>
+              <p className="text-xs font-semibold text-ink/45">证据</p>
               <ul className="mt-1 space-y-1">
                 {risk.evidence.map((item, index) => renderEvidenceItem(item, index))}
               </ul>
@@ -183,15 +186,37 @@ export function RiskCard({ risk, onAccept, onIgnore, onResolve, pending }: RiskC
 
         {(isOpen || isAccepted) && (
           <div className="flex gap-2">
-            <Button
-              size="sm"
-              disabled={pending}
-              onClick={() => onResolve?.(risk.id)}
-              className="bg-moss text-white hover:bg-moss/85"
-            >
-              <ShieldCheck className="h-4 w-4" />
-              解决
-            </Button>
+            {confirmResolve.confirming ? (
+              <>
+                <Button
+                  size="sm"
+                  disabled={pending}
+                  onClick={confirmResolve.handleConfirm(() => onResolve?.(risk.id))}
+                  className="bg-coral text-white hover:bg-coral/85"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  确认解决？
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={pending}
+                  onClick={confirmResolve.cancel}
+                >
+                  取消
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                disabled={pending}
+                onClick={confirmResolve.handleConfirm(() => onResolve?.(risk.id))}
+                className="bg-moss text-white hover:bg-moss/85"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                解决
+              </Button>
+            )}
             {isOpen && (
               <>
                 <Button
@@ -203,15 +228,38 @@ export function RiskCard({ risk, onAccept, onIgnore, onResolve, pending }: RiskC
                   <CheckCircle2 className="h-4 w-4" />
                   接受
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={pending}
-                  onClick={() => onIgnore?.(risk.id)}
-                >
-                  <EyeOff className="h-4 w-4" />
-                  忽略
-                </Button>
+                {confirmIgnore.confirming ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={pending}
+                      onClick={confirmIgnore.handleConfirm(() => onIgnore?.(risk.id))}
+                      className="text-coral hover:bg-coral/10 hover:text-coral"
+                    >
+                      <EyeOff className="h-4 w-4" />
+                      确认忽略？
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={pending}
+                      onClick={confirmIgnore.cancel}
+                    >
+                      取消
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={pending}
+                    onClick={confirmIgnore.handleConfirm(() => onIgnore?.(risk.id))}
+                  >
+                    <EyeOff className="h-4 w-4" />
+                    忽略
+                  </Button>
+                )}
               </>
             )}
           </div>

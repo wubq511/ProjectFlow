@@ -115,9 +115,9 @@ npm run build
 npm audit --omit=dev
 ```
 
-Expected baseline as of 2026-06-05:
+Expected baseline as of 2026-06-07:
 
-- Backend tests pass: 221 tests (MVP API/model smoke plus CORS, agent schema, module, provider, fallback, timeline logging, assignment, action-card, check-in, risk, replan, seed/reset/export, demo reset, LLM diagnostic, agent proposal, agent module, agent proposal confirm, usability pass, stage override, negotiation module, time/resource prompt context, fallback Chinese, and negotiate timeline-only tests).
+- Backend tests pass: 245 tests (MVP API/model smoke plus CORS, agent schema, module, provider, fallback, timeline logging, assignment, action-card, check-in, risk, replan, seed/reset/export, demo reset, LLM diagnostic, agent proposal, agent module, agent proposal confirm, usability pass, stage override, negotiation module, time/resource prompt context, fallback Chinese, negotiate timeline-only, and retrospective tests).
 - Frontend tests pass: 26 tests across 9 files (API layer, project dashboard, home page, app shell, action cards, task status update, error boundaries, assignment flow panel, agent proposal panel with generation-status badge coverage).
 - Frontend lint passes.
 - Frontend production build passes.

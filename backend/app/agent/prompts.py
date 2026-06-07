@@ -116,6 +116,9 @@ Each evidence_refs item: {"entity_type": "member|task|stage|project", "entity_id
 Return the smallest useful proposal: at most 1 stage_adjustment, 1 task_change, and 1 action_card. Never change finalized owners without explicit evidence and confirmation.
 CRITICAL: Even when no scope cuts are appropriate, you MUST produce at least one concrete structural change — extend a deadline, reassign a member, adjust priority, or add a mitigation task. A replan where before and after are identical is never acceptable. If the project is already minimal, extend the deadline or add a buffer task.
 IMPORTANT: Only reference members who are currently active in the workspace. Do NOT assign tasks to members who have left or are no longer available. Check the members list before making assignments. When a member has left, explicitly mention their name and that they have left (e.g. "小王已离开团队") in the reason or summary.""",
+    AgentEventType.retrospective: """RetrospectiveOutput JSON object:
+Required keys: "project_summary" string (narrative project overview in Chinese), "key_achievements" string[] (3-5 key results), "challenges" string[] (difficulties and how they were addressed), "lessons_learned" string[] (3-5 reusable insights), "overall_assessment" string (objective evaluation), "reason" string, "requires_confirmation" false.
+All text MUST be in Chinese. Use member display names and task titles, never raw IDs. Base analysis on actual project data.""",
 }
 
 
@@ -156,6 +159,7 @@ def _compact_workspace_state_json(event_type: AgentEventType, workspace_state: W
         AgentEventType.checkin,
         AgentEventType.risk,
         AgentEventType.replan,
+        AgentEventType.retrospective,
     }
     include_member_interests = event_type in {
         AgentEventType.assign,
@@ -178,6 +182,7 @@ def _compact_workspace_state_json(event_type: AgentEventType, workspace_state: W
             AgentEventType.clarify,
             AgentEventType.plan,
             AgentEventType.breakdown,
+            AgentEventType.retrospective,
         }
         stages = project.stages
         tasks = project.tasks

@@ -28,7 +28,7 @@ const toneClasses: Record<Tone, string> = {
 
 export function CompactStat({ label, value, trend, tone, helpText }: CompactStatProps) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4">
+    <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
      <div className="flex items-center gap-1.5">
         <p className="text-xs font-semibold tracking-normal text-neutral-500">{label}</p>
         {helpText && (

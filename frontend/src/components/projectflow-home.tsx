@@ -471,13 +471,13 @@ export function ProjectFlowHome() {
         window.dispatchEvent(new StorageEvent("storage", { key: WORKSPACE_STORAGE_KEY }));
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
-          setIsValidating(false);
-        }
+        setIsValidating(false);
       });
 
     return () => {
       controller.abort();
+      validatedRef.current = null;
+      setIsValidating(false);
     };
   }, [storedId, router, isLoadingDemo]);
 

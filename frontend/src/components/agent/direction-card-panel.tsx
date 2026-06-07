@@ -34,7 +34,7 @@ function latestClarification(timeline: AgentEvent[]) {
 const STEPS = [
   { label: "项目录入", desc: "填写项目基本信息" },
   { label: "方向澄清", desc: "AI 分析项目方向" },
-  { label: "确认方向", desc: "团队确认方向卡" },
+  { label: "确认方向", desc: "在项目总览中确认方向卡" },
   { label: "阶段规划", desc: "拆解阶段与任务" },
 ];
 
@@ -76,7 +76,7 @@ function DirectionHistoryItem({ event }: { event: AgentEvent }) {
   const isLong = summary.length > 80;
 
   return (
-    <div className="rounded-md border border-ink/8 bg-paper/50 p-3">
+    <div className="rounded-lg border border-ink/10 bg-paper/60 p-3">
       <p className="text-xs text-ink/45">{new Date(event.created_at).toLocaleDateString("zh-CN")}</p>
       <p className={`mt-1 text-sm text-ink/75 whitespace-pre-wrap ${expanded ? "" : "line-clamp-2"}`}>
         {summary}
@@ -151,7 +151,7 @@ export function DirectionCardPanel({
   const stepIndex = computeStepIndex(directionCard, timeline, stagesCount, tasksCount);
 
   return (
-    <section className="rounded-lg border border-ink/10 bg-white p-6">
+    <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -213,7 +213,7 @@ export function DirectionCardPanel({
         {/* Right: contextual helper */}
         <div className="grid gap-4 md:grid-cols-2 min-[1900px]:block min-[1900px]:space-y-4">
           <div className="rounded-lg border border-ink/10 bg-white p-4 text-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">项目进度</p>
+            <p className="text-xs font-semibold text-ink/45">项目进度</p>
             <div className="mt-3">
               <StepGuide activeIndex={stepIndex} />
             </div>
@@ -223,7 +223,7 @@ export function DirectionCardPanel({
             <div className="rounded-lg border border-ink/10 bg-white p-4 text-sm">
               <div className="flex items-center gap-2">
                 <History className="h-4 w-4 text-ink/45" />
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">方向澄清历史</p>
+                <p className="text-xs font-semibold text-ink/45">方向澄清历史</p>
               </div>
               <div className="mt-3">
                 <DirectionHistory timeline={timeline} />

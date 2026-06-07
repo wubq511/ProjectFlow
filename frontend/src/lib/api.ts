@@ -685,6 +685,10 @@ export async function runAgentNegotiate(projectId: string): Promise<AgentFlowRes
   return runAgentFlow(projectId, "negotiate");
 }
 
+export async function runRetrospective(projectId: string): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "retrospective");
+}
+
 // --- Confirmation ---
 export async function confirmAgentOutput(
   projectId: string,

@@ -2,6 +2,7 @@
 
 import { CheckCircle, ChevronDown, ChevronUp, Loader2, Sparkles, XCircle } from "lucide-react";
 import { useState } from "react";
+import { useInlineConfirm } from "@/lib/use-inline-confirm";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -231,6 +232,95 @@ function StatusBadge({ status }: { status?: string }) {
   );
 }
 
+function PendingProposalItem({
+  proposal,
+  status,
+  isExpanded,
+  confirmingId,
+  pending,
+  onToggle,
+  onConfirm,
+  onReject,
+}: {
+  proposal: AgentProposal;
+  status?: string;
+  isExpanded: boolean;
+  confirmingId: string | null;
+  pending?: boolean;
+  onToggle: () => void;
+  onConfirm: (id: string) => void;
+  onReject?: (id: string) => void;
+}) {
+  const confirmReject = useInlineConfirm();
+
+  return (
+    <div className="rounded-lg border border-moss/20 bg-moss/5">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between p-4 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Badge className="bg-moss/15 text-moss">{TYPE_LABELS[proposal.proposal_type] ?? proposal.proposal_type}</Badge>
+          <StatusBadge status={status} />
+          <span className="text-sm text-ink/60">{TYPE_DESCRIPTIONS[proposal.proposal_type]}</span>
+        </div>
+        {isExpanded ? <ChevronUp className="h-4 w-4 text-ink/40" /> : <ChevronDown className="h-4 w-4 text-ink/40" />}
+      </button>
+
+      {isExpanded && (
+        <div className="border-t border-moss/15 px-4 pb-4 pt-3">
+          <ProposalContent proposal={proposal} />
+          <div className="mt-4 flex items-center gap-2">
+            <Button
+              size="sm"
+              className="bg-moss text-white hover:bg-moss/85"
+              disabled={pending || confirmingId === proposal.id}
+              onClick={() => onConfirm(proposal.id)}
+            >
+              {confirmingId === proposal.id ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> 确认中...</>
+              ) : (
+                <><CheckCircle className="h-4 w-4" /> 确认应用</>
+              )}
+            </Button>
+            {confirmReject.confirming ? (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={pending || confirmingId === proposal.id}
+                  onClick={confirmReject.handleConfirm(() => onReject?.(proposal.id))}
+                  className="border-coral/40 text-coral hover:bg-coral/10"
+                >
+                  <XCircle className="h-4 w-4" /> 确认拒绝？
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={pending}
+                  onClick={confirmReject.cancel}
+                >
+                  取消
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pending || confirmingId === proposal.id}
+                onClick={confirmReject.handleConfirm(() => onReject?.(proposal.id))}
+              >
+                <XCircle className="h-4 w-4" /> 拒绝
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 type AgentProposalPanelProps = {
   proposals: AgentProposal[];
   pending?: boolean;
@@ -271,7 +361,7 @@ export function AgentProposalPanel({ proposals, pending, timeline = [], onConfir
   };
 
   return (
-    <section className="rounded-lg border border-ink/10 bg-white p-5">
+    <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
       <div className="flex items-center gap-2">
         <Sparkles className="h-5 w-5 text-moss" />
         <h2 className="text-lg font-bold text-ink">Agent 提案</h2>
@@ -284,59 +374,22 @@ export function AgentProposalPanel({ proposals, pending, timeline = [], onConfir
       </p>
 
       <div className="mt-4 space-y-3">
-        {pendingProposals.map((proposal) => {
-          const isExpanded = expandedIds.has(proposal.id);
-          return (
-            <div
-              key={proposal.id}
-              className="rounded-lg border border-moss/20 bg-moss/5"
-            >
-              <button
-                type="button"
-                onClick={() => toggleExpand(proposal.id)}
-                className="flex w-full items-center justify-between p-4 text-left"
-              >
-                <div className="flex items-center gap-2">
-                  <Badge className="bg-moss/15 text-moss">{TYPE_LABELS[proposal.proposal_type] ?? proposal.proposal_type}</Badge>
-                  <StatusBadge status={statusMap[proposal.id]} />
-                  <span className="text-sm text-ink/60">{TYPE_DESCRIPTIONS[proposal.proposal_type]}</span>
-                </div>
-                {isExpanded ? <ChevronUp className="h-4 w-4 text-ink/40" /> : <ChevronDown className="h-4 w-4 text-ink/40" />}
-              </button>
-
-              {isExpanded && (
-                <div className="border-t border-moss/15 px-4 pb-4 pt-3">
-                  <ProposalContent proposal={proposal} />
-                  <div className="mt-4 flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      className="bg-moss text-white hover:bg-moss/85"
-                      disabled={pending || confirmingId === proposal.id}
-                      onClick={() => handleConfirm(proposal.id)}
-                    >
-                      {confirmingId === proposal.id ? (
-                        <><Loader2 className="h-4 w-4 animate-spin" /> 确认中...</>
-                      ) : (
-                        <><CheckCircle className="h-4 w-4" /> 确认应用</>
-                      )}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={pending || confirmingId === proposal.id}
-                      onClick={() => onReject?.(proposal.id)}
-                    >
-                      <XCircle className="h-4 w-4" /> 拒绝
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {pendingProposals.map((proposal) => (
+          <PendingProposalItem
+            key={proposal.id}
+            proposal={proposal}
+            status={statusMap[proposal.id]}
+            isExpanded={expandedIds.has(proposal.id)}
+            confirmingId={confirmingId}
+            pending={pending}
+            onToggle={() => toggleExpand(proposal.id)}
+            onConfirm={handleConfirm}
+            onReject={onReject}
+          />
+        ))}
 
         {confirmedProposals.length > 0 && (
-          <details className="rounded-lg border border-ink/8 bg-ink/3">
+          <details className="rounded-lg border border-ink/10 bg-ink/3">
             <summary className="cursor-pointer p-4 text-sm font-semibold text-ink/50">
               已确认的提案（{confirmedProposals.length}）
             </summary>

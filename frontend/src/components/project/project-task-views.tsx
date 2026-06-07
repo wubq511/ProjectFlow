@@ -44,6 +44,7 @@ import {
 import { TaskStatusUpdateList } from "@/components/task/task-status-update";
 import { cn, cleanJsonString } from "@/lib/utils";
 import { MatchText } from "@/components/ui/match-text";
+import { useInlineConfirm } from "@/lib/use-inline-confirm";
 import type { ProjectState, Task } from "@/lib/types";
 import type { AgentAction } from "./project-actions";
 
@@ -513,6 +514,7 @@ function TaskRow({
 }) {
   const [updating, setUpdating] = useState(false);
   const [optimisticStatus, setOptimisticStatus] = useState<Task["status"] | null>(null);
+  const confirmDone = useInlineConfirm();
 
   const displayStatus = optimisticStatus ?? task.status;
 
@@ -591,15 +593,36 @@ function TaskRow({
               开始
             </button>
           )}
-          <button
-            onClick={() => handleQuickUpdate("done")}
-            disabled={updating}
-            className="flex items-center gap-1 rounded-md bg-moss/10 px-2 py-1 text-xs font-medium text-moss hover:bg-moss/20 transition-colors disabled:opacity-50"
-            title="标记完成"
-          >
-            <CheckCircle2 className="h-3 w-3" />
-            完成
-          </button>
+          {confirmDone.confirming ? (
+            <>
+              <button
+                onClick={confirmDone.handleConfirm(() => handleQuickUpdate("done"))}
+                disabled={updating}
+                className="flex items-center gap-1 rounded-md bg-coral/10 px-2 py-1 text-xs font-medium text-coral hover:bg-coral/20 transition-colors disabled:opacity-50"
+                title="确认标记完成"
+              >
+                <CheckCircle2 className="h-3 w-3" />
+                确认完成？
+              </button>
+              <button
+                onClick={confirmDone.cancel}
+                disabled={updating}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-neutral-500 hover:bg-neutral-100 transition-colors disabled:opacity-50"
+              >
+                取消
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={confirmDone.handleConfirm(() => handleQuickUpdate("done"))}
+              disabled={updating}
+              className="flex items-center gap-1 rounded-md bg-moss/10 px-2 py-1 text-xs font-medium text-moss hover:bg-moss/20 transition-colors disabled:opacity-50"
+              title="标记完成"
+            >
+              <CheckCircle2 className="h-3 w-3" />
+              完成
+            </button>
+          )}
           {displayStatus !== "blocked" && (
             <button
               onClick={() => handleQuickUpdate("blocked")}

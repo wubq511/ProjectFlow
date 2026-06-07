@@ -131,7 +131,7 @@ cd backend
 .venv\Scripts\python -m ruff check app
 ```
 
-预期：后端测试全部通过，ruff 无问题。当前测试基线为 `218 passed`。
+预期：后端测试全部通过，ruff 无问题。当前测试基线为 `245 passed`。
 
 ### 前端验证
 

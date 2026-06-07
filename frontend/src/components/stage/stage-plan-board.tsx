@@ -210,6 +210,21 @@ export function StagePlanBoard({ stages, tasks, currentStageId, pendingPlanPropo
                       {stageTasks.length === 0 ? "暂无任务" : `${stageTasks.length} 个任务`}
                     </span>
                   </div>
+
+                  {/* Done criteria */}
+                  {stage.done_criteria && stage.done_criteria.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {stage.done_criteria.map((criteria, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center gap-1 rounded-full bg-ink/5 px-2 py-0.5 text-xs text-ink/55"
+                        >
+                          <CheckCircle2 className="h-3 w-3 text-ink/30" />
+                          {criteria}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </article>
               );
             })}

@@ -15,8 +15,9 @@
 
 ## 1.1 Current Implementation Snapshot
 
-Snapshot date: 2026-06-05.
+Snapshot date: 2026-06-07.
 
+- Phase 0-40 全部完成。
 - Phase 0 / GitHub issue #2 is completed and closed.
 - Phase 1 (models) / GitHub issue #3 is completed and closed.
 - Phase 2 (core APIs) / GitHub issue #4 is completed and closed.
@@ -29,15 +30,16 @@ Snapshot date: 2026-06-05.
 - GitHub issue #11 (Verification, Tests, and Demo Stability Hardening) is complete.
 - GitHub issue #16 (Real LLM Provider Readiness and Diagnostics) is complete.
 - GitHub issue #17 (Agent Output Persistence and Confirmation) is complete.
-- Implemented: FastAPI scaffold, SQLite configuration skeleton, `GET /api/health`, all 19 persistence tables/domain models with full enum alignment and auto table creation on startup, full CRUD APIs (users, workspaces, invitations, member-profiles, projects, resources, stages, tasks), WorkspaceState assembly endpoint (`GET /api/workspaces/{id}/state`) with current date/time/timezone and project resource context, service layer, Pydantic schemas, agent coordinator infrastructure with structured output validation, mock/OpenAI-compatible LLM adapter, LLM diagnostic endpoints, prompt boundaries, JSON repair/retry/template fallback, AgentEvent timeline logging with status, `AgentProposal` confirm-to-persist flow for clarify/plan/breakdown/replan, timeline-only negotiate agent output, assignment proposal/response/finalize/negotiation APIs, action card APIs, check-in cycle/response APIs, risk APIs, confirmed replan API, agent HTTP endpoints, seed/reset/export endpoints, Next.js app shell with navigation, onboarding flow (account setup + member profile wizard), workspace creation + invite panel, project intake + resource input, planning and assignment dashboard UI, execution-loop dashboard UI, client-side project state composition over implemented endpoints, full domain types and API layer, shadcn/ui components, smoke tests, lint/build/test scripts, README, and runtime ignore rules.
-- Frontend routes: `/`, `/onboarding`, `/onboarding/profile`, `/workspaces/new`, `/workspaces/[workspaceId]`, `/projects/new`, `/projects/[projectId]`.
+- Implemented: FastAPI scaffold, SQLite configuration skeleton, `GET /api/health`, all 19 persistence tables/domain models with full enum alignment and auto table creation on startup, full CRUD APIs (users, workspaces, invitations, member-profiles, projects, resources, stages, tasks), WorkspaceState assembly endpoint (`GET /api/workspaces/{id}/state`) with current date/time/timezone and project resource context, service layer, Pydantic schemas, agent coordinator infrastructure with structured output validation, mock/OpenAI-compatible LLM adapter, LLM diagnostic endpoints, prompt boundaries, JSON repair/retry/template fallback, AgentEvent timeline logging with status, `AgentProposal` confirm-to-persist flow for clarify/plan/breakdown/replan, timeline-only negotiate agent output, assignment proposal/response/finalize/negotiation APIs, action card APIs, check-in cycle/response APIs, risk APIs, confirmed replan API, agent HTTP endpoints, seed/reset/export endpoints, retrospective agent endpoint, Next.js app shell with navigation, onboarding flow (account setup + member profile wizard), workspace creation + invite panel, project intake + resource input, planning and assignment dashboard UI, execution-loop dashboard UI, Agent sidebar chat-first UI with streaming, client-side project state composition over implemented endpoints, full domain types and API layer, shadcn/ui components, smoke tests, lint/build/test scripts, README, and runtime ignore rules.
+- Frontend routes: `/`, `/onboarding`, `/onboarding/profile`, `/workspaces/[workspaceId]`.
 - MVP implementation includes frontend wiring for execution-loop APIs, seed/reset data, review export, and a complete local demo flow.
 - All MVP phases are complete.
 - MVP Usable #18 (Prompt and Schema Quality Hardening) is complete.
-- MVP Usable #20 (Assignment, Push, Risk, and Replan Usability Pass) is complete: assignment citations, push card goal/start/done-when, risk structured evidence, replan before/after/impact/confirmation, finalized-assignment guard.
+- MVP Usable #20 (Assignment, Push, Risk, and Replan Usability Pass) is complete.
 - MVP Usable #19 (Frontend Agent Status and Review UX) is complete.
-- MVP Usable #21 (Real-Provider Verification and MVP Usable Runbook) is complete: frontend test fixes, runbook with mock/real-provider modes and manual verification checklist, final status report.
-- Current verification baseline: backend pytest 221 passing, frontend 26 tests passing, frontend lint passing, frontend build passing, frontend audit 0 vulnerabilities.
+- MVP Usable #21 (Real-Provider Verification and MVP Usable Runbook) is complete.
+- Phase 37-40: Agent conversation workflow, chat-first sidebar, streaming, PRD 对照修复（方向卡字段补全、导出中文、卡片样式统一、内联确认、复盘 Agent 总结）。
+- Current verification baseline: backend pytest 245 passing, frontend 26 tests passing, frontend lint passing, frontend build passing, frontend audit 0 vulnerabilities.
 
 ---
 
@@ -907,6 +909,7 @@ stateDiagram-v2
 | Check-in Analysis         | check-in responses                         | status summary, possible risks        | yes as timeline / risks |
 | Risk Analysis             | tasks, check-ins, deadlines, assignments   | risk cards                            | yes                     |
 | Replanning                | risks, project state                       | replan proposal                       | after confirm           |
+| Retrospective             | full project state, timeline               | narrative project summary             | timeline only           |
 | Export                    | full state                                 | review summary markdown               | optional                |
 
 ---

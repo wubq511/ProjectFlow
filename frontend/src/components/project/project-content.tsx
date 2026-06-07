@@ -1,6 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   CalendarDays,
@@ -16,6 +17,7 @@ import {
   AlertTriangle,
   BarChart3,
   Loader2,
+  Lightbulb,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -262,7 +264,7 @@ function ViewRenderer({
       return (
         <div className="space-y-6">
           {/* Project Header Card */}
-          <section className="rounded-xl border border-neutral-200 bg-white p-5">
+          <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <h1 className="font-display text-3xl font-normal text-neutral-900">
@@ -336,7 +338,7 @@ function ViewRenderer({
 
             if (nextAction) {
               return (
-                <section className="rounded-xl border border-moss/20 bg-moss/[0.04] p-5 transition-colors hover:bg-moss/[0.06]">
+                <section className="rounded-xl border border-moss/20 bg-moss/[0.04] p-5 shadow-sm transition-colors hover:bg-moss/[0.06]">
                   <div className="flex items-start gap-3">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-moss/10">
                       <Sparkles className="h-5 w-5 text-moss" />
@@ -368,7 +370,7 @@ function ViewRenderer({
 
             if (completedCards.length > 0 && latestDone) {
               return (
-                <section className="rounded-xl border border-ink/10 bg-white p-5">
+                <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
                   <div className="flex items-start gap-3">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ink/8">
                       <CheckCircle2 className="h-5 w-5 text-ink/50" />
@@ -391,7 +393,7 @@ function ViewRenderer({
                       {pendingAction === "push" ? (
                         <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> 推进中…</>
                       ) : (
-                        <><Sparkles className="mr-1 h-3 w-3" /> 重新推进</>
+                        <><Sparkles className="mr-1 h-3 w-3" /> 继续推进</>
                       )}
                     </Button>
                   </div>
@@ -401,7 +403,7 @@ function ViewRenderer({
 
             if (action_cards.length === 0) {
               return (
-                <section className="rounded-xl border border-dashed border-ink/15 bg-paper/50 p-5">
+                <section className="rounded-xl border border-dashed border-ink/15 bg-paper/70 p-5">
                   <div className="flex items-start gap-3">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-moss/10">
                       <Sparkles className="h-5 w-5 text-moss/60" />
@@ -477,7 +479,7 @@ function ViewRenderer({
 
           {/* Action Cards — personal first, then team */}
           {personalCards.length > 0 && (
-            <section className="rounded-xl border border-neutral-200 bg-white p-5">
+            <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
               <h2 className="text-lg font-bold text-ink">你的行动</h2>
               <div className="mt-4">
                 <ActionCardsList
@@ -600,7 +602,7 @@ function ViewRenderer({
             />
           )}
           {currentUserId && onUpdateTaskStatus && (
-            <section className="rounded-xl border border-neutral-200 bg-white p-5">
+            <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
               <h2 className="text-lg font-bold text-ink">更新任务状态</h2>
               <div className="mt-4">
                 <TaskStatusUpdateList
@@ -640,29 +642,14 @@ function ViewRenderer({
     case "retro":
       return (
         <div className="space-y-6">
-          <section className="grid gap-4 sm:grid-cols-3">
-            <CompactStat
-              label="任务完成"
-              value={tasks.length > 0 ? `${tasks.filter(t => t.status === "done").length}/${tasks.length}` : "0/0"}
-              trend={tasks.length > 0 ? `${Math.round((tasks.filter(t => t.status === "done").length / tasks.length) * 100)}%` : "无任务"}
-              tone={tasks.filter(t => t.status === "done").length === tasks.length ? "moss" : "primary"}
-              helpText="已完成任务占总任务数的比例"
-            />
-            <CompactStat
-              label="风险解决"
-              value={risks.length > 0 ? `${risks.filter(r => r.status === "resolved").length}/${risks.length}` : "0/0"}
-              trend={risks.length === 0 ? "无风险" : risks.filter(r => r.status === "open").length === 0 ? "全部解决" : `${risks.filter(r => r.status === "open").length} 待处理`}
-              tone={risks.filter(r => r.status === "open").length === 0 ? "moss" : "coral"}
-              helpText="已解决风险占总风险数的比例"
-            />
-            <CompactStat
-              label="阶段完成"
-              value={stages.length > 0 ? `${stages.filter(s => s.status === "completed").length}/${stages.length}` : "0/0"}
-              trend={stages.length === 0 ? "无阶段" : stages.filter(s => s.status === "completed").length === stages.length ? "全部完成" : stages.find(s => s.status === "active")?.name ?? "进行中"}
-              tone={stages.filter(s => s.status === "completed").length === stages.length ? "moss" : "primary"}
-              helpText="已完成阶段占总阶段数的比例"
-            />
-          </section>
+          <RetroSummaryPanel
+            project={project}
+            stages={stages}
+            tasks={tasks}
+            risks={risks}
+            pending={Boolean(pendingAction)}
+            onRunAgent={onRunAgent}
+          />
           <AgentTimeline events={timeline} />
           <ExportPanel projectId={project.id} />
         </div>
@@ -671,6 +658,160 @@ function ViewRenderer({
     default:
       return null;
   }
+}
+
+function RetroSummaryPanel({
+  project,
+  stages,
+  tasks,
+  risks,
+  pending,
+  onRunAgent,
+}: {
+  project: ProjectState["project"];
+  stages: ProjectState["stages"];
+  tasks: ProjectState["tasks"];
+  risks: ProjectState["risks"];
+  pending: boolean;
+  onRunAgent?: (action: AgentAction) => void;
+}) {
+  const [summary, setSummary] = useState<{
+    project_summary: string;
+    key_achievements: string[];
+    challenges: string[];
+    lessons_learned: string[];
+    overall_assessment: string;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { runRetrospective } = await import("@/lib/api");
+      const result = await runRetrospective(project.id);
+      if (result.output) {
+        setSummary(result.output as typeof summary);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "生成失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const doneTasks = tasks.filter(t => t.status === "done").length;
+  const totalTasks = tasks.length;
+  const openRisks = risks.filter(r => r.status === "open");
+  const completedStages = stages.filter(s => s.status === "completed").length;
+
+  return (
+    <>
+      <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-ink">AI 项目复盘</h2>
+          <Button
+            size="sm"
+            className="bg-moss text-white hover:bg-moss/85"
+            disabled={loading || pending}
+            onClick={handleGenerate}
+          >
+            {loading ? (
+              <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> 生成中…</>
+            ) : (
+              <><Sparkles className="mr-1 h-3 w-3" /> 生成复盘</>
+            )}
+          </Button>
+        </div>
+
+        {error && (
+          <p className="mt-2 text-sm text-coral">{error}</p>
+        )}
+
+        {summary ? (
+          <div className="mt-4 space-y-4">
+            <p className="text-sm leading-6 text-ink/75">{summary.project_summary}</p>
+
+            {summary.key_achievements.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-ink">关键成就</p>
+                <ul className="mt-1 space-y-1">
+                  {summary.key_achievements.map((item, i) => (
+                    <li key={i} className="flex gap-2 text-sm text-ink/70">
+                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-moss" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {summary.challenges.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-ink">挑战与应对</p>
+                <ul className="mt-1 space-y-1">
+                  {summary.challenges.map((item, i) => (
+                    <li key={i} className="flex gap-2 text-sm text-ink/70">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-citron" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {summary.lessons_learned.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-ink">经验教训</p>
+                <ul className="mt-1 space-y-1">
+                  {summary.lessons_learned.map((item, i) => (
+                    <li key={i} className="flex gap-2 text-sm text-ink/70">
+                      <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-harbor" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="rounded-lg bg-ink/5 p-3">
+              <p className="text-sm font-semibold text-ink">整体评价</p>
+              <p className="mt-1 text-sm text-ink/70">{summary.overall_assessment}</p>
+            </div>
+          </div>
+        ) : !loading && !error ? (
+          <p className="mt-3 text-sm text-ink/50">
+            点击「生成复盘」让 Agent 基于项目数据生成深度复盘分析。
+          </p>
+        ) : null}
+      </section>
+
+      <section className="grid gap-4 sm:grid-cols-3">
+        <CompactStat
+          label="任务完成"
+          value={totalTasks > 0 ? `${doneTasks}/${totalTasks}` : "0/0"}
+          trend={totalTasks > 0 ? `${Math.round(doneTasks / totalTasks * 100)}%` : "无任务"}
+          tone={doneTasks === totalTasks ? "moss" : "primary"}
+          helpText="已完成任务占总任务数的比例"
+        />
+        <CompactStat
+          label="风险解决"
+          value={risks.length > 0 ? `${risks.filter(r => r.status === "resolved").length}/${risks.length}` : "0/0"}
+          trend={risks.length === 0 ? "无风险" : openRisks.length === 0 ? "全部解决" : `${openRisks.length} 待处理`}
+          tone={openRisks.length === 0 ? "moss" : "coral"}
+          helpText="已解决风险占总风险数的比例"
+        />
+        <CompactStat
+          label="阶段完成"
+          value={stages.length > 0 ? `${completedStages}/${stages.length}` : "0/0"}
+          trend={stages.length === 0 ? "无阶段" : completedStages === stages.length ? "全部完成" : stages.find(s => s.status === "active")?.name ?? "进行中"}
+          tone={completedStages === stages.length ? "moss" : "primary"}
+          helpText="已完成阶段占总阶段数的比例"
+        />
+      </section>
+    </>
+  );
 }
 
 function ViewHeaderIcon({ view }: { view: ProjectView }) {

@@ -4,6 +4,53 @@ Status: current as of 2026-06-07.
 
 ## Completed
 
+### PRD 对照修复 & UI 打磨 (2026-06-07)
+
+基于 PRD / TECH-DESIGN / MVP-Usable-Ready 三份文档对四个板块（项目总览、方向卡、阶段任务、项目复盘）的审查，完成以下修复：
+
+**文本可读性：**
+- `direction-decision-view.tsx` — 7 处 `break-all` → `break-words`（中文断行修复）
+- `direction-card-panel.tsx` — 移除 `uppercase tracking-[0.14em]`（AI 痕迹）；步骤 3 描述改为"在项目总览中确认方向卡"
+- `risk-card.tsx` — "证据"标签移除 `uppercase tracking-[0.14em]`
+- `timeline.tsx` — 3 处 `uppercase tracking-[0.14em]` 移除
+
+**交互安全 — Inline 二次确认：**
+- 新增 `use-inline-confirm.ts` hook（3 秒超时自动恢复）
+- 5 个 HIGH 级别按钮加上确认：行动卡完成、提案拒绝、风险忽略、风险解决、任务卡完成
+- 确认态按钮变为 coral 色，提示危险操作
+
+**卡片样式统一：**
+- 建立 Surface / Sub-card / Empty-state / Accent 四种卡片变体
+- 10 个文件统一：`rounded-xl border border-neutral-200 bg-white shadow-sm`（顶层）、`rounded-lg border border-ink/10 bg-paper/60`（子卡片）
+
+**PRD 字段补全：**
+- 方向卡种子数据补充 6 个字段：source_summary、assumptions、unknowns、mvp_boundary、decision_points、reason
+- `project_service.py` 的 `normalize_direction_card()` 保留新增字段
+- 10 个任务全部补充 backup_owner_user_id 和 assignment_reason
+- StagePlanBoard 增加 done_criteria 渲染
+
+**导出中文：**
+- `routes_export.py` 状态值翻译（active→进行中、completed→已完成 等）
+- 风险严重度/类型翻译
+
+**复盘 Agent 总结：**
+- 新增 `AgentEventType.retrospective` 枚举值
+- 新增 `RetrospectiveOutput` schema（project_summary、key_achievements、challenges、lessons_learned、overall_assessment）
+- 新增 `modules/retrospective.py` Agent 模块
+- 新增 `POST /api/agent/retrospective` API 端点
+- 复盘页新增 AI 复盘总结面板（RetroSummaryPanel）
+
+**方向卡视觉重构：**
+- 5 个色块分区：核心定义（蓝）、交付与边界（灰）、风险与问题（红）、假设与缺口（黄）、MVP 边界（绿）
+- 每个分区有图标标题（Target、Package、ShieldAlert、Lightbulb、Crosshair）
+- 子标题对比度提升
+
+**其他：**
+- `react-markdown` + `remark-gfm` 安装（Markdown 渲染支持）
+- "重新推进" → "继续推进"
+
+## Completed
+
 ### Phase 40 — Agent Sidebar UI Polish & Planner Reliability (2026-06-07)
 
 Agent sidebar UI comprehensively polished with Framer Motion animations, artifact dismiss/confirm interactions, and backend planner reliability improvements.

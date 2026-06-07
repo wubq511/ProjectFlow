@@ -71,7 +71,7 @@ export function ProjectResourcesPanel({
   };
 
   return (
-    <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-sm">
+    <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
       <div>
         <h2 className="text-lg font-bold text-ink">项目资源</h2>
         <p className="mt-1 text-sm text-ink/60">训练营要求、文档链接和当前约束</p>
@@ -128,7 +128,7 @@ export function ProjectResourcesPanel({
       )}
 
       {onAddResource && (
-        <div className="mt-5 grid gap-3 rounded-lg border border-ink/8 bg-paper/60 p-4 md:grid-cols-[140px_1fr]">
+        <div className="mt-5 grid gap-3 rounded-lg border border-ink/10 bg-paper/60 p-4 md:grid-cols-[140px_1fr]">
           <Select value={type} onValueChange={(value) => setType(value as AddResourceRequest["type"])}>
             <SelectTrigger>
               <SelectValue />

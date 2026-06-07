@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CheckCircle2, ChevronDown, ChevronRight, Clock, History, Lightbulb, ShieldAlert, UserCheck, XCircle } from "lucide-react";
+import { useInlineConfirm } from "@/lib/use-inline-confirm";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,6 +68,7 @@ function typeClass(type: ActionCard["type"]) {
 }
 
 export function ActionCardItem({ card, onDismiss, onComplete, pending, canOperate = true }: ActionCardItemProps & { canOperate?: boolean }) {
+  const confirmComplete = useInlineConfirm();
   return (
     <article className="rounded-lg border border-ink/10 bg-paper/60 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -120,24 +122,48 @@ export function ActionCardItem({ card, onDismiss, onComplete, pending, canOperat
         <div className="flex gap-2">
           {card.status === "active" && (
             <>
-              <Button
-                size="sm"
-                disabled={pending || !canOperate}
-                onClick={() => onComplete?.(card.id)}
-                className="bg-moss text-white hover:bg-moss/85"
-              >
-                <CheckCircle2 className="h-4 w-4" />
-                完成
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={pending || !canOperate}
-                onClick={() => onDismiss?.(card.id)}
-              >
-                <XCircle className="h-4 w-4" />
-                忽略
-              </Button>
+              {confirmComplete.confirming ? (
+                <>
+                  <Button
+                    size="sm"
+                    disabled={pending || !canOperate}
+                    onClick={confirmComplete.handleConfirm(() => onComplete?.(card.id))}
+                    className="bg-coral text-white hover:bg-coral/85"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    确认完成？
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={pending || !canOperate}
+                    onClick={confirmComplete.cancel}
+                  >
+                    取消
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    size="sm"
+                    disabled={pending || !canOperate}
+                    onClick={confirmComplete.handleConfirm(() => onComplete?.(card.id))}
+                    className="bg-moss text-white hover:bg-moss/85"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    完成
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={pending || !canOperate}
+                    onClick={() => onDismiss?.(card.id)}
+                  >
+                    <XCircle className="h-4 w-4" />
+                    忽略
+                  </Button>
+                </>
+              )}
             </>
           )}
         </div>

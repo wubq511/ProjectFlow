@@ -237,6 +237,7 @@ def _max_tokens_for_event(event_type: AgentEventType) -> int:
         AgentEventType.checkin: 4000,
         AgentEventType.risk: 3000,
         AgentEventType.replan: 4000,
+        AgentEventType.retrospective: 5000,
     }[event_type]
 
 

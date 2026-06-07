@@ -258,6 +258,14 @@ class ReplanOutput(AgentOutputBase):
         return self
 
 
+class RetrospectiveOutput(AgentOutputBase):
+    project_summary: str = Field(min_length=1, description="项目整体回顾叙事")
+    key_achievements: list[str] = Field(default_factory=list, description="关键成就")
+    challenges: list[str] = Field(default_factory=list, description="遇到的挑战和解决方式")
+    lessons_learned: list[str] = Field(default_factory=list, description="经验教训")
+    overall_assessment: str = Field(min_length=1, description="整体评价")
+
+
 OUTPUT_SCHEMA_BY_EVENT_TYPE: dict[AgentEventType, type[AgentOutputBase]] = {
     AgentEventType.clarify: DirectionCardOutput,
     AgentEventType.plan: StagePlanOutput,
@@ -268,6 +276,7 @@ OUTPUT_SCHEMA_BY_EVENT_TYPE: dict[AgentEventType, type[AgentOutputBase]] = {
     AgentEventType.checkin: CheckInAnalysisOutput,
     AgentEventType.risk: RiskAnalysisOutput,
     AgentEventType.replan: ReplanOutput,
+    AgentEventType.retrospective: RetrospectiveOutput,
 }
 
 

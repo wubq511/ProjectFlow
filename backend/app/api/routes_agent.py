@@ -145,6 +145,21 @@ def api_agent_negotiate(
     )
 
 
+@router.post("/agent/retrospective", response_model=AgentFlowRead)
+def api_agent_retrospective(
+    data: AgentFlowRequest,
+    session: Session = Depends(get_session),
+):
+    return _run(
+        data,
+        session,
+        lambda coordinator, state, instruction: coordinator.generate_retrospective(
+            state,
+            user_instruction=instruction,
+        ),
+    )
+
+
 def _run(data: AgentFlowRequest, session: Session, method) -> AgentFlowRead:
     try:
         return run_agent_flow(

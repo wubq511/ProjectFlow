@@ -11,6 +11,7 @@ from app.agent.modules import (
     clarification,
     planning,
     replanning,
+    retrospective,
     risk_analysis,
 )
 from app.agent.modules.common import AgentModuleRequest
@@ -134,6 +135,18 @@ class CoordinatorAgent:
         return self._run(
             workspace_state,
             replanning.build_request(workspace_state),
+            user_instruction=user_instruction,
+        )
+
+    def generate_retrospective(
+        self,
+        workspace_state: WorkspaceStateResponse,
+        *,
+        user_instruction: str | None = None,
+    ) -> AgentRunResult:
+        return self._run(
+            workspace_state,
+            retrospective.build_request(workspace_state),
             user_instruction=user_instruction,
         )
 
