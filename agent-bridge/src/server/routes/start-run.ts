@@ -7,6 +7,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { parseRunStartRequest } from "@/types/wire.js";
 import { createRunState } from "@/types/run-state.js";
 import { executeRun } from "@/runtime/pi-runtime.js";
+import { ModelRouter } from "@/runtime/model-router.js";
+import type { StreamEventType } from "@/events/stream.js";
+import type { RuntimeEvent } from "@/types/runtime-event.js";
 import type { RunContext } from "./utils.js";
 import { sendJson, readJsonBody } from "./utils.js";
 
@@ -16,7 +19,7 @@ export async function handleStartRun(
   _params: Record<string, string>,
   ctx: RunContext,
 ): Promise<void> {
-  const bodyText = (req as any).bodyText as string;
+  const bodyText = (req as IncomingMessage & { bodyText?: string }).bodyText ?? "";
 
   const parsed = readJsonBody(res, bodyText, parseRunStartRequest);
   if (!parsed) return;
@@ -57,8 +60,12 @@ export async function handleStartRun(
       pendingProposals: parsed.pending_proposals,
     },
     ctx.toolRegistry,
-    // Model router will be resolved inside executeRun
-    { resolve: () => ({ provider: runState.model.provider, name: runState.model.name }) } as any,
+    // Model router: resolve from sidecar config
+    new ModelRouter({
+      defaultProvider: ctx.config.defaultModelProvider as "mock" | "openai" | "openai-compatible" | "openrouter" | "deepseek" | "anthropic",
+      defaultModel: ctx.config.defaultModelName,
+      providers: {},
+    }),
     ctx.fastapiClient,
     ctx.stream,
     {
@@ -66,7 +73,7 @@ export async function handleStartRun(
     },
     {
       onEvent: (type, payload) => {
-        ctx.stream.emit(type as any, { type, ...payload } as any);
+        ctx.stream.emit(type as StreamEventType, { type, ...payload } as RuntimeEvent);
       },
       onComplete: (state) => {
         console.log(`[agent-bridge] run ${state.runId} completed`);

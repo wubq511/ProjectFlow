@@ -38,6 +38,7 @@ import {
   type AgentTool,
   type AgentToolResult,
   type AgentMessage,
+  type AgentLoopConfig,
   type BeforeToolCallContext,
   type AfterToolCallContext,
   type StreamFn,
@@ -175,8 +176,11 @@ function handlePiEvent(
       break;
     }
     case "message_update": {
+      const messageEvent = "assistantMessageEvent" in event
+        ? (event as Record<string, unknown>).assistantMessageEvent
+        : undefined;
       const pfEvent = createEvent("agent.delta", runState.runId, runState.status, {
-        content: (event as any).assistantMessageEvent,
+        content: messageEvent,
       });
       stream.emit("agent.delta", pfEvent);
       break;
@@ -286,7 +290,7 @@ export async function executeRun(
     // Step 3: Build Pi AgentContext
     const agentContext: AgentContext = {
       systemPrompt: builtContext.systemPrompt,
-      messages: [{ role: "user", content: builtContext.userMessage, timestamp: new Date().toISOString() } as any],
+      messages: [{ role: "user" as const, content: builtContext.userMessage, timestamp: Date.now() } as AgentMessage],
       tools: piTools,
     };
 
@@ -297,7 +301,7 @@ export async function executeRun(
     const model = options.model ?? createMockModel(resolvedModel.name);
 
     // Step 6: Build AgentLoopConfig with hooks
-    const config: any = {
+    const config: AgentLoopConfig = {
       model,
       convertToLlm: (messages: AgentMessage[]) => messages as any[],
       toolExecution: "parallel",
@@ -327,11 +331,11 @@ export async function executeRun(
       handlePiEvent(event, runState, stream, callbacks);
     };
 
-    const promptMessage: AgentMessage = {
-      role: "user",
+    const promptMessage = {
+      role: "user" as const,
       content: builtContext.userMessage,
-      timestamp: new Date().toISOString(),
-    } as any;
+      timestamp: Date.now(),
+    } as AgentMessage;
 
     await runAgentLoop(
       [promptMessage],
@@ -343,7 +347,8 @@ export async function executeRun(
     );
 
     // Step 8: Complete (if not already completed by agent_end event)
-    if (runState.status !== "completed" as any) {
+    // Status may have been mutated by handlePiEvent callback during runAgentLoop
+    if ((runState.status as string) !== "completed") {
       runState.status = "completed";
       runState.completedAt = new Date().toISOString();
       runState.updatedAt = new Date().toISOString();
@@ -373,14 +378,15 @@ export async function executeRun(
 function createMockModel(name: string): Model<Api> {
   return {
     id: name,
-    providerId: "mock",
+    providerId: "mock" as any,
     api: "openai-completions" as Api,
     name,
     reasoning: false,
-    provider: {} as any,
+    provider: "mock" as any,
     baseUrl: "",
-    input: "text" as any,
+    input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128000,
-  } as unknown as Model<Api>;
+    maxTokens: 4096,
+  } as Model<Api>;
 }

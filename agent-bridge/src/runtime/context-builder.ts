@@ -126,6 +126,17 @@ function buildToolDefinitions(manifests: ProjectFlowToolManifest[], skillContext
   }));
 }
 
+/** WorkspaceState fields relevant to the agent. */
+interface WorkspaceStateSummary {
+  project_name?: string;
+  current_stage?: string;
+  project_status?: string;
+  members?: unknown[];
+  tasks?: unknown[];
+  deadline?: string;
+  [key: string]: unknown;
+}
+
 /**
  * Compress WorkspaceState into a task-relevant summary.
  * Does NOT include full DB dump — only what the model needs.
@@ -134,8 +145,8 @@ function compressWorkspaceState(state: unknown): string {
   if (typeof state === "string") return state;
 
   try {
-    const obj = state as Record<string, unknown>;
-    const summary: Record<string, unknown> = {};
+    const obj = state as WorkspaceStateSummary;
+    const summary: WorkspaceStateSummary = {};
 
     // Include key fields only
     if (obj.project_name) summary.project_name = obj.project_name;

@@ -144,10 +144,13 @@ export function mapPiEvent(piEvent: PiEvent, runId: string): MappedEvent {
         newStatus: "failed",
       };
 
-    default:
+    default: {
+      // Exhaustiveness check — if PiEventType is extended, TypeScript will error here
+      const _exhaustive: never = piEvent.type;
       return {
         type: "runtime.error",
-        payload: { run_id: runId, message: `未知事件类型: ${(piEvent as any).type}` },
+        payload: { run_id: runId, message: `未知事件类型: ${String(_exhaustive)}` },
       };
+    }
   }
 }

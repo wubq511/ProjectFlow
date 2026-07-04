@@ -95,7 +95,7 @@ export function createServer(config: SidecarConfig): Server {
       try {
         // Attach body reader for POST requests
         if (req.method === "POST") {
-          (req as any).bodyText = await readBody(req);
+          (req as IncomingMessage & { bodyText?: string }).bodyText = await readBody(req);
         }
         await route.handler(req, res, params, ctx);
       } catch (err) {

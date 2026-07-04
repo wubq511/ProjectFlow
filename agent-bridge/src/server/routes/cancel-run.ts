@@ -22,7 +22,7 @@ export async function handleCancelRun(
 
   // Parse optional reason from body
   try {
-    const bodyText = (req as any).bodyText as string | undefined;
+    const bodyText = (req as IncomingMessage & { bodyText?: string }).bodyText;
     if (bodyText) {
       const body = JSON.parse(bodyText);
       if (typeof body.reason === "string") {
