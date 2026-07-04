@@ -32,7 +32,7 @@ from app.schemas.assignment import (
 from app.schemas.checkin import CheckInCycleRead
 from app.schemas.member_profile import MemberProfileRead
 from app.schemas.project import ProjectRead
-from app.schemas.project_state import ProjectStateRead
+from app.schemas.project_state import ProjectStateRead, ProjectStateRepairRead
 from app.schemas.resource import ResourceRead
 from app.schemas.risk import RiskRead
 from app.schemas.stage import StageRead
@@ -209,40 +209,76 @@ def _build_assignment_responses(session: Session, project_id: str) -> list:
     ]
 
 
-def _catch_up_stage_progress(session: Session, project_id: str) -> None:
-    """Auto-advance any active/at_risk stage whose tasks are all done.
-
-    This is a safety net: tasks marked done via seed data, direct DB edits,
-    or before try_advance_stage existed would otherwise leave a stage stuck.
-    """
+def _repair_stage_progress(session: Session, project_id: str) -> list[str]:
+    """Explicitly repair stale stage/project progress after out-of-band changes."""
     from app.services.stage_service import try_advance_stage
 
-    stuck_stages = session.exec(
-        select(Stage).where(
-            Stage.project_id == project_id,
-            Stage.status.in_(["active", "at_risk"]),
-        )
-    ).all()
-    if not stuck_stages:
-        return
+    repaired_stage_ids: list[str] = []
 
-    stuck_stage_ids = [s.id for s in stuck_stages]
-    all_tasks = session.exec(
-        select(Task).where(Task.stage_id.in_(stuck_stage_ids))
-    ).all()
+    while True:
+        repairable_stages = session.exec(
+            select(Stage).where(
+                Stage.project_id == project_id,
+                Stage.status.in_(["active", "at_risk"]),
+            )
+        ).all()
+        if not repairable_stages:
+            break
 
-    tasks_by_stage: dict[str, list[Task]] = {}
-    for task in all_tasks:
-        tasks_by_stage.setdefault(task.stage_id, []).append(task)
+        repairable_stage_ids = [stage.id for stage in repairable_stages]
+        all_tasks = session.exec(
+            select(Task).where(Task.stage_id.in_(repairable_stage_ids))
+        ).all()
 
-    for stage in stuck_stages:
-        stage_tasks = tasks_by_stage.get(stage.id, [])
-        done_tasks = [t for t in stage_tasks if t.status == "done"]
-        pending_tasks = [t for t in stage_tasks if t.status != "done"]
+        tasks_by_stage: dict[str, list[Task]] = {}
+        for task in all_tasks:
+            tasks_by_stage.setdefault(task.stage_id, []).append(task)
 
-        if done_tasks and not pending_tasks:
+        repaired_in_this_pass = False
+        for stage in repairable_stages:
+            stage_tasks = tasks_by_stage.get(stage.id, [])
+            done_tasks = [task for task in stage_tasks if task.status == "done"]
+            pending_tasks = [task for task in stage_tasks if task.status != "done"]
+            if not done_tasks or pending_tasks:
+                continue
+
             try_advance_stage(session, done_tasks[0].id)
             session.flush()
+            repaired_stage_ids.append(stage.id)
+            repaired_in_this_pass = True
+            break
+
+        if not repaired_in_this_pass:
+            break
+
+    return repaired_stage_ids
+
+
+def repair_project_state(session: Session, project_id: str) -> ProjectStateRepairRead | None:
+    project = session.get(Project, project_id)
+    if project is None:
+        return None
+
+    repaired_stage_ids = _repair_stage_progress(session, project_id)
+    if repaired_stage_ids:
+        session.commit()
+        session.refresh(project)
+
+    changed = bool(repaired_stage_ids)
+    message = (
+        f"已修复 {len(repaired_stage_ids)} 个停滞阶段。"
+        if changed
+        else "未发现需要修复的停滞阶段或项目进度。"
+    )
+
+    return ProjectStateRepairRead(
+        project_id=project.id,
+        changed=changed,
+        repaired_stage_ids=repaired_stage_ids,
+        current_stage_id=project.current_stage_id,
+        project_status=project.status,
+        message=message,
+    )
 
 
 def get_project_state(session: Session, project_id: str) -> ProjectStateRead | None:
@@ -253,9 +289,6 @@ def get_project_state(session: Session, project_id: str) -> ProjectStateRead | N
     workspace = session.get(Workspace, project.workspace_id)
     if workspace is None:
         return None
-
-    # Safety net: auto-advance any stage whose tasks are all done
-    _catch_up_stage_progress(session, project_id)
 
     memberships = session.exec(
         select(WorkspaceMembership).where(WorkspaceMembership.workspace_id == workspace.id)

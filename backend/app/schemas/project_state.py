@@ -37,3 +37,12 @@ class ProjectStateRead(BaseModel):
     risks: list[RiskRead]
     action_cards: list[ActionCardRead]
     timeline: list[AgentEventRead]
+
+
+class ProjectStateRepairRead(BaseModel):
+    project_id: str
+    changed: bool
+    repaired_stage_ids: list[str]
+    current_stage_id: str | None
+    project_status: str
+    message: str

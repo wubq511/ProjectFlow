@@ -114,7 +114,7 @@ S6+S7 (你) → S12 (你，等 S10)
 
 ### S4: Read-only purity + State Repair Command → #49
 
-**无 blocker，立即开始。**
+**状态：已完成（2026-07-04，本地分支 `member-b/s4-read-purity`）。**
 
 这是最重要的基础工作之一。当前 `GET /api/projects/{project_id}/state` 会隐式推进 Stage/Project，违反 read purity。
 
@@ -134,11 +134,31 @@ S6+S7 (你) → S12 (你，等 S10)
 - `get_workspace_state()` 当前已满足 read-only，加回归测试锁住
 
 **验收标准：**
-- [ ] `get_project_state()` 不再调用 `_catch_up_stage_progress()`
-- [ ] State Repair Command 实现完成
-- [ ] Read purity 回归测试通过
-- [ ] Repair command 测试通过
-- [ ] 现有测试更新，不依赖隐式 catch-up
+- [x] `get_project_state()` 不再调用 `_catch_up_stage_progress()`
+- [x] State Repair Command 实现完成
+- [x] Read purity 回归测试通过
+- [x] Repair command 测试通过
+- [x] 现有测试更新，不依赖隐式 catch-up
+
+**本轮落地内容：**
+- `backend/app/services/project_state_service.py`
+  - 移除 `get_project_state()` 中的隐式 `_catch_up_stage_progress()` 调用，确保 `GET /api/projects/{project_id}/state` 保持纯读。
+  - 将修复逻辑提炼为显式 `repair_project_state()` / `_repair_stage_progress()`，只在 repair command 调用时执行。
+- `backend/app/api/routes_projects.py`
+  - 新增 `POST /api/projects/{project_id}/state-repair`，作为显式 State Repair Command。
+- `backend/app/schemas/project_state.py`
+  - 新增 `ProjectStateRepairRead` 响应结构，返回 `changed`、`repaired_stage_ids`、`current_stage_id`、`project_status`。
+- `backend/app/tests/test_project_state_endpoint.py`
+  - 新增 project/workspace 读路径纯读回归测试。
+  - 新增 repair service 和 repair API 测试，覆盖单阶段修复与级联修复到项目完成。
+
+**验证：**
+- 运行：`python -m pytest app/tests/test_project_state_endpoint.py app/tests/test_nplus1_workspace_state.py -v`
+- 结果：`8 passed`
+
+**交接影响：**
+- S4 已完成，Member A 的 S5（read-only tools）不再被本 slice 阻塞。
+- 你后续的 S6 / S7 / S13 仍等待 S5 完成后再继续。
 
 ### S6: First proposal tool: stage plan proposal → #51
 

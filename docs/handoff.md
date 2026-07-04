@@ -25,7 +25,38 @@ Key decisions:
 - LLM-callable tools cannot commit Primary Project State.
 - Risk of any severity is advisory; mitigation that changes task/stage/project/owner/date state requires replan proposal confirmation.
 - Read-only ProjectState/WorkspaceState/timeline paths must stay pure; stale state repair belongs in explicit State Repair Command / maintenance job.
-- Next step is to turn the T41 architecture docs into a PRD, then break that PRD into vertical-slice issues.
+- The architecture has already been turned into `docs/PRD-Agent-Runtime.md` and split into vertical slices/issues.
+
+### T41 — S4 Read Purity + State Repair Command (2026-07-04)
+
+S4 for Member B is implemented on branch `member-b/s4-read-purity` and verified locally.
+
+Files changed:
+
+- `backend/app/api/routes_projects.py`
+- `backend/app/schemas/project_state.py`
+- `backend/app/services/project_state_service.py`
+- `backend/app/tests/test_project_state_endpoint.py`
+- `docs/T41/handoff-member-b-tool-implementor.md`
+
+Key results:
+
+- `GET /api/projects/{project_id}/state` no longer advances or repairs Stage/Project state as a side effect.
+- Explicit repair path added: `POST /api/projects/{project_id}/state-repair`.
+- Repair returns structured result fields: `changed`, `repaired_stage_ids`, `current_stage_id`, `project_status`, `message`.
+- Regression tests now lock both `get_project_state()` and `get_workspace_state()` as pure read paths.
+- Repair tests cover both single-stage repair and cascaded repair that completes the whole project.
+
+Verification:
+
+- `cd backend`
+- `python -m pytest app/tests/test_project_state_endpoint.py app/tests/test_nplus1_workspace_state.py -v`
+- Result: `8 passed`
+
+Coordination status:
+
+- S4 is no longer a blocker for Member A's S5 read-only tools work.
+- Member B's next implementation slices (`S6`, `S7`, `S13`) still wait for S5 to land.
 
 ## Completed
 
