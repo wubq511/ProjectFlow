@@ -44,9 +44,9 @@ ProjectFlow 要从固定 CoordinatorAgent 升级为工具化 Agent Runtime。架
 ## Issue Tracker
 
 - PRD: https://github.com/wubq511/ProjectFlow/issues/45
-- 你的 slices: #49, #51, #52, #57
-- Lead (Robert) 的 slices: #46, #47, #54, #55
-- Member A 的 slices: #48, #50, #53, #56
+- 你的 slices: #49 (S4), #51 (S6), #52 (S7), #57 (S12), #58 (S13)
+- Lead (Robert) 的 slices: #46 (S1), #47 (S2), #54 (S9), #55 (S10), #60 (S15)
+- Member A 的 slices: #48 (S3), #50 (S5), #53 (S8), #56 (S11), #59 (S14), #61 (S16)
 
 ## 同步点与依赖关系
 
@@ -80,8 +80,9 @@ S6+S7 (你) → S12 (你，等 S10)
 - **S6**：等 S5 完成后直接开始
 - **S7**：等 S5 完成后直接开始（S6 完成后接着做）
 - **S12**：等 S10 完成后直接开始
+- **S13**：等 S5 完成后直接开始（与 S6/S7 并行）
 
-## 你的 Slices（4 条）
+## 你的 Slices（5 条）
 
 ### S4: Read-only purity + State Repair Command → #49
 
@@ -202,6 +203,33 @@ S6+S7 (你) → S12 (你，等 S10)
 - [ ] idempotency/safety/reconciliation tests 通过
 - [ ] feature flag 按 flow 控制
 - [ ] Coordinator 保留为 legacy adapter
+
+### S13: Remaining proposal tools: direction card + task breakdown → #58
+
+**Blocked by S5 (Member A 产出)。S6+S7 完成后直接开始。**
+
+实现剩余的 proposal tools，复用 S6的 proposal creation模式。
+
+1. **Direction card proposal** — `POST /internal/agent-tools/direction-card-proposal`
+   - 复用旧 `CoordinatorAgent.generate_direction_card` 的 LLM 调用、schema validation、fallback
+   - risk_category=draft_only, effects.effect_type=proposal_create
+   - idempotency_key_required=true
+
+2. **Task breakdown proposal** — `POST /internal/agent-tools/task-breakdown-proposal`
+   - 复用旧 `CoordinatorAgent.break_down_tasks` 的 LLM 调用、schema validation、fallback
+   - risk_category=draft_only, effects.effect_type=proposal_create
+   - idempotency_key_required=true
+
+3. **Idempotency** — 同一 (run_id, tool_call_id, tool_name, tool_version) 重试返回已有 proposal_id
+
+4. **Side effect status** — tool 成功时 side_effect_status=proposal_persisted, 返回 proposal_id + links.agent_event_id
+
+**验收标准：**
+- [ ] direction card proposal endpoint 实现完成
+- [ ] task breakdown proposal endpoint 实现完成
+- [ ] 创建 pending AgentProposal，不 commit
+- [ ] idempotency 测试通过
+- [ ] side_effect_status=proposal_persisted
 
 ## 与其他成员的接口
 
