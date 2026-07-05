@@ -41,12 +41,18 @@ const TOOL_NAMES = [
   "get_timeline_slice",
 ];
 
+const DEFAULT_TOOL_NAMES = [
+  ...TOOL_NAMES,
+  "generate_replan_proposal",
+];
+
 // Map manifest tool name → internal endpoint tool name (POST /internal/agent-tools/{name})
 const INTERNAL_TOOL_NAME: Record<string, string> = {
   get_workspace_state: "workspace-state",
   get_agent_conversation: "conversation",
   list_pending_proposals: "pending-proposals",
   get_timeline_slice: "timeline-slice",
+  generate_replan_proposal: "replan-proposal",
 };
 
 const INTERNAL_ENDPOINT: Record<string, string> = {
@@ -54,6 +60,7 @@ const INTERNAL_ENDPOINT: Record<string, string> = {
   get_agent_conversation: "POST /internal/agent-tools/conversation",
   list_pending_proposals: "POST /internal/agent-tools/pending-proposals",
   get_timeline_slice: "POST /internal/agent-tools/timeline-slice",
+  generate_replan_proposal: "POST /internal/agent-tools/replan-proposal",
 };
 
 function makeContext(overrides: Partial<ToolExecutionContext> = {}): ToolExecutionContext {
@@ -297,12 +304,12 @@ describe("projectflow-tools", () => {
   });
 
   describe("registerDefaultTools", () => {
-    it("registers all 4 tools into the registry", () => {
+    it("registers all default tools into the registry", () => {
       const registry = new ToolRegistry();
       const client = createStubFastapiClient();
       registerDefaultTools(registry, client);
-      expect(registry.size).toBe(4);
-      for (const name of TOOL_NAMES) {
+      expect(registry.size).toBe(5);
+      for (const name of DEFAULT_TOOL_NAMES) {
         expect(registry.has(name)).toBe(true);
       }
     });
@@ -311,16 +318,57 @@ describe("projectflow-tools", () => {
       const registry = new ToolRegistry();
       registerDefaultTools(registry, createStubFastapiClient());
       const manifests = registry.getModelCallableManifests();
-      expect(manifests.length).toBe(4);
+      expect(manifests.length).toBe(5);
     });
 
-    it("getManifests returns all 4 manifests", () => {
+    it("getManifests returns all default manifests", () => {
       const registry = new ToolRegistry();
       registerDefaultTools(registry, createStubFastapiClient());
       const manifests = registry.getManifests();
-      expect(manifests.length).toBe(4);
+      expect(manifests.length).toBe(5);
       const names = manifests.map((m: ProjectFlowToolManifest) => m.name).sort();
-      expect(names).toEqual([...TOOL_NAMES].sort());
+      expect(names).toEqual([...DEFAULT_TOOL_NAMES].sort());
+    });
+
+    it("registers generate_replan_proposal as a draft-only proposal tool", () => {
+      const registry = new ToolRegistry();
+      registerDefaultTools(registry, createStubFastapiClient());
+      const tool = registry.get("generate_replan_proposal");
+      expect(tool).toBeDefined();
+
+      const manifest = tool!.manifest;
+      expect(manifest.riskCategory).toBe("draft_only");
+      expect(manifest.annotations.readOnly).toBe(false);
+      expect(manifest.annotations.destructive).toBe(false);
+      expect(manifest.annotations.idempotent).toBe(true);
+      expect(manifest.execution.mode).toBe("sequential");
+      expect(manifest.execution.concurrencyGroup).toBe("project_proposal_write");
+      expect(manifest.execution.providerParallelToolCallsAllowed).toBe(false);
+      expect(manifest.effects.effectType).toBe("proposal_create");
+      expect(manifest.effects.idempotencyKeyRequired).toBe(true);
+      expect(manifest.backend.endpoint).toBe("POST /internal/agent-tools/replan-proposal");
+      expect(manifest.proposalConfirmation?.createsProposal).toBe(true);
+      expect(manifest.proposalConfirmation?.requiredBeforeCommit).toBe(true);
+    });
+
+    it("generate_replan_proposal executor calls POST /internal/agent-tools/replan-proposal", async () => {
+      const client = createStubFastapiClient();
+      const registry = new ToolRegistry();
+      registerDefaultTools(registry, client);
+      const tool = registry.get("generate_replan_proposal")!;
+
+      await tool.execute(
+        { project_id: "p1", user_instruction: "根据签到阻塞生成计划调整草案。" },
+        makeContext({ toolName: "generate_replan_proposal" }),
+      );
+
+      expect(client.calls.length).toBe(1);
+      expect(client.calls[0]!.toolName).toBe("replan-proposal");
+      expect(client.calls[0]!.payload.tool_name).toBe("generate_replan_proposal");
+      expect(client.calls[0]!.payload.arguments).toEqual({
+        project_id: "p1",
+        user_instruction: "根据签到阻塞生成计划调整草案。",
+      });
     });
   });
 });

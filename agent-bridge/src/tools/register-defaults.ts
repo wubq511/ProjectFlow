@@ -5,13 +5,13 @@
 
 import type { FastapiClient } from "./fastapi-client.js";
 import type { ToolRegistry } from "./registry.js";
-import { createReadOnlyTools } from "./projectflow-tools.js";
+import { createDefaultProjectFlowTools } from "./projectflow-tools.js";
 
 /**
- * Register all default read-only tools into the registry.
+ * Register all default ProjectFlow tools into the registry.
  */
 export function registerDefaultTools(registry: ToolRegistry, fastapiClient: FastapiClient): void {
-  for (const tool of createReadOnlyTools(fastapiClient)) {
+  for (const tool of createDefaultProjectFlowTools(fastapiClient)) {
     registry.register(tool);
   }
 }

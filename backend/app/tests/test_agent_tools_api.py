@@ -10,8 +10,6 @@ Each returns a ProjectFlowToolResult with side_effect_status=no_side_effect.
 Read-only tools must not mutate Primary Project State.
 """
 
-from datetime import UTC, datetime
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine
@@ -138,6 +136,16 @@ class TestInternalAgentTools:
         assert data["side_effect_status"] == "no_side_effect"
         assert data["data"]["workspace_id"] == "ws1"
 
+    def test_dispatch_uses_path_tool_name_when_envelope_uses_manifest_name(self, client, test_engine):
+        _seed(test_engine)
+        envelope = _envelope("get_workspace_state", {"workspace_id": "ws1"})
+        resp = client.post("/internal/agent-tools/workspace-state", json=envelope)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["side_effect_status"] == "no_side_effect"
+        assert data["data"]["workspace_id"] == "ws1"
+
     def test_conversation_tool(self, client, test_engine):
         _seed(test_engine)
         resp = client.post("/internal/agent-tools/conversation", json=_envelope("conversation", {"project_id": "p1"}))
@@ -198,6 +206,47 @@ class TestInternalAgentTools:
         data = resp.json()
         assert data["status"] == "failed"
         assert data["side_effect_status"] == "no_side_effect"
+
+    def test_replan_proposal_tool_creates_pending_replan_proposal(self, client, test_engine):
+        _seed(test_engine)
+        envelope = _envelope(
+            "generate_replan_proposal",
+            {"project_id": "p1", "user_instruction": "根据最新签到和风险生成计划调整草案。"},
+        )
+        resp = client.post("/internal/agent-tools/replan-proposal", json=envelope)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["side_effect_status"] == "proposal_persisted"
+        assert data["links"]["proposal_id"] is not None
+        assert data["idempotency_key"] == "run_test:call_test:v1"
+
+        proposal_resp = client.get(f"/api/agent-proposals/{data['links']['proposal_id']}")
+        assert proposal_resp.status_code == 200, proposal_resp.text
+        proposal = proposal_resp.json()
+        assert proposal["proposal_type"] == "replan"
+        assert proposal["status"] == "pending"
+        assert proposal["payload"]["requires_confirmation"] is True
+
+    def test_replan_proposal_tool_reuses_same_proposal_for_idempotency_key(self, client, test_engine):
+        _seed(test_engine)
+        envelope = _envelope(
+            "generate_replan_proposal",
+            {"project_id": "p1", "user_instruction": "根据最新签到和风险生成计划调整草案。"},
+        )
+
+        first = client.post("/internal/agent-tools/replan-proposal", json=envelope)
+        second = client.post("/internal/agent-tools/replan-proposal", json=envelope)
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        first_data = first.json()
+        second_data = second.json()
+        assert first_data["links"]["proposal_id"] == second_data["links"]["proposal_id"]
+
+        proposals_resp = client.get("/api/agent-proposals", params={"project_id": "p1", "proposal_type": "replan"})
+        assert proposals_resp.status_code == 200, proposals_resp.text
+        assert [p["id"] for p in proposals_resp.json()] == [first_data["links"]["proposal_id"]]
 
 
 class TestPublicProposalStatusFilter:

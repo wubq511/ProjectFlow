@@ -23,13 +23,11 @@ from app.schemas.action_card import ActionCardCreate
 from app.schemas.agent_flow import AgentFlowRead
 from app.schemas.assignment import AssignmentProposalCreate
 from app.schemas.risk import RiskCreate
-from app.schemas.task import TaskStatusUpdateCreate
 from app.schemas.workspace_state import WorkspaceStateResponse
 from app.services.action_card_service import create_action_card
 from app.services.agent_proposal_service import create_proposal
 from app.services.assignment_service import create_assignment_proposal
 from app.services.risk_service import create_risk
-from app.services.task_service import create_status_update
 from app.services.workspace_state_service import get_workspace_state
 
 
@@ -152,21 +150,12 @@ def _persist_agent_output(
             created_ids.append(created.id)
 
     if isinstance(output, CheckInAnalysisOutput):
-        for update in output.task_updates:
-            status_update = create_status_update(
-                session,
-                update.task_id,
-                TaskStatusUpdateCreate(
-                    task_id=update.task_id,
-                    user_id=update.user_id,
-                    status=update.status,
-                    progress_note=update.progress_note,
-                    blocker=update.blocker,
-                    available_hours_change=update.available_hours_change,
-                ),
-                auto_commit=False,
-            )
-            created_ids.append(status_update.id)
+        proposal_id = _create_replan_proposal_from_checkin_updates(
+            session,
+            workspace_state,
+            project_id,
+            output,
+        )
         created_ids.extend(_persist_risks(session, project_id, output.risks))
 
     if isinstance(output, RiskAnalysisOutput):
@@ -204,15 +193,113 @@ def _persist_risks(session: Session, project_id: str, risks) -> list[str]:
     return created_ids
 
 
+def _create_replan_proposal_from_checkin_updates(
+    session: Session,
+    workspace_state: WorkspaceStateResponse,
+    project_id: str,
+    output: CheckInAnalysisOutput,
+) -> str | None:
+    if not output.task_updates:
+        return None
+
+    project = workspace_state.project
+    task_map = {task.id: task for task in (project.tasks if project else [])}
+    member_name_map = {member.user_id: member.display_name for member in workspace_state.members}
+    before_items: list[dict] = []
+    after_items: list[dict] = []
+    task_changes: list[dict] = []
+
+    for update in output.task_updates:
+        task = task_map.get(update.task_id)
+        task_title = task.title if task else "相关任务"
+        member_name = member_name_map.get(update.user_id, "相关成员")
+        status = update.status.value if hasattr(update.status, "value") else update.status
+        current_status = task.status if task else "unknown"
+        reason = _checkin_update_reason(
+            member_name=member_name,
+            task_title=task_title,
+            status=status,
+            progress_note=update.progress_note,
+            blocker=update.blocker,
+        )
+
+        before_items.append(
+            {
+                "task": task_title,
+                "current_status": current_status,
+                "due_date": task.due_date.isoformat() if task and task.due_date else "未设置",
+            }
+        )
+        after_items.append(
+            {
+                "task": task_title,
+                "proposed_status": status,
+                "reason": reason,
+            }
+        )
+        task_changes.append(
+            {
+                "task_id": update.task_id,
+                "status": status,
+                "reason": reason,
+            }
+        )
+
+    count = len(task_changes)
+    replan_output = ReplanOutput.model_validate(
+        {
+            "before": {"task_statuses": before_items},
+            "after": {"task_status_changes": after_items},
+            "impact": f"建议调整 {count} 个任务状态；确认前不会修改任务状态或阶段进度。",
+            "stage_adjustments": [],
+            "task_changes": task_changes,
+            "action_cards": [],
+            "requires_confirmation": True,
+            "reason": "签到分析发现任务状态变化信号，已转为待确认的计划调整草案。",
+        }
+    )
+    return _create_agent_proposal(
+        session,
+        workspace_state,
+        project_id,
+        "replan",
+        replan_output,
+        event_type=AgentEventType.checkin.value,
+    )
+
+
+def _checkin_update_reason(
+    *,
+    member_name: str,
+    task_title: str,
+    status: str,
+    progress_note: str | None,
+    blocker: str | None,
+) -> str:
+    if blocker:
+        return (
+            f"{member_name} 在签到中反馈「{task_title}」受阻：{blocker}。"
+            f"建议将任务状态调整为 {status}，等待人工确认后再落库。"
+        )
+    if progress_note:
+        return (
+            f"{member_name} 的签到显示「{task_title}」进展变化：{progress_note}。"
+            f"建议将任务状态调整为 {status}，等待人工确认后再落库。"
+        )
+    return f"{member_name} 的签到显示「{task_title}」状态需要调整为 {status}，等待人工确认后再落库。"
+
+
 def _create_agent_proposal(
     session: Session,
     workspace_state: WorkspaceStateResponse,
     project_id: str,
     proposal_type: str,
     output,
+    *,
+    event_type: str | None = None,
 ) -> str:
     agent_event_id = _find_latest_agent_event_id(
-        session, project_id, workspace_state.workspace_id, proposal_type
+        session, project_id, workspace_state.workspace_id, event_type or proposal_type
     )
     proposal = create_proposal(
         session,

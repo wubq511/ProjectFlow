@@ -64,7 +64,7 @@ def build_request(workspace_state: WorkspaceStateResponse) -> AgentModuleRequest
                 "task_id": blocker_task_id,
                 "user_id": blocker_member_id,
                 "status": "blocked",
-                "progress_note": f"{member_name} 签到报告阻塞：{blocker_text}",
+                "progress_note": f"{member_name} 签到报告阻塞，建议进入重规划确认：{blocker_text}",
                 "blocker": blocker_text,
             }
         ]
@@ -73,7 +73,7 @@ def build_request(workspace_state: WorkspaceStateResponse) -> AgentModuleRequest
                 "type": "checkin",
                 "severity": "high",
                 "title": f"「{task_title}」被阻塞：{blocker_brief}",
-                "description": f"{member_name} 在签到中报告：{blocker_text}。任务已标记为 blocked，需要针对性排查。",
+                "description": f"{member_name} 在签到中报告：{blocker_text}。建议通过重规划确认是否将任务标记为 blocked，并针对性排查。",
                 "evidence": [
                     f"{member_name} 在「{task_title}」中报告阻塞：{blocker_text}"
                 ],
@@ -82,14 +82,7 @@ def build_request(workspace_state: WorkspaceStateResponse) -> AgentModuleRequest
             }
         ]
     else:
-        fallback_task_updates = [
-            {
-                "task_id": task_id,
-                "user_id": member_id,
-                "status": "in_progress",
-                "progress_note": "无明确信号，保持当前任务状态不变。",
-            }
-        ]
+        fallback_task_updates = []
         fallback_risks = []
 
     return AgentModuleRequest(
@@ -103,7 +96,7 @@ def build_request(workspace_state: WorkspaceStateResponse) -> AgentModuleRequest
             "4. For each blocked task, generate a risk item:\n"
             "   - type=checkin, severity=high\n"
             "   - title: 引用成员名字和任务名，如「任务名」被阻塞：阻塞摘要\n"
-            "   - description: 使用成员名字（如「小张」）和任务标题（如「后端 API」），说明任务已 blocked\n"
+            "   - description: 使用成员名字（如「小张」）和任务标题（如「后端 API」），说明建议通过 replan proposal 确认任务是否 blocked\n"
             "   - evidence: [\"成员名 在「任务名」中报告阻塞：完整blocker文本\"] — 使用 member_name 和 task_title，禁止放 user_id / task_id\n"
             "   - recommendation: 根据具体阻塞内容思考针对性对策，给出 2-3 条可执行建议\n"
             "5. For responses without blockers, update task progress based on what_done content.\n"

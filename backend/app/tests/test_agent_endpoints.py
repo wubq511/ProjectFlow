@@ -98,7 +98,10 @@ def test_agent_endpoints_exist_and_persist_execution_proposals(client: TestClien
 
     checkin_response = client.post("/api/agent/check-in-analysis", json={"workspace_id": workspace["id"]})
     assert checkin_response.status_code == 200
-    assert checkin_response.json()["created_ids"]
+    checkin_payload = checkin_response.json()
+    assert checkin_payload["event_type"] == "checkin"
+    assert checkin_payload["output"]["reason"]
+    assert checkin_payload["proposal_id"] is None
 
     replan_output = client.post("/api/agent/replan", json={"workspace_id": workspace["id"]}).json()
     assert replan_output["output"]["requires_confirmation"] is True

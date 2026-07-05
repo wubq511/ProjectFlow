@@ -1,7 +1,9 @@
 /**
- * ProjectFlow read-only tool definitions.
- * These tools allow the Agent to query workspace state, conversation history,
- * pending proposals, and timeline events without modifying any state.
+ * ProjectFlow tool definitions.
+ * Read-only tools allow the Agent to query workspace state, conversation
+ * history, pending proposals, and timeline events without modifying state.
+ * Proposal tools create reviewable draft records but never commit primary
+ * project state.
  *
  * All tools go through the unified internal contract:
  *   POST /internal/agent-tools/{tool-name}
@@ -15,7 +17,7 @@ import type { FastapiClient } from "./fastapi-client.js";
 import type { RegisteredTool } from "./registry.js";
 import { createFastapiToolExecutor } from "./registry.js";
 
-// ─── Shared manifest defaults for read-only tools ────────────────────────────
+// ─── Shared manifest defaults ────────────────────────────────────────────────
 
 const READ_ONLY_DEFAULTS = {
   schemaVersion: 1,
@@ -63,6 +65,62 @@ const READ_ONLY_DEFAULTS = {
   },
   trace: {
     emits: ["tool.started", "tool.completed"],
+  },
+};
+
+const PROPOSAL_DEFAULTS = {
+  schemaVersion: 1,
+  version: 1,
+  riskCategory: "draft_only" as const,
+  modelCallable: true,
+  sidecarOnly: false,
+  humanTriggeredOnly: false,
+  annotations: {
+    readOnly: false,
+    destructive: false,
+    idempotent: true,
+    openWorld: false,
+  },
+  execution: {
+    mode: "sequential" as const,
+    concurrencyGroup: "project_proposal_write",
+    maxConcurrency: 1,
+    providerParallelToolCallsAllowed: false,
+  },
+  timeoutMs: 120000,
+  retry: {
+    maxAttempts: 1,
+    retryOn: ["timeout", "network_error"],
+  },
+  resultLimit: {
+    maxBytes: 65536,
+    redaction: "secrets" as const,
+  },
+  effects: {
+    effectType: "proposal_create" as const,
+    idempotencyKeyRequired: true,
+    replaySafe: true,
+  },
+  proposalConfirmation: {
+    createsProposal: true,
+    requiredBeforeCommit: true,
+    publicActionOnly: true,
+    resumesModelLoopByDefault: false as const,
+  },
+  privacy: {
+    dataClassification: "project_sensitive" as const,
+    traceIncludeInputs: false,
+    traceIncludeOutputs: false,
+  },
+  errors: {
+    modelVisibleErrorPolicy: "normalized_summary" as const,
+  },
+  resume: {
+    manifestVersion: 1,
+    incompatibleVersionPolicy: "regenerate" as const,
+  },
+  trace: {
+    emits: ["tool.started", "tool.completed", "proposal.created"],
   },
 };
 
@@ -170,6 +228,31 @@ const getTimelineSliceManifest: ProjectFlowToolManifest = {
   },
 };
 
+// ─── Tool: generate_replan_proposal ──────────────────────────────────────────
+
+const generateReplanProposalManifest: ProjectFlowToolManifest = {
+  ...PROPOSAL_DEFAULTS,
+  name: "generate_replan_proposal",
+  description: "根据当前项目状态、签到和风险信号生成待确认的计划调整草案，不直接修改任务、阶段或负责人。",
+  inputSchema: {
+    type: "object",
+    properties: {
+      project_id: { type: "string", description: "项目 ID" },
+      user_instruction: { type: "string", description: "本次重规划的用户意图或触发原因（可选）" },
+    },
+    required: ["project_id"],
+  },
+  outputSchema: {
+    type: "object",
+    description: "ProjectFlowToolResult — success 时 links.proposal_id 指向 pending replan AgentProposal",
+  },
+  backend: {
+    owner: "fastapi",
+    endpoint: "POST /internal/agent-tools/replan-proposal",
+    method: "POST",
+  },
+};
+
 // ─── Export: all read-only tools ──────────────────────────────────────────────
 
 /**
@@ -200,5 +283,21 @@ export function createReadOnlyTools(fastapiClient: FastapiClient): RegisteredToo
       manifest: getTimelineSliceManifest,
       execute: createFastapiToolExecutor(fastapiClient, "timeline-slice"),
     },
+  ];
+}
+
+/** Build the draft-only replan proposal tool. */
+export function createReplanProposalTool(fastapiClient: FastapiClient): RegisteredTool {
+  return {
+    manifest: generateReplanProposalManifest,
+    execute: createFastapiToolExecutor(fastapiClient, "replan-proposal"),
+  };
+}
+
+/** Build all default ProjectFlow tools registered for the sidecar runtime. */
+export function createDefaultProjectFlowTools(fastapiClient: FastapiClient): RegisteredTool[] {
+  return [
+    ...createReadOnlyTools(fastapiClient),
+    createReplanProposalTool(fastapiClient),
   ];
 }

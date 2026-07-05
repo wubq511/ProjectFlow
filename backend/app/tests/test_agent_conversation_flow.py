@@ -26,7 +26,7 @@ def _create_project_fixture(client: TestClient):
             "workspace_id": workspace["id"],
             "name": "Conversation Project",
             "idea": "Build an agent workflow",
-            "deadline": "2026-06-20",
+            "deadline": "2026-08-20",
             "deliverables": "Working demo",
             "created_by": owner["id"],
         },
@@ -495,7 +495,6 @@ def test_structured_suggestions_map_action_labels_to_explicit_executable_instruc
 
 def test_planner_prompt_includes_quick_reply_action_mapping_examples():
     from app.services.agent_conversation_service import _plan_turn
-    from app.models.agent_conversation import AgentConversation
 
     recorded_messages: list = []
 
