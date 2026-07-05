@@ -6,7 +6,7 @@ Status: current as of 2026-07-05.
 
 ### T41 — Agent Runtime Sidecar Implementation (2026-07-04~05)
 
-T41 Agent Runtime work now has S3, S5, S6, S7, S8, S9, S14, and S16 on the integrated mainline. The sidecar owns runtime/tool registration, while FastAPI owns persistence through `/internal/agent-tools/*`.
+T41 Agent Runtime work now has S3, S5, S6, S7, S8, S9, S10, S14, and S16 on the integrated mainline. The sidecar owns runtime/tool registration and event bridging, while FastAPI owns persistence through `/internal/agent-tools/*` and `/internal/agent-runs/*`.
 
 **What was built:**
 
@@ -16,18 +16,18 @@ T41 Agent Runtime work now has S3, S5, S6, S7, S8, S9, S14, and S16 on the integ
 - **S7 (Advisory Risk/ActionCard Tool)**: `analyze_checkins_and_risks` is an advisory-write tool backed by `POST /internal/agent-tools/checkins-and-risks-analysis`. It creates Risk and optional ActionCard advisory records with `created_ids`, keeps Task/Stage/Project unchanged, returns replan signals for primary-state changes, and treats Risk severity itself as advisory.
 - **S8 (AssignmentProposalTool)**: `recommend_assignment` is a draft-only proposal tool backed by `POST /internal/agent-tools/assignment-recommendation`. It creates `AssignmentProposal` without writing `Task.owner_user_id`, reuses the same proposal for repeated idempotency keys, and keeps final ownership on the existing human confirmation/finalize path.
 - **S9 (Check-in/replan Migration)**: default tool registry now includes `generate_replan_proposal` as a draft-only sequential proposal tool backed by `POST /internal/agent-tools/replan-proposal`. Legacy check-in analysis no longer persists `CheckInAnalysisOutput.task_updates` through `create_status_update()`; inferred task status changes become pending `replan` `AgentProposal` payloads and are applied only after proposal confirmation. The tool reuses the same proposal for repeated idempotency keys and returns `blocked + no_side_effect` when another pending replan already exists, linking the existing `proposal_id`. Commits: `7e49836`, `800f578`.
+- **S10 (Event Bridge + Trace Envelope)**: Pi lifecycle events now map through a single ProjectFlow runtime event bridge with run/workspace/project/tool/proposal context and redacted trace summaries. Sidecar persists lifecycle events through `POST /internal/agent-runs/{run_id}/events:append`, streams only after FastAPI assigns `event_seq`, and emits product events for proposal/advisory side effects. FastAPI persists runtime events in `agent_run_events`, exposes `GET /internal/agent-runs/{run_id}/events`, and records proposal confirmation/rejection/commit runtime events for T41 tool-created proposals.
 - **S14 (Skills System)**: `SkillIndex` (directory scan + YAML frontmatter), `SkillLoader` (lazy SKILL.md + bounded on-demand references), `selectSkill()` (keyword confidence scoring), 6 SKILL.md files with `allowed-tools` constraints and reference files. 7/7 acceptance criteria pass.
 - **S16 (Debug Raw Payload Mode)**: `traceIncludeSensitiveData` config (default false), `DebugPayloadStore` separate raw payload storage with retention, `hashValue()` SHA-256 utility, trace envelope with redacted/default-hash behavior, result normalizer with truncation + hash. 5/5 acceptance criteria pass.
 
 **Code review:** Two-axis review (Standards + Spec) completed. Hard violations fixed around XML escaping, skill tool filtering, provider parallel gating, manifest input schema forwarding, FastAPI tool envelope, cancel terminal state, references, and S16 debug storage. Judgement calls remain for future refactors around `skill-selector.ts` matching strategy and `pi-runtime.ts` module size.
 
-**Test results:** 321 backend tests pass, 237 sidecar unit tests pass (11 files), sidecar typecheck/build pass, changed backend files ruff pass.
+**Test results:** 324 backend tests pass, 242 sidecar unit tests pass (11 files), sidecar typecheck/build pass, changed backend files ruff pass.
 
 **What remains (deferred):**
-- S10: Event bridge + trace envelope — waits for S6+S7+S8 now that S9 is complete
-- S11: Frontend integration — blocked by S10 (event bridge)
+- S11: Frontend integration — can now consume S10 runtime stream/query events
 
-**Key files:** `agent-bridge/src/runtime/pi-runtime.ts`, `agent-bridge/src/runtime/context-builder.ts`, `agent-bridge/src/events/debug-payload-store.ts`, `agent-bridge/src/server/app.ts`, `agent-bridge/src/policy/policy-engine.ts`, `agent-bridge/src/skills/skill-selector.ts`, `agent-bridge/src/tools/projectflow-tools.ts`, `backend/app/services/agent_tools_service.py`
+**Key files:** `agent-bridge/src/runtime/pi-runtime.ts`, `agent-bridge/src/events/event-mapper.ts`, `agent-bridge/src/events/trace-envelope.ts`, `agent-bridge/src/runtime/context-builder.ts`, `agent-bridge/src/events/debug-payload-store.ts`, `agent-bridge/src/server/app.ts`, `agent-bridge/src/policy/policy-engine.ts`, `agent-bridge/src/skills/skill-selector.ts`, `agent-bridge/src/tools/projectflow-tools.ts`, `backend/app/services/agent_tools_service.py`, `backend/app/services/agent_runtime_service.py`, `backend/app/models/agent_run_state.py`
 
 ### T41 — Agent Runtime Architecture Docs (2026-07-04)
 
@@ -121,7 +121,7 @@ Results:
 Coordination status:
 
 - S6 and S7 are complete on Member B branch.
-- Lead's S10 can now consume the S6/S7 tool endpoint behavior for event bridge work.
+- S10 event bridge is complete; S11 can consume runtime stream/query events.
 - S13 is unblocked for Member B and can start next.
 
 ## Completed

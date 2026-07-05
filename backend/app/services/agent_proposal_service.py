@@ -11,8 +11,10 @@ from app.agent.output_schemas import (
     TaskBreakdownOutput,
 )
 from app.models import AgentEvent, AgentProposal, Project, Stage, Task, User
-from app.models.enums import AgentEventType, AgentProposalStatus, ProjectStatus, StageStatus
+from app.models.enums import AgentEventType, AgentProposalStatus, ProjectStatus, RuntimeEventType, StageStatus
 from app.schemas.agent_proposal import AgentProposalRead
+from app.schemas.runtime import AppendRequest, EventAppendItem
+from app.services.agent_runtime_service import get_agent_runtime_service
 
 
 def to_proposal_read(proposal: AgentProposal) -> AgentProposalRead:
@@ -151,6 +153,17 @@ def confirm_proposal(
     )
     session.add(confirmation_event)
 
+    _record_proposal_confirmation_runtime_events(
+        session,
+        proposal=proposal,
+        event_types=[
+            RuntimeEventType.proposal_confirmation_confirmed,
+            RuntimeEventType.proposal_confirmation_committed,
+        ],
+        confirmed_by=confirmed_by,
+        created_ids=created_ids,
+    )
+
     session.commit()
     session.refresh(proposal)
     return proposal
@@ -165,6 +178,12 @@ def reject_proposal(session: Session, proposal_id: str, reason: str | None = Non
     proposal.status = AgentProposalStatus.rejected
     proposal.rejection_reason = reason
     session.add(proposal)
+    _record_proposal_confirmation_runtime_events(
+        session,
+        proposal=proposal,
+        event_types=[RuntimeEventType.proposal_confirmation_rejected],
+        rejection_reason=reason,
+    )
     session.commit()
     session.refresh(proposal)
     return proposal
@@ -175,6 +194,96 @@ def _get_payload(proposal: AgentProposal) -> dict:
     if isinstance(proposal.payload, str):
         return json.loads(proposal.payload)
     return proposal.payload
+
+
+def _record_proposal_confirmation_runtime_events(
+    session: Session,
+    *,
+    proposal: AgentProposal,
+    event_types: list[RuntimeEventType],
+    confirmed_by: str | None = None,
+    rejection_reason: str | None = None,
+    created_ids: list[str] | None = None,
+) -> None:
+    """Record S10 runtime confirmation events for proposals created by T41 tools."""
+    context = _proposal_runtime_context(session, proposal)
+    if context is None:
+        return
+    run_id = context["run_id"]
+    service = get_agent_runtime_service(session)
+    if service.get_run_status(run_id) is None:
+        return
+
+    events: list[EventAppendItem] = []
+    for index, event_type in enumerate(event_types, start=1):
+        payload = {
+            "run_id": run_id,
+            "conversation_id": context.get("conversation_id"),
+            "workspace_id": proposal.workspace_id,
+            "project_id": proposal.project_id,
+            "proposal_id": proposal.id,
+            "proposal_type": proposal.proposal_type,
+            "source_agent_event_id": proposal.agent_event_id,
+            "state_schema_version": 1,
+        }
+        if "tool_call_id" in context:
+            payload["tool_call_id"] = context["tool_call_id"]
+        if "tool_name" in context:
+            payload["tool_name"] = context["tool_name"]
+        if confirmed_by is not None:
+            payload["confirmed_by"] = confirmed_by
+        if rejection_reason is not None:
+            payload["rejection_reason"] = rejection_reason
+        if event_type == RuntimeEventType.proposal_confirmation_committed:
+            payload["created_ids"] = created_ids or []
+
+        events.append(EventAppendItem(
+            client_event_id=f"{run_id}:{proposal.id}:{event_type.value}",
+            type=event_type,
+            ordering_hint=index,
+            payload=payload,
+            trace={
+                "run_id": run_id,
+                "conversation_id": context.get("conversation_id"),
+                "workspace_id": proposal.workspace_id,
+                "project_id": proposal.project_id,
+                "proposal_id": proposal.id,
+                **({"tool_call_id": context["tool_call_id"]} if "tool_call_id" in context else {}),
+                **({"tool_name": context["tool_name"]} if "tool_name" in context else {}),
+                "redacted": True,
+            },
+        ))
+
+    service.append_events(
+        run_id,
+        AppendRequest(
+            idempotency_key=f"{run_id}:proposal:{proposal.id}:{event_types[0].value}:v1",
+            events=events,
+        ),
+    )
+
+
+def _proposal_runtime_context(session: Session, proposal: AgentProposal) -> dict[str, str] | None:
+    source_event = session.get(AgentEvent, proposal.agent_event_id)
+    if source_event is None:
+        return None
+    snapshot = source_event.get_input_snapshot()
+    if not isinstance(snapshot, dict):
+        return None
+    run_id = snapshot.get("tool_run_id") or snapshot.get("run_id")
+    if not isinstance(run_id, str) or not run_id:
+        return None
+    result = {"run_id": run_id}
+    conversation_id = snapshot.get("conversation_id")
+    if isinstance(conversation_id, str):
+        result["conversation_id"] = conversation_id
+    tool_call_id = snapshot.get("tool_call_id")
+    if isinstance(tool_call_id, str):
+        result["tool_call_id"] = tool_call_id
+    tool_name = snapshot.get("tool_name")
+    if isinstance(tool_name, str):
+        result["tool_name"] = tool_name
+    return result
 
 
 def _persist_clarification(session: Session, proposal: AgentProposal) -> list[str]:

@@ -9,7 +9,6 @@ Validates:
 - Boundary layer classification
 """
 
-import pytest
 from datetime import datetime, timezone
 
 from app.schemas.runtime import (
@@ -21,9 +20,6 @@ from app.schemas.runtime import (
     PendingToolCall,
     ProjectFlowToolResult,
     ResumePolicy,
-    RunCancelRequest,
-    RunStartRequest,
-    RuntimeConfig,
     RuntimeEvent,
     RuntimeEventState,
     SideEffect,
@@ -33,7 +29,6 @@ from app.schemas.runtime import (
     ToolLinks,
     ToolManifest,
     ToolProposalConfig,
-    ToolResultAppendItem,
     TraceEnvelope,
     TraceSpan,
 )
@@ -411,6 +406,10 @@ class TestEnumValues:
             "tool.started", "tool.completed", "tool.blocked", "tool.failed",
             "model.streaming", "state.changed",
             "proposal.created", "proposal.confirmed", "proposal.rejected",
+            "runtime.error", "agent.started", "agent.status", "agent.delta",
+            "agent.completed", "tool.progress", "advisory_record.created",
+            "proposal_confirmation.confirmed", "proposal_confirmation.rejected",
+            "proposal_confirmation.committed", "run.state_changed",
         ]
         actual = [s.value for s in RuntimeEventType]
         assert actual == expected

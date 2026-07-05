@@ -13,7 +13,7 @@ from app.models.action_card import ActionCard
 from app.models.timeline import AgentEvent
 from app.models.agent_proposal import AgentProposal
 from app.models.agent_conversation import AgentConversation, AgentMessage, AgentRun
-from app.models.agent_run_state import AgentRunV2
+from app.models.agent_run_state import AgentRunEvent, AgentRunV2
 
 __all__ = [
     "User",
@@ -38,5 +38,6 @@ __all__ = [
     "AgentConversation",
     "AgentMessage",
     "AgentRun",
+    "AgentRunEvent",
     "AgentRunV2",
 ]

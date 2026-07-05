@@ -106,6 +106,7 @@ export interface WireEventAppendItem {
   type: string;
   ordering_hint?: number;
   payload?: Record<string, unknown>;
+  trace?: Record<string, unknown>;
 }
 
 export interface WireToolResultAppendItem {

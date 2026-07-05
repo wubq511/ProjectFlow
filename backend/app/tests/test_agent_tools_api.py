@@ -435,6 +435,14 @@ class TestInternalAgentTools:
         assert proposal["agent_event_id"] == data["links"]["agent_event_id"]
         assert proposal["payload"]["requires_confirmation"] is True
 
+        with Session(test_engine) as session:
+            source_event = session.get(AgentEvent, data["links"]["agent_event_id"])
+            snapshot = source_event.get_input_snapshot()
+            assert snapshot["tool_run_id"] == envelope["run_id"]
+            assert snapshot["conversation_id"] == envelope["conversation_id"]
+            assert snapshot["tool_call_id"] == envelope["tool_call_id"]
+            assert snapshot["tool_name"] == envelope["tool_name"]
+
     def test_stage_plan_proposal_tool_reuses_same_proposal_for_idempotency_key(self, client, test_engine):
         fixture = _create_stage_plan_fixture(client)
         project = fixture["project"]

@@ -301,6 +301,7 @@ class EventAppendItem(BaseModel):
     type: RuntimeEventType
     ordering_hint: int = 0
     payload: dict[str, Any] = Field(default_factory=dict)
+    trace: dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolResultAppendItem(BaseModel):
@@ -327,6 +328,22 @@ class EventAppendResponse(BaseModel):
     client_event_id: str
     agent_event_id: str
     event_seq: int
+
+
+class RuntimeEventRead(BaseModel):
+    """Persisted runtime event returned by the internal query endpoint."""
+    id: str
+    run_id: str
+    conversation_id: str | None = None
+    workspace_id: str
+    project_id: str
+    type: RuntimeEventType
+    event_seq: int
+    client_event_id: str
+    ordering_hint: int
+    payload: dict[str, Any] = Field(default_factory=dict)
+    trace: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
 
 
 class ToolResultAppendResponse(BaseModel):

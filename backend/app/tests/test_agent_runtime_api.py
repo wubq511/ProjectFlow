@@ -9,14 +9,22 @@ Validates:
 - Event sequence assignment
 """
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import SQLModel, Session, create_engine
 from sqlalchemy.pool import StaticPool
 
 from app.main import app
+from app.models import AgentEvent, AgentProposal, Project, User, Workspace
 from app.models.agent_run_state import AgentRunV2
-from app.models.enums import AgentRunStatus, RuntimeEventType, SideEffectStatus, ToolResultStatus
+from app.models.enums import (
+    AgentEventStatus,
+    AgentEventType,
+    AgentProposalStatus,
+    AgentRunStatus,
+)
 
 
 @pytest.fixture
@@ -175,6 +183,69 @@ class TestAppendEvents:
         assert data["events"][1]["event_seq"] == 2
         assert data["events"][0]["client_event_id"] == "client_evt_001"
         assert data["events"][1]["client_event_id"] == "client_evt_002"
+
+    def test_append_persists_runtime_events_with_trace_for_query(self, client):
+        """Runtime append persists bounded event payload and trace for resume/query."""
+        create_response = client.post("/internal/agent-runs", json={
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        response = client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:agent-start:v1",
+            "events": [
+                {
+                    "client_event_id": "client_evt_agent_start",
+                    "type": "agent.started",
+                    "ordering_hint": 1,
+                    "payload": {
+                        "run_id": run_id,
+                        "conversation_id": "conv_123",
+                        "workspace_id": "ws_456",
+                        "project_id": "proj_789",
+                        "state_schema_version": 1,
+                    },
+                    "trace": {
+                        "run_id": run_id,
+                        "conversation_id": "conv_123",
+                        "workspace_id": "ws_456",
+                        "project_id": "proj_789",
+                        "provider": "mock",
+                        "model": "mock-model",
+                        "redacted": True,
+                    },
+                },
+            ],
+        })
+        assert response.status_code == 200
+        assert response.json()["events"][0]["event_seq"] == 1
+
+        events_response = client.get(f"/internal/agent-runs/{run_id}/events")
+        assert events_response.status_code == 200
+        events = events_response.json()
+        assert len(events) == 1
+        assert events[0]["run_id"] == run_id
+        assert events[0]["type"] == "agent.started"
+        assert events[0]["event_seq"] == 1
+        assert events[0]["client_event_id"] == "client_evt_agent_start"
+        assert events[0]["payload"]["project_id"] == "proj_789"
+        assert events[0]["trace"]["redacted"] is True
+
+        duplicate = client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:agent-start:v1",
+            "events": [
+                {
+                    "client_event_id": "client_evt_agent_start",
+                    "type": "agent.started",
+                    "ordering_hint": 1,
+                },
+            ],
+        })
+        assert duplicate.status_code == 200
+        assert client.get(f"/internal/agent-runs/{run_id}/events").json() == events
 
     def test_append_tool_results(self, client):
         """Test appending tool results."""
@@ -405,3 +476,121 @@ class TestSideEffectsTracking:
             assert side_effects[0]["status"] == "advisory_record_persisted"
             assert side_effects[1]["tool_call_id"] == "tc_002"
             assert side_effects[1]["status"] == "proposal_persisted"
+
+
+class TestProposalConfirmationRuntimeEvents:
+    """Proposal confirmation should emit runtime confirmation events for S10."""
+
+    def test_confirm_proposal_records_confirmed_and_committed_runtime_events(self, client, test_engine):
+        run_id, proposal_id, owner_id = _create_runtime_linked_clarify_proposal(test_engine)
+
+        response = client.post(
+            f"/api/agent-proposals/{proposal_id}/confirm",
+            json={"confirmed_by": owner_id},
+        )
+        assert response.status_code == 200
+
+        events_response = client.get(f"/internal/agent-runs/{run_id}/events")
+        assert events_response.status_code == 200
+        events = events_response.json()
+        event_types = [event["type"] for event in events]
+        assert event_types == [
+            "proposal_confirmation.confirmed",
+            "proposal_confirmation.committed",
+        ]
+        assert events[0]["payload"]["proposal_id"] == proposal_id
+        assert events[0]["payload"]["tool_call_id"] == "call_confirm"
+        assert events[0]["payload"]["tool_name"] == "generate_stage_plan_proposal"
+        assert events[0]["payload"]["confirmed_by"] == owner_id
+        assert events[1]["payload"]["proposal_id"] == proposal_id
+        assert events[1]["payload"]["created_ids"] == ["proj_confirm"]
+        assert events[1]["trace"]["tool_call_id"] == "call_confirm"
+
+    def test_reject_proposal_records_rejected_runtime_event_only(self, client, test_engine):
+        run_id, proposal_id, _owner_id = _create_runtime_linked_clarify_proposal(test_engine)
+
+        response = client.post(
+            f"/api/agent-proposals/{proposal_id}/reject",
+            json={"reason": "范围暂不确认"},
+        )
+        assert response.status_code == 200
+
+        events_response = client.get(f"/internal/agent-runs/{run_id}/events")
+        assert events_response.status_code == 200
+        events = events_response.json()
+        assert [event["type"] for event in events] == ["proposal_confirmation.rejected"]
+        assert events[0]["payload"]["proposal_id"] == proposal_id
+        assert events[0]["payload"]["tool_call_id"] == "call_confirm"
+        assert events[0]["payload"]["rejection_reason"] == "范围暂不确认"
+
+
+def _create_runtime_linked_clarify_proposal(test_engine) -> tuple[str, str, str]:
+    """Create a pending clarify proposal linked back to an AgentRunV2."""
+    with Session(test_engine) as session:
+        owner = User(id="user_confirm", display_name="Owner")
+        workspace = Workspace(id="ws_confirm", name="Workspace", owner_user_id=owner.id)
+        project = Project(
+            id="proj_confirm",
+            workspace_id=workspace.id,
+            name="Project",
+            idea="Test proposal confirmation runtime event",
+            deadline="2026-07-15",
+            deliverables="Demo",
+            created_by=owner.id,
+        )
+        run = AgentRunV2(
+            id="run_confirm",
+            conversation_id="conv_confirm",
+            workspace_id=workspace.id,
+            project_id=project.id,
+            status=AgentRunStatus.completed,
+            current_turn=1,
+            current_step=1,
+            model_provider="mock",
+            model_name="mock-model",
+            side_effects="[]",
+            last_event_seq=0,
+            resume_manifest_version=1,
+            state_version=0,
+        )
+        source_event = AgentEvent(
+            id="agent_event_confirm",
+            project_id=project.id,
+            workspace_id=workspace.id,
+            event_type=AgentEventType.clarify,
+            status=AgentEventStatus.success,
+            input_snapshot=json.dumps({
+                "tool_run_id": run.id,
+                "tool_call_id": "call_confirm",
+                "tool_name": "generate_stage_plan_proposal",
+            }, ensure_ascii=False),
+            output_snapshot="{}",
+            reasoning_summary="Generated clarify proposal",
+        )
+        proposal = AgentProposal(
+            id="proposal_confirm",
+            project_id=project.id,
+            workspace_id=workspace.id,
+            proposal_type="clarify",
+            status=AgentProposalStatus.pending,
+            agent_event_id=source_event.id,
+            payload=json.dumps({
+                "problem": "问题",
+                "users": "学生团队",
+                "value": "推进项目",
+                "deliverables": ["演示"],
+                "boundaries": [],
+                "risks": [],
+                "suggested_questions": [],
+                "requires_confirmation": True,
+                "reason": "需要确认方向",
+            }, ensure_ascii=False),
+        )
+        session.add(owner)
+        session.add(workspace)
+        session.add(project)
+        session.add(run)
+        session.add(source_event)
+        session.add(proposal)
+        session.commit()
+        return run.id, proposal.id, owner.id

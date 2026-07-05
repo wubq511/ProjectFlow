@@ -6,14 +6,30 @@
 import type { RuntimeEvent } from "@/types/runtime-event.js";
 
 export type StreamEventType =
+  | "run.started"
+  | "run.completed"
+  | "run.failed"
+  | "run.cancelled"
+  | "agent.started"
+  | "agent.status"
   | "run.status"
   | "agent.delta"
+  | "agent.completed"
+  | "model.streaming"
+  | "state.changed"
+  | "run.state_changed"
   | "tool.started"
+  | "tool.progress"
   | "tool.completed"
   | "tool.failed"
   | "tool.blocked"
   | "proposal.created"
-  | "advisory.created"
+  | "proposal.confirmed"
+  | "proposal.rejected"
+  | "proposal_confirmation.confirmed"
+  | "proposal_confirmation.rejected"
+  | "proposal_confirmation.committed"
+  | "advisory_record.created"
   | "runtime.error";
 
 export interface StreamMessage {

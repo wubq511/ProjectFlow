@@ -16,6 +16,7 @@ from app.core.database import get_session
 from app.schemas.runtime import (
     AppendRequest,
     AppendResponse,
+    RuntimeEventRead,
     RunCancelRequest,
     RunCancelResponse,
     RunStartRequest,
@@ -53,6 +54,19 @@ def get_agent_run_status(
     service = get_agent_runtime_service(session)
     result = service.get_run_status(run_id)
     if not result:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return result
+
+
+@router.get("/{run_id}/events", response_model=list[RuntimeEventRead])
+def list_agent_run_events(
+    run_id: str,
+    session: Session = Depends(get_session),
+) -> list[RuntimeEventRead]:
+    """List persisted runtime events for a run in event_seq order."""
+    service = get_agent_runtime_service(session)
+    result = service.list_run_events(run_id)
+    if result is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     return result
 

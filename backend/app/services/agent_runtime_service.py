@@ -4,24 +4,21 @@ Manages AgentRun lifecycle, event appending, and tool result persistence.
 Implements idempotency key validation and atomic event_seq assignment.
 """
 
-import json
 import uuid
 from datetime import datetime, timezone
 
 from sqlmodel import Session, select
 
-from app.models.agent_run_state import AgentRunV2
-from app.models.enums import AgentRunStatus, SideEffectStatus
+from app.models.agent_run_state import AgentRunEvent, AgentRunV2
+from app.models.enums import AgentRunStatus
 from app.schemas.runtime import (
     AppendRequest,
     AppendResponse,
-    EventAppendItem,
     EventAppendResponse,
-    ProjectFlowToolResult,
+    RuntimeEventRead,
     RunStartRequest,
     RunStartResponse,
     RunStatusResponse,
-    ToolResultAppendItem,
     ToolResultAppendResponse,
 )
 
@@ -79,6 +76,19 @@ class AgentRuntimeService:
             completed_at=run.completed_at,
         )
 
+    def list_run_events(self, run_id: str) -> list[RuntimeEventRead] | None:
+        """Return persisted runtime events in run-scoped sequence order."""
+        run = self.session.get(AgentRunV2, run_id)
+        if not run:
+            return None
+
+        events = self.session.exec(
+            select(AgentRunEvent)
+            .where(AgentRunEvent.run_id == run_id)
+            .order_by(AgentRunEvent.event_seq)
+        ).all()
+        return [self._to_event_read(event) for event in events]
+
     def append_events(
         self,
         run_id: str,
@@ -110,14 +120,23 @@ class AgentRuntimeService:
         for event_item in request.events:
             run.last_event_seq += 1
             event_seq = run.last_event_seq
-            agent_event_id = str(uuid.uuid4())
-
-            # TODO: Persist event to agent_events table when needed
-            # For now, we track the seq assignment
+            runtime_event = AgentRunEvent(
+                run_id=run.id,
+                conversation_id=run.conversation_id,
+                workspace_id=run.workspace_id,
+                project_id=run.project_id,
+                type=event_item.type,
+                event_seq=event_seq,
+                client_event_id=event_item.client_event_id,
+                ordering_hint=event_item.ordering_hint,
+            )
+            runtime_event.set_payload(event_item.payload)
+            runtime_event.set_trace(event_item.trace)
+            self.session.add(runtime_event)
 
             event_responses.append(EventAppendResponse(
                 client_event_id=event_item.client_event_id,
-                agent_event_id=agent_event_id,
+                agent_event_id=runtime_event.id,
                 event_seq=event_seq,
             ))
 
@@ -152,17 +171,14 @@ class AgentRuntimeService:
         self.session.commit()
 
         # Cache response for idempotency
-        self._cache_response(run_id, request.idempotency_key, AppendResponse(
-            state_version=run.state_version,
-            events=event_responses,
-            tool_results=tool_result_responses,
-        ))
-
-        return AppendResponse(
+        response = AppendResponse(
             state_version=run.state_version,
             events=event_responses,
             tool_results=tool_result_responses,
         )
+        self._cache_response(run_id, request.idempotency_key, response)
+
+        return response
 
     def _apply_state_patch(self, run: AgentRunV2, patch: dict) -> None:
         """Apply state patch to run with validation."""
@@ -189,15 +205,36 @@ class AgentRuntimeService:
 
     def _is_duplicate_request(self, run_id: str, idempotency_key: str) -> bool:
         """Check if this is a duplicate request using idempotency key."""
-        return idempotency_key in self._idempotency_cache
+        return self._cache_key(run_id, idempotency_key) in self._idempotency_cache
 
     def _cache_response(self, run_id: str, idempotency_key: str, response: AppendResponse) -> None:
         """Cache response for idempotency key (in-process, MVP)."""
-        self._idempotency_cache[idempotency_key] = response
+        self._idempotency_cache[self._cache_key(run_id, idempotency_key)] = response
 
     def _get_cached_response(self, run_id: str, idempotency_key: str) -> AppendResponse:
         """Get cached response for duplicate request."""
-        return self._idempotency_cache[idempotency_key]
+        return self._idempotency_cache[self._cache_key(run_id, idempotency_key)]
+
+    @staticmethod
+    def _cache_key(run_id: str, idempotency_key: str) -> str:
+        return f"{run_id}:{idempotency_key}"
+
+    @staticmethod
+    def _to_event_read(event: AgentRunEvent) -> RuntimeEventRead:
+        return RuntimeEventRead(
+            id=event.id,
+            run_id=event.run_id,
+            conversation_id=event.conversation_id,
+            workspace_id=event.workspace_id,
+            project_id=event.project_id,
+            type=event.type,
+            event_seq=event.event_seq,
+            client_event_id=event.client_event_id,
+            ordering_hint=event.ordering_hint,
+            payload=event.get_payload(),
+            trace=event.get_trace(),
+            created_at=event.created_at,
+        )
 
 
 # ─── Singleton accessor ─────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, Index, Text
 
-from app.models.enums import AgentRunStatus, SideEffectStatus
+from app.models.enums import AgentRunStatus, RuntimeEventType
 
 
 class AgentRunV2(SQLModel, table=True):
@@ -51,6 +51,49 @@ class AgentRunV2(SQLModel, table=True):
     def set_side_effects(self, value: list[dict]) -> None:
         """Serialize and store side_effects as JSON string."""
         self.side_effects = json.dumps(value, ensure_ascii=False)
+
+
+class AgentRunEvent(SQLModel, table=True):
+    """Persisted T41 runtime event.
+
+    This table is separate from the legacy AgentEvent product timeline because
+    runtime event types include tool/run/proposal lifecycle values that are not
+    legacy workflow modules.
+    """
+    __tablename__ = "agent_run_events"
+    __table_args__ = (
+        Index("ix_agent_run_events_run_seq", "run_id", "event_seq", unique=True),
+        Index("ix_agent_run_events_project_created", "project_id", "created_at"),
+    )
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    run_id: str = Field(foreign_key="agent_runs_v2.id", index=True)
+    conversation_id: str | None = Field(default=None, index=True)
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
+    project_id: str = Field(foreign_key="projects.id", index=True)
+    type: RuntimeEventType = Field(index=True)
+    event_seq: int = Field(index=True)
+    client_event_id: str = Field(index=True)
+    ordering_hint: int = Field(default=0)
+    payload: str = Field(default="{}", sa_column=Column(Text, nullable=False))
+    trace: str = Field(default="{}", sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def get_payload(self) -> dict | list:
+        """Deserialize payload from stored JSON string."""
+        return json.loads(self.payload)
+
+    def set_payload(self, value: dict | list) -> None:
+        """Serialize and store event payload."""
+        self.payload = json.dumps(value, ensure_ascii=False)
+
+    def get_trace(self) -> dict | list:
+        """Deserialize trace from stored JSON string."""
+        return json.loads(self.trace)
+
+    def set_trace(self, value: dict | list) -> None:
+        """Serialize and store event trace."""
+        self.trace = json.dumps(value, ensure_ascii=False)
 
 
 class AgentRunStatePatch(SQLModel):

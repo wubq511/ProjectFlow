@@ -72,7 +72,7 @@ Member B: S4 ──────┘
 - **触发条件**：S1+S2 merge 后，通知 Member A 开始 S3。Member B 的 S4 无依赖可同步开始。
 - **合流信号**：S1+S2+S3+S4 全部 merge 后，Member A 开始 S5。
 
-### 同步点 2：S10 (Event bridge) — 你的 S9 已完成，继续等待 S6/S7/S8
+### 同步点 2：S10 (Event bridge) — 已完成
 
 ```
 S5 ──→ S6 (B) ──┐
@@ -82,9 +82,9 @@ S5 ──→ S6 (B) ──┐
      ──→ S14 (A) ─┘
 ```
 
-- **你负责**：S9 (replan migration) 已完成（2026-07-05，commits `7e49836`、`800f578`）。S10 仍需等 S6/S7/S8 合流。
+- **你负责**：S9 (replan migration) 已完成（2026-07-05，commits `7e49836`、`800f578`）。S10 (event bridge + trace envelope) 已完成（2026-07-05）。
 - **触发条件**：S5 merge 后，三人各自开始 S6/S7/S8/S9/S13/S14 并行。你的 S9 不依赖其他工具 slices。
-- **合流信号**：S9+S6+S7+S8 全部 merge 后，你开始 S10。
+- **合流信号**：S9+S6+S7+S8 已合流，S10 已接入 runtime/tool/proposal/advisory event flow。S11 可消费 S10 runtime stream/query events。
 
 ### 你的 slices 执行顺序
 
@@ -95,7 +95,7 @@ S1 → S2 ──────────→ S9 ──→ S10 ──→ S15
 - **S1**：无 blocker，立即开始
 - **S2**：等 S1 完成
 - **S9**：已完成（不需要等 S6/S7/S8/S13/S14）
-- **S10**：等 S9+S6+S7+S8 完成
+- **S10**：已完成（2026-07-05）
 - **S15**：等 S10+S12+S13+S14 完成
 
 ## 你的 Slices（7 条）
@@ -132,11 +132,16 @@ S1 → S2 ──────────→ S9 ──→ S10 ──→ S15
 
 ### S10: Event bridge + trace envelope → #55
 
-**同步点 2。等 S6+S7+S8+S9 完成后开始。**
+**已完成（2026-07-05）。**
 
 - 完整 Pi → ProjectFlow event 映射
 - Trace envelope 串起 run/tool/proposal 关联
 - Proposal confirmation events
+- sidecar runtime lifecycle events are persisted through `POST /internal/agent-runs/{run_id}/events:append` before stream emission; stream events carry FastAPI-assigned `event_seq`
+- `proposal_persisted` and `advisory_record_persisted` tool results emit `proposal.created` / `advisory_record.created` product runtime events in the same append request as the tool result
+- backend persists runtime events in `agent_run_events` and exposes `GET /internal/agent-runs/{run_id}/events`
+- proposal confirm/reject records `proposal_confirmation.confirmed` / `proposal_confirmation.committed` / `proposal_confirmation.rejected` runtime events when the proposal source event has `tool_run_id`
+- verification: backend `324 passed`, agent-bridge `242 passed`, sidecar typecheck/build pass, changed backend files ruff pass
 
 ### S15: Unit tests + evaluation tests + privacy/resume tests → #60
 

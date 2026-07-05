@@ -516,6 +516,8 @@ def _tag_proposal_event_with_idempotency_key(
     if not isinstance(snapshot, dict):
         snapshot = {"value": snapshot}
     snapshot["tool_idempotency_key"] = request.idempotency_key
+    snapshot["tool_run_id"] = request.run_id
+    snapshot["conversation_id"] = request.conversation_id
     snapshot["tool_call_id"] = request.tool_call_id
     snapshot["tool_name"] = request.tool_name
     event.set_input_snapshot(snapshot)
@@ -824,6 +826,8 @@ def _tag_agent_event_with_tool_request(
     if not isinstance(snapshot, dict):
         snapshot = {"value": snapshot}
     snapshot["tool_idempotency_key"] = request.idempotency_key
+    snapshot["tool_run_id"] = request.run_id
+    snapshot["conversation_id"] = request.conversation_id
     snapshot["tool_call_id"] = request.tool_call_id
     snapshot["tool_name"] = request.tool_name
     snapshot["tool_dispatch_name"] = dispatch_tool_name

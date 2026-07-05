@@ -27,11 +27,21 @@ import { normalizeResult } from "@/tools/result-normalizer.js";
 import { canExecuteInParallel, evaluatePolicy } from "@/policy/policy-engine.js";
 import { BudgetManager } from "@/policy/budget.js";
 import { createToolTrace } from "@/events/trace-envelope.js";
+import {
+  buildRuntimeEvent,
+  buildRuntimeEventFromPiEvent,
+  buildRuntimeProductEvent,
+} from "@/events/event-mapper.js";
 import { getDebugPayloadStore, type DebugPayloadStore } from "@/events/debug-payload-store.js";
-import type { EventStream } from "@/events/stream.js";
-import { createEvent } from "@/types/runtime-event.js";
-import type { ToolTrace } from "@/types/tool-result.js";
-import type { WireProjectFlowToolResult } from "@/types/wire.js";
+import type { EventStream, StreamEventType } from "@/events/stream.js";
+import type { RuntimeEvent } from "@/types/runtime-event.js";
+import type { ProjectFlowToolResult, ToolTrace } from "@/types/tool-result.js";
+import { snakifyKeys } from "@/types/wire.js";
+import type {
+  WireAppendResponse,
+  WireEventAppendItem,
+  WireProjectFlowToolResult,
+} from "@/types/wire.js";
 
 // Pi imports
 import {
@@ -75,6 +85,7 @@ function toPiTool(
   registry: ToolRegistry,
   runState: AgentRunState,
   fastapiClient: FastapiClient,
+  stream: EventStream,
   budget: BudgetManager,
   traceIncludeSensitiveData: boolean,
   debugPayloadStore: DebugPayloadStore,
@@ -157,9 +168,17 @@ function toPiTool(
           },
         });
 
+        const productEvents = buildToolResultProductEvents(
+          normalized,
+          context,
+          runState,
+          traceIncludeSensitiveData,
+        );
+
         // Persist via append API
         const appendResponse = await fastapiClient.appendEvents(runState.runId, {
           idempotency_key: idempotencyKey,
+          events: productEvents.map(toWireEvent),
           tool_results: [{
             tool_call_id: toolCallId,
             tool_name: toolName,
@@ -173,7 +192,9 @@ function toPiTool(
             },
           }],
         });
+        assignPersistedEventSeqs(productEvents, appendResponse);
         updateLastEventSeq(runState, appendResponse.state_version, appendResponse.events.map((event) => event.event_seq));
+        emitPersistedEvents(stream, productEvents);
 
         runState.sideEffects.push({ toolCallId, status: normalized.sideEffectStatus });
 
@@ -194,37 +215,57 @@ function toPiTool(
 }
 
 /**
- * Map a Pi AgentEvent to a ProjectFlow event type and emit to stream.
+ * Map a Pi AgentEvent to a ProjectFlow event, persist it, then emit to stream.
  */
-function handlePiEvent(
+async function handlePiEvent(
   event: AgentEvent,
   runState: AgentRunState,
+  fastapiClient: FastapiClient,
   stream: EventStream,
   callbacks: RunCallbacks,
-): void {
+  traceIncludeSensitiveData: boolean,
+): Promise<void> {
+  applyPiEventToRunState(event, runState);
+  const pfEvent = buildRuntimeEventFromPiEvent(
+    event as Parameters<typeof buildRuntimeEventFromPiEvent>[0],
+    runState,
+    {
+      orderingHint: runState.lastEventSeq + 1,
+      includeSensitiveData: traceIncludeSensitiveData,
+    },
+  );
+  const appendResponse = await fastapiClient.appendEvents(runState.runId, {
+    idempotency_key: `${pfEvent.clientEventId}:append:v1`,
+    state_patch: buildStatePatch(runState),
+    events: [toWireEvent(pfEvent)],
+  });
+  assignPersistedEventSeqs([pfEvent], appendResponse);
+  updateLastEventSeq(runState, appendResponse.state_version, appendResponse.events.map((item) => item.event_seq));
+  stream.emit(pfEvent.type as StreamEventType, pfEvent);
+  callbacks.onEvent?.(pfEvent.type, pfEvent.payload);
+}
+
+function applyPiEventToRunState(event: AgentEvent, runState: AgentRunState): void {
   switch (event.type) {
     case "agent_start": {
       runState.status = "context_building";
-      const pfEvent = createEvent("agent.started", runState.runId, runState.status);
-      stream.emit("run.status", pfEvent);
-      callbacks.onEvent?.("agent.started", { run_id: runState.runId });
       break;
     }
     case "turn_start": {
       runState.currentTurn++;
       runState.status = "model_streaming";
       runState.updatedAt = new Date().toISOString();
-      callbacks.onEvent?.("agent.status", { run_id: runState.runId, phase: "turn_start" });
       break;
     }
+    case "message_start":
     case "message_update": {
-      const messageEvent = "assistantMessageEvent" in event
-        ? (event as Record<string, unknown>).assistantMessageEvent
-        : undefined;
-      const pfEvent = createEvent("agent.delta", runState.runId, runState.status, {
-        content: messageEvent,
-      });
-      stream.emit("agent.delta", pfEvent);
+      runState.status = "model_streaming";
+      runState.updatedAt = new Date().toISOString();
+      break;
+    }
+    case "message_end": {
+      runState.status = "model_streaming";
+      runState.updatedAt = new Date().toISOString();
       break;
     }
     case "tool_execution_start": {
@@ -236,40 +277,28 @@ function handlePiEvent(
         toolVersion: 1,
         idempotencyKey: `${runState.runId}_${event.toolCallId}`,
       };
-      const pfEvent = createEvent("tool.started", runState.runId, runState.status, {
-        tool_name: event.toolName,
-        tool_call_id: event.toolCallId,
-      });
-      stream.emit("tool.started", pfEvent);
-      callbacks.onEvent?.("tool.started", { tool_name: event.toolName, tool_call_id: event.toolCallId });
+      break;
+    }
+    case "tool_execution_update": {
+      runState.status = "tool_running";
+      runState.updatedAt = new Date().toISOString();
       break;
     }
     case "tool_execution_end": {
       runState.status = "persisting_tool_result";
       runState.pendingToolCall = undefined;
-      const pfEventType = event.isError ? "tool.failed" : "tool.completed";
-      const pfEvent = createEvent(pfEventType, runState.runId, runState.status, {
-        tool_name: event.toolName,
-        tool_call_id: event.toolCallId,
-        is_error: event.isError,
-      });
-      stream.emit(event.isError ? "tool.failed" : "tool.completed", pfEvent);
-      callbacks.onEvent?.(pfEventType, { tool_name: event.toolName });
+      runState.updatedAt = new Date().toISOString();
       break;
     }
     case "turn_end": {
       runState.status = "model_streaming";
       runState.updatedAt = new Date().toISOString();
-      callbacks.onEvent?.("agent.status", { run_id: runState.runId, phase: "turn_end" });
       break;
     }
     case "agent_end": {
       runState.status = "completed";
       runState.completedAt = new Date().toISOString();
       runState.updatedAt = new Date().toISOString();
-      const pfEvent = createEvent("agent.completed", runState.runId, runState.status);
-      stream.emit("run.status", pfEvent);
-      callbacks.onEvent?.("agent.completed", { run_id: runState.runId });
       break;
     }
   }
@@ -328,7 +357,7 @@ export async function executeRun(
     const piTools: AgentTool<any>[] = [];
     for (const name of toolNames) {
       const piTool = toPiTool(
-        name, toolRegistry, runState, fastapiClient, budget, traceIncludeSensitiveData, debugPayloadStore,
+        name, toolRegistry, runState, fastapiClient, stream, budget, traceIncludeSensitiveData, debugPayloadStore,
       );
       if (piTool) piTools.push(piTool);
     }
@@ -378,7 +407,7 @@ export async function executeRun(
     runState.updatedAt = new Date().toISOString();
 
     const piEventSink = async (event: AgentEvent) => {
-      handlePiEvent(event, runState, stream, callbacks);
+      await handlePiEvent(event, runState, fastapiClient, stream, callbacks, traceIncludeSensitiveData);
     };
 
     const promptMessage = {
@@ -419,21 +448,151 @@ export async function executeRun(
     const error = err instanceof Error ? err : new Error(String(err));
 
     if (wasCancelled) {
-      const pfEvent = createEvent("run.cancelled", runState.runId, runState.status, {
-        reason: "运行已取消",
-      });
-      stream.emit("run.status", pfEvent);
+      await persistAndEmitMappedEvent(
+        {
+          type: "run.cancelled",
+          payload: { reason: "运行已取消" },
+          newStatus: runState.status,
+        },
+        runState,
+        fastapiClient,
+        stream,
+        traceIncludeSensitiveData,
+      );
       callbacks.onComplete?.(runState);
     } else {
-      const pfEvent = createEvent("run.failed", runState.runId, runState.status, {
-        error: error.message,
-        ...(error.message.startsWith("BUDGET_EXCEEDED") ? { code: "BUDGET_EXCEEDED" } : {}),
-      });
-      stream.emit("runtime.error", pfEvent);
+      await persistAndEmitMappedEvent(
+        {
+          type: "run.failed",
+          payload: {
+            error: error.message,
+            ...(error.message.startsWith("BUDGET_EXCEEDED") ? { code: "BUDGET_EXCEEDED" } : {}),
+          },
+          newStatus: runState.status,
+        },
+        runState,
+        fastapiClient,
+        stream,
+        traceIncludeSensitiveData,
+      );
       callbacks.onError?.(error, runState);
     }
 
     return runState;
+  }
+}
+
+async function persistAndEmitMappedEvent(
+  mapped: Parameters<typeof buildRuntimeEvent>[0],
+  runState: AgentRunState,
+  fastapiClient: FastapiClient,
+  stream: EventStream,
+  traceIncludeSensitiveData: boolean,
+): Promise<RuntimeEvent> {
+  const event = buildRuntimeEvent(mapped, runState, {
+    orderingHint: runState.lastEventSeq + 1,
+    includeSensitiveData: traceIncludeSensitiveData,
+  });
+  const appendResponse = await fastapiClient.appendEvents(runState.runId, {
+    idempotency_key: `${event.clientEventId}:append:v1`,
+    state_patch: buildStatePatch(runState),
+    events: [toWireEvent(event)],
+  });
+  assignPersistedEventSeqs([event], appendResponse);
+  updateLastEventSeq(runState, appendResponse.state_version, appendResponse.events.map((item) => item.event_seq));
+  stream.emit(event.type as StreamEventType, event);
+  return event;
+}
+
+function buildStatePatch(runState: AgentRunState): Record<string, unknown> {
+  return {
+    schema_version: 1,
+    status: runState.status,
+    current_turn: runState.currentTurn,
+    current_step: runState.currentStep,
+    model_provider: runState.model.provider,
+    model_name: runState.model.name,
+    pending_tool_call_id: runState.pendingToolCall?.toolCallId ?? null,
+    pending_tool_name: runState.pendingToolCall?.toolName ?? null,
+    pending_tool_version: runState.pendingToolCall?.toolVersion ?? null,
+    pending_idempotency_key: runState.pendingToolCall?.idempotencyKey ?? null,
+  };
+}
+
+function buildToolResultProductEvents(
+  result: ProjectFlowToolResult,
+  context: ToolExecutionContext,
+  runState: AgentRunState,
+  traceIncludeSensitiveData: boolean,
+): RuntimeEvent[] {
+  const commonPayload = {
+    tool_call_id: context.toolCallId,
+    tool_name: context.toolName,
+    tool_version: context.toolVersion,
+    side_effect_status: result.sideEffectStatus,
+    ...(result.links?.agentEventId ? { agent_event_id: result.links.agentEventId } : {}),
+    ...(result.links?.createdIds ? { created_ids: result.links.createdIds } : {}),
+  };
+  const orderingHint = runState.lastEventSeq + 1;
+
+  if (result.sideEffectStatus === "proposal_persisted" && result.links?.proposalId) {
+    return [
+      buildRuntimeProductEvent(
+        "proposal.created",
+        runState,
+        {
+          ...commonPayload,
+          proposal_id: result.links.proposalId,
+        },
+        {
+          orderingHint,
+          includeSensitiveData: traceIncludeSensitiveData,
+          proposalId: result.links.proposalId,
+        },
+      ),
+    ];
+  }
+
+  if (result.sideEffectStatus === "advisory_record_persisted" && result.links?.createdIds?.length) {
+    return [
+      buildRuntimeProductEvent(
+        "advisory_record.created",
+        runState,
+        commonPayload,
+        {
+          orderingHint,
+          includeSensitiveData: traceIncludeSensitiveData,
+        },
+      ),
+    ];
+  }
+
+  return [];
+}
+
+function toWireEvent(event: RuntimeEvent): WireEventAppendItem {
+  return {
+    client_event_id: event.clientEventId ?? `${event.runId}:${event.type}:${event.orderingHint ?? 0}`,
+    type: event.type,
+    ordering_hint: event.orderingHint,
+    payload: event.payload,
+    ...(event.trace ? { trace: snakifyKeys(event.trace) as Record<string, unknown> } : {}),
+  };
+}
+
+function assignPersistedEventSeqs(events: RuntimeEvent[], response: WireAppendResponse): void {
+  const byClientId = new Map(response.events.map((event) => [event.client_event_id, event.event_seq]));
+  for (const event of events) {
+    const eventSeq = event.clientEventId ? byClientId.get(event.clientEventId) : undefined;
+    if (eventSeq !== undefined) {
+      event.eventSeq = eventSeq;
+    }
+  }
+}
+
+function emitPersistedEvents(stream: EventStream, events: RuntimeEvent[]): void {
+  for (const event of events) {
+    stream.emit(event.type as StreamEventType, event);
   }
 }
 

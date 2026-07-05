@@ -216,6 +216,17 @@ class RuntimeEventType(str, Enum):
     proposal_created = "proposal.created"
     proposal_confirmed = "proposal.confirmed"
     proposal_rejected = "proposal.rejected"
+    runtime_error = "runtime.error"
+    agent_started = "agent.started"
+    agent_status = "agent.status"
+    agent_delta = "agent.delta"
+    agent_completed = "agent.completed"
+    tool_progress = "tool.progress"
+    advisory_record_created = "advisory_record.created"
+    proposal_confirmation_confirmed = "proposal_confirmation.confirmed"
+    proposal_confirmation_rejected = "proposal_confirmation.rejected"
+    proposal_confirmation_committed = "proposal_confirmation.committed"
+    run_state_changed = "run.state_changed"
 
 
 class HumanActionType(str, Enum):

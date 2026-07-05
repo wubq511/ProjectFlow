@@ -39,6 +39,14 @@ export interface RuntimeEventState {
 export interface RuntimeEvent {
   type: RuntimeEventType;
   runId: string;
+  conversationId?: string;
+  workspaceId?: string;
+  projectId?: string;
+  toolCallId?: string;
+  toolName?: string;
+  proposalId?: string;
+  clientEventId?: string;
+  orderingHint?: number;
   eventSeq: number;
   timestamp: string;
   state: RuntimeEventState;
@@ -48,11 +56,38 @@ export interface RuntimeEvent {
 
 export interface TraceSummary {
   runId: string;
+  conversationId?: string;
+  workspaceId?: string;
+  projectId?: string;
   toolCallId?: string;
   toolName?: string;
   proposalId?: string;
+  provider?: string;
+  model?: string;
+  runState?: {
+    status: RunStatus;
+    currentStep: number;
+    stateSchemaVersion: number;
+  };
+  budget?: {
+    maxSteps: number;
+    maxToolCalls: number;
+    timeoutMs: number;
+  };
+  redacted?: boolean;
   inputHash?: string;
   outputHash?: string;
+}
+
+export interface CreateEventOptions {
+  conversationId?: string;
+  workspaceId?: string;
+  projectId?: string;
+  toolCallId?: string;
+  toolName?: string;
+  proposalId?: string;
+  clientEventId?: string;
+  orderingHint?: number;
 }
 
 /** Create a runtime event with defaults. */
@@ -62,10 +97,19 @@ export function createEvent(
   status: RunStatus,
   payload: Record<string, unknown> = {},
   trace?: TraceSummary,
+  options: CreateEventOptions = {},
 ): RuntimeEvent {
   return {
     type,
     runId,
+    ...(options.conversationId ? { conversationId: options.conversationId } : {}),
+    ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
+    ...(options.projectId ? { projectId: options.projectId } : {}),
+    ...(options.toolCallId ? { toolCallId: options.toolCallId } : {}),
+    ...(options.toolName ? { toolName: options.toolName } : {}),
+    ...(options.proposalId ? { proposalId: options.proposalId } : {}),
+    ...(options.clientEventId ? { clientEventId: options.clientEventId } : {}),
+    ...(options.orderingHint !== undefined ? { orderingHint: options.orderingHint } : {}),
     eventSeq: 0, // assigned by FastAPI append API
     timestamp: new Date().toISOString(),
     state: { status, schemaVersion: 1 },
