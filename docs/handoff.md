@@ -4,23 +4,23 @@ Status: current as of 2026-07-05.
 
 ## Latest Architecture Handoff
 
-### T41 — Agent Runtime Sidecar Implementation (2026-07-04)
+### T41 — Agent Runtime Sidecar Implementation (2026-07-04~05)
 
-T41 Agent Runtime TypeScript sidecar (`agent-bridge/`) implemented slices S3, S14, S16 on branch `feature/handoff-member-a-ts-runtime`.
+T41 Agent Runtime TypeScript sidecar (`agent-bridge/`) implemented slices S3, S5, S14, S16 on branch `feature/handoff-member-a-ts-runtime`.
 
 **What was built:**
 
 - **S3 (Sidecar Skeleton + Pi Runtime Adapter)**: HTTP server on port 4000, `executeRun()` wrapping Pi's `runAgentLoop`, `toPiTool()` conversion, `handlePiEvent()` mapping, FastAPI service-to-service client, model router (openai/openrouter/deepseek/anthropic/mock), context builder with stable prefix + dynamic suffix + escaped XML data, mock provider/tool loop, cancel signal handling, wire format adapter (snake_case ↔ camelCase). 10/10 acceptance criteria pass.
+- **S5 (Read-only Tool Registration)**: 4 read-only tools (`get_workspace_state`, `get_agent_conversation`, `list_pending_proposals`, `get_timeline_slice`) with full `ProjectFlowToolManifest` (read_only, parallel, effectType=none). `registerDefaultTools()` at server startup. `GET /tools/list` endpoint. `FastapiClient.getPublic()` with shared `fetchJson`. Backend timeline `since`/`event_types`/`limit` filters. 114 new tests (total: 193 across 11 files). 3/3 acceptance criteria pass.
 - **S14 (Skills System)**: `SkillIndex` (directory scan + YAML frontmatter), `SkillLoader` (lazy SKILL.md + bounded on-demand references), `selectSkill()` (keyword confidence scoring), 6 SKILL.md files with `allowed-tools` constraints and reference files. 7/7 acceptance criteria pass.
 - **S16 (Debug Raw Payload Mode)**: `traceIncludeSensitiveData` config (default false), `DebugPayloadStore` separate raw payload storage with retention, `hashValue()` SHA-256 utility, trace envelope with redacted/default-hash behavior, result normalizer with truncation + hash. 5/5 acceptance criteria pass.
 
 **Code review:** Two-axis review (Standards + Spec) completed. Hard violations fixed around XML escaping, skill tool filtering, provider parallel gating, manifest input schema forwarding, FastAPI tool envelope, cancel terminal state, references, and S16 debug storage. Judgement calls remain for future refactors around `skill-selector.ts` matching strategy and `pi-runtime.ts` module size.
 
-**Test results:** 79 sidecar unit tests pass, sidecar lint/typecheck/build pass, backend runtime schema/API tests pass (40 tests).
+**Test results:** 193 sidecar unit tests pass (11 files), sidecar lint/typecheck/build pass, backend runtime schema/API tests pass (40 tests).
 
 **What remains (deferred):**
-- S5: Read-only tool registration (4 tools) — not in current acceptance criteria
-- S8: Assignment proposal tool registration — not in current acceptance criteria
+- S8: Assignment proposal tool registration — blocked by S5 (now unblocked)
 - S11: Frontend integration — blocked by S10 (event bridge)
 
 **Key files:** `agent-bridge/src/runtime/pi-runtime.ts`, `agent-bridge/src/runtime/context-builder.ts`, `agent-bridge/src/events/debug-payload-store.ts`, `agent-bridge/src/server/app.ts`, `agent-bridge/src/policy/policy-engine.ts`, `agent-bridge/src/skills/skill-selector.ts`

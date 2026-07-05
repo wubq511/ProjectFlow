@@ -56,14 +56,14 @@ ProjectFlow/
 │   ├── src/
 │   │   ├── runtime/           # pi-runtime.ts, context-builder.ts, model-router.ts
 │   │   ├── server/            # HTTP server + routes
-│   │   ├── tools/             # registry.ts, fastapi-client.ts, result-normalizer.ts
+│   │   ├── tools/             # registry.ts, fastapi-client.ts, projectflow-tools.ts, register-defaults.ts, mock-tools.ts, result-normalizer.ts
 │   │   ├── policy/            # policy-engine.ts, budget.ts, boundaries
 │   │   ├── events/            # event-mapper.ts, stream.ts, trace-envelope.ts
 │   │   ├── skills/            # skill-index.ts, skill-loader.ts, skill-selector.ts
 │   │   ├── types/             # run-state.ts, tool-manifest.ts, tool-result.ts, wire.ts, runtime-event.ts
 │   │   └── utils/             # 工具函数
 │   ├── skills/                # 6 SKILL.md files
-│   └── tests/unit/            # 10 test files, 79 tests
+│   └── tests/unit/            # 11 test files, 193 tests
 ├── frontend/
 │   ├── src/
 │   │   ├── app/               # Next.js 页面路由（不写业务逻辑）
@@ -806,7 +806,7 @@ npm audit --omit=dev                # 安全审计
 | 39 | Agent UX Integration & Stage Auto-Advance | ✅ 2026-06-07 |
 | 40 | Agent Sidebar UI Polish & Planner Reliability | ✅ 2026-06-07 |
 | 41 | Security Review & Performance Optimization | ✅ 2026-06-08 |
-| T41 | Agent Runtime Architecture Docs + Sidecar (S3/S14/S16) | ✅ 2026-07-04 |
+| T41 | Agent Runtime Architecture Docs + Sidecar (S3/S5/S14/S16) | ✅ 2026-07-05 |
 
 ---
 
