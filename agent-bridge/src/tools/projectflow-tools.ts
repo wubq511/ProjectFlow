@@ -327,6 +327,55 @@ const generateReplanProposalManifest: ProjectFlowToolManifest = {
   },
 };
 
+const generateDirectionCardProposalManifest: ProjectFlowToolManifest = {
+  ...PROPOSAL_DEFAULTS,
+  name: "generate_direction_card_proposal",
+  description: "根据当前项目信息生成待确认的方向卡草案，不直接写入 Project。",
+  inputSchema: {
+    type: "object",
+    properties: {
+      project_id: { type: "string", description: "项目 ID" },
+      workspace_id: { type: "string", description: "工作区 ID（可选，默认取当前 run 的 workspace）" },
+      user_instruction: { type: "string", description: "本次方向卡的补充意图或约束（可选）" },
+    },
+    required: ["project_id"],
+  },
+  outputSchema: {
+    type: "object",
+    description: "ProjectFlowToolResult — success 时 links.proposal_id 指向 pending clarify AgentProposal",
+  },
+  backend: {
+    owner: "fastapi",
+    endpoint: "POST /internal/agent-tools/direction-card-proposal",
+    method: "POST",
+  },
+};
+
+const generateTaskBreakdownProposalManifest: ProjectFlowToolManifest = {
+  ...PROPOSAL_DEFAULTS,
+  name: "generate_task_breakdown_proposal",
+  description: "根据当前项目和阶段信息生成待确认的任务拆解草案，不直接创建 Task。",
+  inputSchema: {
+    type: "object",
+    properties: {
+      project_id: { type: "string", description: "项目 ID" },
+      workspace_id: { type: "string", description: "工作区 ID（可选，默认取当前 run 的 workspace）" },
+      stage_id: { type: "string", description: "阶段 ID（可选，指定某个阶段的拆解）" },
+      user_instruction: { type: "string", description: "本次拆解的补充意图或约束（可选）" },
+    },
+    required: ["project_id"],
+  },
+  outputSchema: {
+    type: "object",
+    description: "ProjectFlowToolResult — success 时 links.proposal_id 指向 pending breakdown AgentProposal",
+  },
+  backend: {
+    owner: "fastapi",
+    endpoint: "POST /internal/agent-tools/task-breakdown-proposal",
+    method: "POST",
+  },
+};
+
 const analyzeCheckinsAndRisksManifest: ProjectFlowToolManifest = {
   ...ADVISORY_WRITE_DEFAULTS,
   name: "analyze_checkins_and_risks",
@@ -464,12 +513,30 @@ export function createAssignmentProposalTool(fastapiClient: FastapiClient): Regi
   };
 }
 
+/** Build the draft-only direction card proposal tool. */
+export function createDirectionCardProposalTool(fastapiClient: FastapiClient): RegisteredTool {
+  return {
+    manifest: generateDirectionCardProposalManifest,
+    execute: createFastapiToolExecutor(fastapiClient, "direction-card-proposal"),
+  };
+}
+
+/** Build the draft-only task breakdown proposal tool. */
+export function createTaskBreakdownProposalTool(fastapiClient: FastapiClient): RegisteredTool {
+  return {
+    manifest: generateTaskBreakdownProposalManifest,
+    execute: createFastapiToolExecutor(fastapiClient, "task-breakdown-proposal"),
+  };
+}
+
 /** Build all draft-only proposal tools. */
 export function createProposalTools(fastapiClient: FastapiClient): RegisteredTool[] {
   return [
     createStagePlanProposalTool(fastapiClient),
     createReplanProposalTool(fastapiClient),
     createAssignmentProposalTool(fastapiClient),
+    createDirectionCardProposalTool(fastapiClient),
+    createTaskBreakdownProposalTool(fastapiClient),
   ];
 }
 

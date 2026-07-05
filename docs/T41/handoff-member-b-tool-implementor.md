@@ -319,30 +319,51 @@ S6+S7 (你) → S12 (你，等 S10)
 
 ### S13: Remaining proposal tools: direction card + task breakdown → #58
 
-**Blocked by S5 (Member A 产出)。S6+S7 完成后直接开始。**
+**已完成（2026-07-05，本地分支 `member-b/s13-direction-card-task-breakdown`）。**
 
-实现剩余的 proposal tools，复用 S6的 proposal creation模式。
+已实现剩余的 proposal tools，完全复用 S6 的 proposal creation 模式。
+
+**实现结果：**
 
 1. **Direction card proposal** — `POST /internal/agent-tools/direction-card-proposal`
-   - 复用旧 `CoordinatorAgent.generate_direction_card` 的 LLM 调用、schema validation、fallback
-   - risk_category=draft_only, effects.effect_type=proposal_create
-   - idempotency_key_required=true
+   - 复用 `CoordinatorAgent.generate_direction_card` 的 LLM 调用、schema validation、fallback
+   - 复用 `agent_flow_service._create_agent_proposal()` 创建 `proposal_type=clarify` 的 pending AgentProposal
+   - 不 commit Project
 
 2. **Task breakdown proposal** — `POST /internal/agent-tools/task-breakdown-proposal`
-   - 复用旧 `CoordinatorAgent.break_down_tasks` 的 LLM 调用、schema validation、fallback
-   - risk_category=draft_only, effects.effect_type=proposal_create
-   - idempotency_key_required=true
+   - 复用 `CoordinatorAgent.generate_task_breakdown` 的 LLM 调用、schema validation、fallback
+   - 复用 `agent_flow_service._create_agent_proposal()` 创建 `proposal_type=breakdown` 的 pending AgentProposal
+   - 不直接创建 Task
 
-3. **Idempotency** — 同一 (run_id, tool_call_id, tool_name, tool_version) 重试返回已有 proposal_id
+3. **Manifest / registry**
+   - sidecar 新增 `generate_direction_card_proposal` 和 `generate_task_breakdown_proposal`
+   - `risk_category=draft_only`、`effects.effect_type=proposal_create`
+   - `idempotency_key_required=true`、`execution.mode=sequential`
+   - 注册到 `createProposalTools()` 和 `createDefaultProjectFlowTools()`
 
-4. **Side effect status** — tool 成功时 side_effect_status=proposal_persisted, 返回 proposal_id + links.agent_event_id
+4. **Idempotency** — 同一 (run_id, tool_call_id, tool_name, tool_version) 重试返回已有 proposal_id
+
+5. **Side effect status** — tool 成功时 `side_effect_status=proposal_persisted`，返回 `proposal_id + links.agent_event_id`
+
+**关键改动文件：**
+- `backend/app/api/routes_agent_tools.py`
+- `backend/app/services/agent_tools_service.py`
+- `backend/app/tests/test_agent_tools_api.py`
+- `agent-bridge/src/tools/projectflow-tools.ts`
+- `agent-bridge/tests/unit/projectflow-tools.test.ts`
+
+**验证：**
+- `python -m pytest backend/app/tests/test_agent_tools_api.py -q`
+- `npm test -- --run tests/unit/projectflow-tools.test.ts`
+- `npm run typecheck`
+- 结果：backend `36 passed`，sidecar unit `162 passed`，typecheck 通过
 
 **验收标准：**
-- [ ] direction card proposal endpoint 实现完成
-- [ ] task breakdown proposal endpoint 实现完成
-- [ ] 创建 pending AgentProposal，不 commit
-- [ ] idempotency 测试通过
-- [ ] side_effect_status=proposal_persisted
+- [x] direction card proposal endpoint 实现完成
+- [x] task breakdown proposal endpoint 实现完成
+- [x] 创建 pending AgentProposal，不 commit
+- [x] idempotency 测试通过
+- [x] side_effect_status=proposal_persisted
 
 ## 与其他成员的接口
 

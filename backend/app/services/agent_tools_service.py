@@ -285,6 +285,114 @@ def execute_agent_tool(
             ),
         )
 
+    if tool_name == "direction-card-proposal":
+        cached_proposal = _find_proposal_for_idempotency_key(
+            session,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            proposal_type="clarify",
+            idempotency_key=request.idempotency_key,
+        )
+        if cached_proposal is not None:
+            return _proposal_tool_result(
+                proposal_id=cached_proposal.id,
+                agent_event_id=cached_proposal.agent_event_id,
+                output=_cached_proposal_tool_data(cached_proposal, event_type="clarify"),
+                request=request,
+                observation="已复用同一次工具调用生成的方向卡草案。",
+            )
+
+        try:
+            flow_result = run_agent_flow(
+                session,
+                workspace_id,
+                lambda coordinator, state, instruction: coordinator.generate_direction_card(
+                    state,
+                    user_instruction=instruction,
+                ),
+                project_id=project_id,
+                user_instruction=args.get("user_instruction") if isinstance(args.get("user_instruction"), str) else None,
+            )
+        except ValueError as exc:
+            return _failed(
+                "DIRECTION_CARD_PROPOSAL_FAILED",
+                str(exc),
+                side_effect_status=SideEffectStatus.no_side_effect,
+            )
+        if flow_result.proposal_id:
+            _tag_proposal_event_with_idempotency_key(
+                session,
+                proposal_id=flow_result.proposal_id,
+                request=request,
+            )
+            session.commit()
+        return _proposal_tool_result(
+            proposal_id=flow_result.proposal_id,
+            agent_event_id=_proposal_agent_event_id(session, flow_result.proposal_id),
+            output=flow_result.model_dump(mode="json"),
+            request=request,
+            created_ids=flow_result.created_ids,
+            observation=(
+                "已生成待确认的方向卡草案。"
+                if flow_result.proposal_id
+                else "未生成方向卡草案。"
+            ),
+        )
+
+    if tool_name == "task-breakdown-proposal":
+        cached_proposal = _find_proposal_for_idempotency_key(
+            session,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            proposal_type="breakdown",
+            idempotency_key=request.idempotency_key,
+        )
+        if cached_proposal is not None:
+            return _proposal_tool_result(
+                proposal_id=cached_proposal.id,
+                agent_event_id=cached_proposal.agent_event_id,
+                output=_cached_proposal_tool_data(cached_proposal, event_type="breakdown"),
+                request=request,
+                observation="已复用同一次工具调用生成的任务拆解草案。",
+            )
+
+        try:
+            flow_result = run_agent_flow(
+                session,
+                workspace_id,
+                lambda coordinator, state, instruction: coordinator.generate_task_breakdown(
+                    state,
+                    user_instruction=instruction,
+                ),
+                project_id=project_id,
+                user_instruction=args.get("user_instruction") if isinstance(args.get("user_instruction"), str) else None,
+            )
+        except ValueError as exc:
+            return _failed(
+                "TASK_BREAKDOWN_PROPOSAL_FAILED",
+                str(exc),
+                side_effect_status=SideEffectStatus.no_side_effect,
+            )
+        if flow_result.proposal_id:
+            _tag_proposal_event_with_idempotency_key(
+                session,
+                proposal_id=flow_result.proposal_id,
+                request=request,
+            )
+            session.commit()
+        return _proposal_tool_result(
+            proposal_id=flow_result.proposal_id,
+            agent_event_id=_proposal_agent_event_id(session, flow_result.proposal_id),
+            output=flow_result.model_dump(mode="json"),
+            request=request,
+            created_ids=flow_result.created_ids,
+            observation=(
+                "已生成待确认的任务拆解草案。"
+                if flow_result.proposal_id
+                else "未生成任务拆解草案。"
+            ),
+        )
+
     if tool_name == "assignment-recommendation":
         cached_event = _find_cached_assignment_event(
             session,

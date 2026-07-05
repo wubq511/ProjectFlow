@@ -633,6 +633,160 @@ class TestPublicProposalStatusFilter:
         assert len(resp.json()) == 2
 
 
+# ─── S13: Direction Card Proposal Tool ────────────────────────────────────
+
+
+class TestDirectionCardProposalTool:
+    """S13: direction-card-proposal tool via POST /internal/agent-tools/direction-card-proposal."""
+
+    def test_creates_pending_clarify_proposal_without_mutating_project(self, client, test_engine):
+        fixture = _create_stage_plan_fixture(client)
+        project = fixture["project"]
+        workspace = fixture["workspace"]
+
+        envelope = {
+            **_envelope(
+                "generate_direction_card_proposal",
+                {
+                    "project_id": project["id"],
+                    "workspace_id": workspace["id"],
+                    "user_instruction": "请基于项目idea生成方向卡。",
+                },
+            ),
+            "workspace_id": workspace["id"],
+            "project_id": project["id"],
+            "idempotency_key": "run_direction_card:call_dc:v1",
+        }
+        resp = client.post("/internal/agent-tools/direction-card-proposal", json=envelope)
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["side_effect_status"] == "proposal_persisted"
+        assert data["links"]["proposal_id"] is not None
+        assert data["links"]["agent_event_id"] is not None
+        assert data["idempotency_key"] == "run_direction_card:call_dc:v1"
+
+        proposal_resp = client.get(f"/api/agent-proposals/{data['links']['proposal_id']}")
+        assert proposal_resp.status_code == 200, proposal_resp.text
+        proposal = proposal_resp.json()
+        assert proposal["proposal_type"] == "clarify"
+        assert proposal["status"] == "pending"
+        assert proposal["payload"]["requires_confirmation"] is True
+
+    def test_reuses_same_proposal_for_idempotency_key(self, client, test_engine):
+        fixture = _create_stage_plan_fixture(client)
+        project = fixture["project"]
+        workspace = fixture["workspace"]
+        envelope = {
+            **_envelope(
+                "generate_direction_card_proposal",
+                {
+                    "project_id": project["id"],
+                    "workspace_id": workspace["id"],
+                    "user_instruction": "生成方向卡草案。",
+                },
+            ),
+            "workspace_id": workspace["id"],
+            "project_id": project["id"],
+            "idempotency_key": "run_direction_card:call_dc:v1",
+        }
+
+        first = client.post("/internal/agent-tools/direction-card-proposal", json=envelope)
+        second = client.post("/internal/agent-tools/direction-card-proposal", json=envelope)
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        first_data = first.json()
+        second_data = second.json()
+        assert first_data["links"]["proposal_id"] == second_data["links"]["proposal_id"]
+        assert first_data["links"]["agent_event_id"] == second_data["links"]["agent_event_id"]
+
+        proposals_resp = client.get(
+            "/api/agent-proposals",
+            params={"project_id": project["id"], "proposal_type": "clarify"},
+        )
+        assert proposals_resp.status_code == 200, proposals_resp.text
+        assert [p["id"] for p in proposals_resp.json()] == [first_data["links"]["proposal_id"]]
+
+
+# ─── S13: Task Breakdown Proposal Tool ────────────────────────────────────
+
+
+class TestTaskBreakdownProposalTool:
+    """S13: task-breakdown-proposal tool via POST /internal/agent-tools/task-breakdown-proposal."""
+
+    def test_creates_pending_breakdown_proposal_without_creating_tasks(self, client, test_engine):
+        fixture = _create_stage_plan_fixture(client)
+        project = fixture["project"]
+        workspace = fixture["workspace"]
+
+        envelope = {
+            **_envelope(
+                "generate_task_breakdown_proposal",
+                {
+                    "project_id": project["id"],
+                    "workspace_id": workspace["id"],
+                    "user_instruction": "将项目需求拆解为具体任务。",
+                },
+            ),
+            "workspace_id": workspace["id"],
+            "project_id": project["id"],
+            "idempotency_key": "run_task_breakdown:call_tb:v1",
+        }
+        resp = client.post("/internal/agent-tools/task-breakdown-proposal", json=envelope)
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["side_effect_status"] == "proposal_persisted"
+        assert data["links"]["proposal_id"] is not None
+        assert data["links"]["agent_event_id"] is not None
+        assert data["idempotency_key"] == "run_task_breakdown:call_tb:v1"
+
+        proposal_resp = client.get(f"/api/agent-proposals/{data['links']['proposal_id']}")
+        assert proposal_resp.status_code == 200, proposal_resp.text
+        proposal = proposal_resp.json()
+        assert proposal["proposal_type"] == "breakdown"
+        assert proposal["status"] == "pending"
+        assert proposal["payload"]["requires_confirmation"] is True
+
+    def test_reuses_same_proposal_for_idempotency_key(self, client, test_engine):
+        fixture = _create_stage_plan_fixture(client)
+        project = fixture["project"]
+        workspace = fixture["workspace"]
+        envelope = {
+            **_envelope(
+                "generate_task_breakdown_proposal",
+                {
+                    "project_id": project["id"],
+                    "workspace_id": workspace["id"],
+                    "user_instruction": "拆解任务草案。",
+                },
+            ),
+            "workspace_id": workspace["id"],
+            "project_id": project["id"],
+            "idempotency_key": "run_task_breakdown:call_tb:v1",
+        }
+
+        first = client.post("/internal/agent-tools/task-breakdown-proposal", json=envelope)
+        second = client.post("/internal/agent-tools/task-breakdown-proposal", json=envelope)
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        first_data = first.json()
+        second_data = second.json()
+        assert first_data["links"]["proposal_id"] == second_data["links"]["proposal_id"]
+        assert first_data["links"]["agent_event_id"] == second_data["links"]["agent_event_id"]
+
+        proposals_resp = client.get(
+            "/api/agent-proposals",
+            params={"project_id": project["id"], "proposal_type": "breakdown"},
+        )
+        assert proposals_resp.status_code == 200, proposals_resp.text
+        assert [p["id"] for p in proposals_resp.json()] == [first_data["links"]["proposal_id"]]
+
+
 # ─── S8: Assignment Recommendation Tool ──────────────────────────────────
 
 

@@ -122,7 +122,48 @@ Coordination status:
 
 - S6 and S7 are complete on Member B branch.
 - S10 event bridge is complete; S11 can consume runtime stream/query events.
-- S13 is unblocked for Member B and can start next.
+- S13 is complete on Member B branch.
+
+### T41 — S13 Direction Card + Task Breakdown Proposal Tools (2026-07-05)
+
+S13 for Member B is implemented on branch `member-b/s13-direction-card-task-breakdown` and verified locally.
+
+Files changed:
+
+- `backend/app/api/routes_agent_tools.py`
+- `backend/app/services/agent_tools_service.py`
+- `backend/app/tests/test_agent_tools_api.py`
+- `agent-bridge/src/tools/projectflow-tools.ts`
+- `agent-bridge/tests/unit/projectflow-tools.test.ts`
+- `docs/T41/handoff-member-b-tool-implementor.md`
+
+Key results:
+
+- Two new proposal tools added, fully reusing the S6 proposal creation pattern.
+- `POST /internal/agent-tools/direction-card-proposal` reuses `CoordinatorAgent.generate_direction_card`, creates pending `clarify` `AgentProposal` without mutating `Project`.
+- `POST /internal/agent-tools/task-breakdown-proposal` reuses `CoordinatorAgent.generate_task_breakdown`, creates pending `breakdown` `AgentProposal` without creating `Task` records.
+- Both tools return `side_effect_status=proposal_persisted` with `links.proposal_id` and `links.agent_event_id`.
+- Idempotency: repeated calls with the same key reuse the existing proposal.
+- Sidecar manifests registered as `generate_direction_card_proposal` and `generate_task_breakdown_proposal`, both `draft_only` / `proposal_create` / `sequential`.
+
+Verification:
+
+- `cd backend`
+- `python -m pytest app/tests/test_agent_tools_api.py -q`
+- `cd ../agent-bridge`
+- `npm test -- --run tests/unit/projectflow-tools.test.ts`
+- `npm run typecheck`
+
+Results:
+
+- backend: `36 passed`
+- sidecar unit: `162 passed`
+- typecheck: passed
+
+Coordination status:
+
+- All Member B proposal tools (S6, S7, S13) are complete.
+- Remaining Member B work: S12 (Legacy Coordinator parity + cutover), unblocked with S10 complete.
 
 ## Completed
 

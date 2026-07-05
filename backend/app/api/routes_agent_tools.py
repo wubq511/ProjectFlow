@@ -32,6 +32,8 @@ AGENT_TOOLS = {
     "checkins-and-risks-analysis",
     "replan-proposal",
     "assignment-recommendation",
+    "direction-card-proposal",
+    "task-breakdown-proposal",
 }
 
 

@@ -47,6 +47,8 @@ const DEFAULT_TOOL_NAMES = [
   "analyze_checkins_and_risks",
   "generate_replan_proposal",
   "recommend_assignment",
+  "generate_direction_card_proposal",
+  "generate_task_breakdown_proposal",
 ];
 
 // Map manifest tool name → internal endpoint tool name (POST /internal/agent-tools/{name})
@@ -59,6 +61,8 @@ const INTERNAL_TOOL_NAME: Record<string, string> = {
   analyze_checkins_and_risks: "checkins-and-risks-analysis",
   generate_replan_proposal: "replan-proposal",
   recommend_assignment: "assignment-recommendation",
+  generate_direction_card_proposal: "direction-card-proposal",
+  generate_task_breakdown_proposal: "task-breakdown-proposal",
 };
 
 const INTERNAL_ENDPOINT: Record<string, string> = {
@@ -70,6 +74,8 @@ const INTERNAL_ENDPOINT: Record<string, string> = {
   analyze_checkins_and_risks: "POST /internal/agent-tools/checkins-and-risks-analysis",
   generate_replan_proposal: "POST /internal/agent-tools/replan-proposal",
   recommend_assignment: "POST /internal/agent-tools/assignment-recommendation",
+  generate_direction_card_proposal: "POST /internal/agent-tools/direction-card-proposal",
+  generate_task_breakdown_proposal: "POST /internal/agent-tools/task-breakdown-proposal",
 };
 
 function makeContext(overrides: Partial<ToolExecutionContext> = {}): ToolExecutionContext {
@@ -261,8 +267,10 @@ describe("projectflow-tools", () => {
       const tools = createProposalTools(createStubFastapiClient());
       const names = tools.map((tool) => tool.manifest.name).sort();
       expect(names).toEqual([
+        "generate_direction_card_proposal",
         "generate_replan_proposal",
         "generate_stage_plan_proposal",
+        "generate_task_breakdown_proposal",
         "recommend_assignment",
       ]);
     });
@@ -501,7 +509,7 @@ describe("projectflow-tools", () => {
       const registry = new ToolRegistry();
       const client = createStubFastapiClient();
       registerDefaultTools(registry, client);
-      expect(registry.size).toBe(8);
+      expect(registry.size).toBe(10);
       for (const name of DEFAULT_TOOL_NAMES) {
         expect(registry.has(name)).toBe(true);
       }
@@ -511,14 +519,14 @@ describe("projectflow-tools", () => {
       const registry = new ToolRegistry();
       registerDefaultTools(registry, createStubFastapiClient());
       const manifests = registry.getModelCallableManifests();
-      expect(manifests.length).toBe(8);
+      expect(manifests.length).toBe(10);
     });
 
     it("getManifests returns all default manifests", () => {
       const registry = new ToolRegistry();
       registerDefaultTools(registry, createStubFastapiClient());
       const manifests = registry.getManifests();
-      expect(manifests.length).toBe(8);
+      expect(manifests.length).toBe(10);
       const names = manifests.map((m: ProjectFlowToolManifest) => m.name).sort();
       expect(names).toEqual([...DEFAULT_TOOL_NAMES].sort());
     });
@@ -692,6 +700,90 @@ describe("projectflow-tools", () => {
         task_id: "t1",
         recommended_owner_user_id: "u1",
         reason: "技能匹配",
+      });
+    });
+
+    it("registers generate_direction_card_proposal as a draft-only proposal tool", () => {
+      const registry = new ToolRegistry();
+      registerDefaultTools(registry, createStubFastapiClient());
+      const tool = registry.get("generate_direction_card_proposal");
+      expect(tool).toBeDefined();
+
+      const manifest = tool!.manifest;
+      expect(manifest.riskCategory).toBe("draft_only");
+      expect(manifest.annotations.readOnly).toBe(false);
+      expect(manifest.annotations.destructive).toBe(false);
+      expect(manifest.annotations.idempotent).toBe(true);
+      expect(manifest.execution.mode).toBe("sequential");
+      expect(manifest.execution.concurrencyGroup).toBe("project_proposal_write");
+      expect(manifest.execution.providerParallelToolCallsAllowed).toBe(false);
+      expect(manifest.effects.effectType).toBe("proposal_create");
+      expect(manifest.effects.idempotencyKeyRequired).toBe(true);
+      expect(manifest.backend.endpoint).toBe("POST /internal/agent-tools/direction-card-proposal");
+      expect(manifest.proposalConfirmation?.createsProposal).toBe(true);
+      expect(manifest.proposalConfirmation?.requiredBeforeCommit).toBe(true);
+    });
+
+    it("generate_direction_card_proposal executor calls POST /internal/agent-tools/direction-card-proposal", async () => {
+      const client = createStubFastapiClient();
+      const registry = new ToolRegistry();
+      registerDefaultTools(registry, client);
+      const tool = registry.get("generate_direction_card_proposal")!;
+
+      await tool.execute(
+        { project_id: "p1", workspace_id: "ws1", user_instruction: "基于项目idea生成方向卡。" },
+        makeContext({ toolName: "generate_direction_card_proposal" }),
+      );
+
+      expect(client.calls.length).toBe(1);
+      expect(client.calls[0]!.toolName).toBe("direction-card-proposal");
+      expect(client.calls[0]!.payload.tool_name).toBe("generate_direction_card_proposal");
+      expect(client.calls[0]!.payload.arguments).toEqual({
+        project_id: "p1",
+        workspace_id: "ws1",
+        user_instruction: "基于项目idea生成方向卡。",
+      });
+    });
+
+    it("registers generate_task_breakdown_proposal as a draft-only proposal tool", () => {
+      const registry = new ToolRegistry();
+      registerDefaultTools(registry, createStubFastapiClient());
+      const tool = registry.get("generate_task_breakdown_proposal");
+      expect(tool).toBeDefined();
+
+      const manifest = tool!.manifest;
+      expect(manifest.riskCategory).toBe("draft_only");
+      expect(manifest.annotations.readOnly).toBe(false);
+      expect(manifest.annotations.destructive).toBe(false);
+      expect(manifest.annotations.idempotent).toBe(true);
+      expect(manifest.execution.mode).toBe("sequential");
+      expect(manifest.execution.concurrencyGroup).toBe("project_proposal_write");
+      expect(manifest.execution.providerParallelToolCallsAllowed).toBe(false);
+      expect(manifest.effects.effectType).toBe("proposal_create");
+      expect(manifest.effects.idempotencyKeyRequired).toBe(true);
+      expect(manifest.backend.endpoint).toBe("POST /internal/agent-tools/task-breakdown-proposal");
+      expect(manifest.proposalConfirmation?.createsProposal).toBe(true);
+      expect(manifest.proposalConfirmation?.requiredBeforeCommit).toBe(true);
+    });
+
+    it("generate_task_breakdown_proposal executor calls POST /internal/agent-tools/task-breakdown-proposal", async () => {
+      const client = createStubFastapiClient();
+      const registry = new ToolRegistry();
+      registerDefaultTools(registry, client);
+      const tool = registry.get("generate_task_breakdown_proposal")!;
+
+      await tool.execute(
+        { project_id: "p1", workspace_id: "ws1", user_instruction: "拆解项目需求为具体任务。" },
+        makeContext({ toolName: "generate_task_breakdown_proposal" }),
+      );
+
+      expect(client.calls.length).toBe(1);
+      expect(client.calls[0]!.toolName).toBe("task-breakdown-proposal");
+      expect(client.calls[0]!.payload.tool_name).toBe("generate_task_breakdown_proposal");
+      expect(client.calls[0]!.payload.arguments).toEqual({
+        project_id: "p1",
+        workspace_id: "ws1",
+        user_instruction: "拆解项目需求为具体任务。",
       });
     });
   });
