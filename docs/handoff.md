@@ -588,7 +588,7 @@ Implemented scope:
 
 ## Verification Baseline
 
-Latest verification baseline after Phase 29:
+Latest verification baseline after Phase 41:
 
 ```bash
 cd backend
@@ -605,7 +605,7 @@ cd frontend
 
 Results:
 
-- Backend: 224 tests passed (MVP suite + usability pass + LLM diagnostics + agent proposal confirmation + agent workflow + seed/reset/export + agent module tests + proposal confirm tests + time/resource prompt context + negotiate timeline-only regression + task ordering + stage auto-advance).
+- Backend: 244 tests passed.
 - Frontend tests: 26 passed across 9 files (API layer, project dashboard, home page, app shell, action card, task status update, error boundaries, assignment flow panel, agent proposal status badge).
 - Frontend lint passed.
 - Frontend build passed.

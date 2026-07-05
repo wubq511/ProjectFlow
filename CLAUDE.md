@@ -57,9 +57,10 @@ projectflow/
 │   │   ├── policy/          # policy-engine.ts, budget.ts, proposal-boundary.ts, advisory-boundary.ts
 │   │   ├── events/          # event-mapper.ts, stream.ts, trace-envelope.ts
 │   │   ├── skills/          # skill-index.ts, skill-loader.ts, skill-selector.ts
-│   │   └── types/           # run-state.ts, tool-manifest.ts, tool-result.ts, wire.ts, runtime-event.ts
+│   │   ├── types/           # run-state.ts, tool-manifest.ts, tool-result.ts, wire.ts, runtime-event.ts
+│   │   └── utils/           # 工具函数
 │   ├── skills/              # 6 SKILL.md files (project-intake/planning/task-breakdown/assignment/risk-replan/status)
-│   └── tests/unit/          # 7 test files, 68 tests
+│   └── tests/unit/          # 10 test files, 79 tests
 ├── frontend/
 │   ├── src/
 │   │   ├── app/             # Next.js 页面路由（不写业务逻辑）

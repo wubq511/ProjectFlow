@@ -60,9 +60,10 @@ ProjectFlow/
 │   │   ├── policy/            # policy-engine.ts, budget.ts, boundaries
 │   │   ├── events/            # event-mapper.ts, stream.ts, trace-envelope.ts
 │   │   ├── skills/            # skill-index.ts, skill-loader.ts, skill-selector.ts
-│   │   └── types/             # run-state.ts, tool-manifest.ts, wire.ts
+│   │   ├── types/             # run-state.ts, tool-manifest.ts, tool-result.ts, wire.ts, runtime-event.ts
+│   │   └── utils/             # 工具函数
 │   ├── skills/                # 6 SKILL.md files
-│   └── tests/unit/            # 7 test files, 68 tests
+│   └── tests/unit/            # 10 test files, 79 tests
 ├── frontend/
 │   ├── src/
 │   │   ├── app/               # Next.js 页面路由（不写业务逻辑）
@@ -306,7 +307,7 @@ generate_structured_output()
 
 - `LLMClient`（Protocol 接口）
 - `MockLLMClient` — mock 实现，返回预设 JSON
-- `OpenAICompatibleLLMClient` — 用 urllib 直接调 HTTP，兼容 OpenAI API 格式
+- `OpenAICompatibleLLMClient` — 用 httpx（连接池复用）调 HTTP，兼容 OpenAI API 格式
 - 异常层级：`LLMError` > `LLMConfigurationError` / `LLMAuthError` / `LLMTimeoutError` / `LLMConnectionError` / `LLMResponseError`
 - 工厂函数：`build_llm_client()`（诊断用 30s 超时）、`build_agent_llm_client()`（Agent 用 120s 超时）
 
@@ -703,7 +704,7 @@ Base URL: `http://localhost:8000/api`
 
 ### 验证基线（Phase 39 基线）
 
-- 后端 pytest：224 passing（1 项预先存在的 planning fallback 断言失败，与本次无关）
+- 后端 pytest：244 passing
 - 前端：26 tests passing, lint passing, build passing
 
 ---
@@ -803,6 +804,9 @@ npm audit --omit=dev                # 安全审计
 | 37 | Workspace Creation UX & Landing Page Redesign | ✅ 2026-06-06 |
 | 38 | My Tasks View Enhancements | ✅ 2026-06-06 |
 | 39 | Agent UX Integration & Stage Auto-Advance | ✅ 2026-06-07 |
+| 40 | Agent Sidebar UI Polish & Planner Reliability | ✅ 2026-06-07 |
+| 41 | Security Review & Performance Optimization | ✅ 2026-06-08 |
+| T41 | Agent Runtime Architecture Docs + Sidecar (S3/S14/S16) | ✅ 2026-07-04 |
 
 ---
 
@@ -815,7 +819,7 @@ npm audit --omit=dev                # 安全审计
 | AgentProposal 确认机制 | 高影响 AI 输出（方向卡/阶段/任务/重规划）必须人工确认后才持久化 |
 | LLM Provider Adapter | 便于切换 Deepseek/华为云/国产模型 |
 | 前端无全局状态库 | MVP 规模不需要，React state + localStorage 足够 |
-| urllib 直接调 HTTP | 避免引入 openai SDK 的依赖链，保持轻量 |
+| httpx 连接池复用 | 避免引入 openai SDK 的依赖链，保持轻量，连接池复用提升性能 |
 | Prompt XML 标签隔离 | 防止用户数据中的指令注入 |
 | Fallback 模板化 | Agent 输出失败时仍能给出可用建议，不会完全卡住 |
 | CORS 严格限制 | 只允许 localhost:3000/3001，不开放通配 |
