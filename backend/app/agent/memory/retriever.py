@@ -50,6 +50,7 @@ class MemoryRetriever:
     def __init__(self, connection):
         self.connection = connection
         self._fts_available = self._ensure_table()
+        self._vector_retriever = None  # lazy singleton
 
     def _ensure_table(self) -> bool:
         """Create the FTS5 virtual table if it does not exist.
@@ -121,10 +122,19 @@ class MemoryRetriever:
         # ── Optional vector path ──
         if prefer_vector and query.strip():
             try:
-                from app.agent.memory.vector_retriever import VectorBackendError, VectorRetriever, VectorConfig
+                from app.agent.memory.vector_retriever import VectorBackendError, VectorRetriever
 
-                vr = VectorRetriever(self.connection)
-                candidates, _ = vr.search(project_id, query, limit=limit)
+                # Reuse VectorRetriever instance so model is loaded once and cached
+                if self._vector_retriever is None:
+                    from app.agent.memory.vector_retriever import VectorConfig
+                    from app.core.config import settings
+
+                    vec_config = VectorConfig(
+                        model_name=settings.memory_vector_model,
+                        model_dir=settings.memory_vector_model_dir,
+                    )
+                    self._vector_retriever = VectorRetriever(self.connection, config=vec_config)
+                candidates, _ = self._vector_retriever.search(project_id, query, limit=limit)
                 if candidates:
                     return candidates, MemoryBackend.vector
             except VectorBackendError as exc:
@@ -203,7 +213,7 @@ def retrieve_memory_ids(
     viewer_user_id: str,
     *,
     limit: int = 50,
-    prefer_vector: bool = False,
+    prefer_vector: bool | None = None,
 ) -> RetrievalResult:
     """Retrieve candidate memory IDs for a viewer.
 
@@ -214,10 +224,19 @@ def retrieve_memory_ids(
        visibility.
     4. Return candidate IDs and metadata.
 
+    When prefer_vector is None (default), reads MEMORY_VECTOR_ENABLED from
+    settings. Pass True/False to override explicitly.
+
     This function does NOT format prompt text or apply token budgets; use
     build_memory_context for that.
     """
     start = time.perf_counter()
+
+    # Resolve prefer_vector from settings when not explicitly set
+    if prefer_vector is None:
+        from app.core.config import settings
+
+        prefer_vector = settings.memory_vector_enabled
 
     # Validate viewer and load workspace members (reuses memory_service logic)
     from app.services.memory_service import can_view_memory, get_workspace_member_ids, validate_viewer

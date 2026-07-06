@@ -55,14 +55,26 @@ def run_warmup(
         from app.agent.memory.vector_retriever import VectorRetriever, VectorConfig
 
         config = VectorConfig(model_name=model_name, model_dir=model_dir)
-        # Use a dummy connection just to trigger model loading
-        # We don't need an actual DB connection for warmup — only the model
-        from sentence_transformers import SentenceTransformer
 
-        model_path = Path(model_dir)
-        model_path.mkdir(parents=True, exist_ok=True)
-        model = SentenceTransformer(model_name, cache_folder=str(model_path))
-        dim = model.get_sentence_embedding_dimension()
+        # Delegate model loading to VectorRetriever — single source of truth
+        # Use a dummy connection; we only need the model, not the sqlite-vec extension
+        import sqlite3
+
+        conn = sqlite3.connect(":memory:")
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import StaticPool
+        from sqlmodel import Session
+
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        with Session(engine) as session:
+            vr = VectorRetriever(session.connection(), config=config)
+            # Trigger lazy model load by calling embed on a dummy string
+            embedding = vr.embed("预热")
+            dim = len(embedding)
 
         print(
             f"向量模型预热成功: {model_name} "

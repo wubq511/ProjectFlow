@@ -124,14 +124,16 @@ def test_warmup_succeeds_with_vector_extra():
 
 def test_warmup_cli_exits_0_with_vector_extra():
     """python -m app.memory.warmup exits 0 when extra is installed."""
+    import os
     import subprocess
     import sys
 
+    backend_dir = os.path.join(os.path.dirname(__file__), "..", "..")
     result = subprocess.run(
         [sys.executable, "-m", "app.memory.warmup"],
         capture_output=True,
         text=True,
-        cwd="backend",
+        cwd=os.path.abspath(backend_dir),
         timeout=120,  # model download may take time
     )
     assert result.returncode == 0

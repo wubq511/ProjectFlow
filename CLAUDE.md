@@ -82,8 +82,8 @@ projectflow/
 │   │   ├── schemas/         # API / Agent schema（所有接口必须走 schema）
 │   │   ├── api/             # HTTP route（只处理请求/响应，不写业务逻辑）
 │   │   ├── services/        # 确定性业务逻辑（落库、状态迁移、校验）
-│   │   ├── memory_service.py  # T42 ProjectMemory: extract_from_event, visibility, Markdown export, retrieval entry point
-│   ├── memory/              # T42 ProjectMemory warmup: python -m app.memory.warmup
+│   │   │   ├── memory/              # T42 ProjectMemory warmup: python -m app.memory.warmup
+│   ├── memory_service.py  # T42 ProjectMemory: extract_from_event, visibility, Markdown export, retrieval entry point
 │   │   ├── agent/           # Agent 编排和 LLM 调用
 │   │   │   ├── coordinator.py
 │   │   │   ├── workflow.py
