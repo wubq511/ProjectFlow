@@ -61,11 +61,17 @@ class AgentRuntimeService:
         # Validate viewer identity (required, project must exist and viewer must be member)
         if not request.viewer_user_id or not request.viewer_user_id.strip():
             raise ValueError("viewer_user_id 不能为空")
-        validate_viewer(
+        project, _ = validate_viewer(
             self.session,
             project_id=request.project_id,
             viewer_user_id=request.viewer_user_id,
         )
+
+        # Verify workspace/project consistency
+        if project.workspace_id != request.workspace_id:
+            raise ValueError(
+                f"项目 {request.project_id} 不属于工作区 {request.workspace_id}"
+            )
 
         run = AgentRunV2(
             id=str(uuid.uuid4()),

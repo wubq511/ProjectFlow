@@ -73,6 +73,7 @@ def build_memory_context(
     - Loads visible candidate memories from retrieval
     - Formats each memory as numbered Chinese text
     - Truncates by token budget (character heuristic) and hard count limit
+    - Header/footer wrapping text is counted against the budget
     - Returns metadata needed for AgentEvent output_snapshot
     """
     retrieval = retrieve_memory_ids(
@@ -83,9 +84,14 @@ def build_memory_context(
         limit=max(50, max_memories * 2),
     )
 
+    # Reserve budget for header/footer wrapping text
+    _HEADER = "以下是与当前项目相关的历史记忆，供你参考：\n"
+    _FOOTER = "\n请以上述记忆为依据，避免与团队已确认的方向、边界或分工冲突。"
+    wrap_chars = len(_HEADER) + len(_FOOTER)
+
     used_memory_ids: list[str] = []
     lines: list[str] = []
-    char_budget = int(token_budget * _CHARACTERS_PER_TOKEN)
+    char_budget = int(token_budget * _CHARACTERS_PER_TOKEN) - wrap_chars
     char_count = 0
 
     for memory_id in retrieval.memory_ids:
@@ -96,18 +102,14 @@ def build_memory_context(
             continue
         line = _format_memory(len(used_memory_ids) + 1, memory)
         line_chars = len(line)
-        if lines and char_count + line_chars > char_budget:
+        if char_count + line_chars > char_budget:
             break
         lines.append(line)
         used_memory_ids.append(memory_id)
         char_count += line_chars
 
     if lines:
-        text = (
-            "以下是与当前项目相关的历史记忆，供你参考：\n"
-            + "\n".join(lines)
-            + "\n请以上述记忆为依据，避免与团队已确认的方向、边界或分工冲突。"
-        )
+        text = _HEADER + "\n".join(lines) + _FOOTER
     else:
         text = ""
 

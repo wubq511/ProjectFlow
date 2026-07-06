@@ -416,12 +416,14 @@ def test_agent_event_records_memory_metadata(session: Session, client: TestClien
     ).first()
     assert event is not None
     output = event.get_output_snapshot()
-    assert "memory_used" in output
-    assert "memory_backend" in output
-    assert "used_memory_ids" in output
-    assert "memory_retrieval_count" in output
-    assert "memory_injected_count" in output
-    assert "memory_latency_ms" in output
+    assert "_memory" in output
+    memory_meta = output["_memory"]
+    assert "used" in memory_meta
+    assert "backend" in memory_meta
+    assert "used_memory_ids" in memory_meta
+    assert "retrieval_count" in memory_meta
+    assert "injected_count" in memory_meta
+    assert "latency_ms" in memory_meta
 
 
 # ─── AgentRunState.side_effects tests ────────────────────────────────────────

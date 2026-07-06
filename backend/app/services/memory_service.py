@@ -14,6 +14,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy import text
 from sqlmodel import Session, select
 
 from app.agent.memory.extractor import (
@@ -286,11 +287,22 @@ def _write_candidates(
 def _supersede_memory(
     session: Session, old_memory: ProjectMemory, new_memory_id: str
 ) -> None:
-    """标记旧记忆为 superseded。"""
+    """标记旧记忆为 superseded，并从 FTS5 索引中删除。"""
     old_memory.status = "superseded"
     old_memory.superseded_by_memory_id = new_memory_id
     old_memory.updated_at = datetime.now(UTC)
     session.add(old_memory)
+
+    # Remove superseded memory from FTS5 index to avoid wasting retrieval slots
+    try:
+        retriever = MemoryRetriever(session.connection())
+        if retriever._fts_available:
+            session.connection().execute(
+                text(f"DELETE FROM {MemoryRetriever._FTS_TABLE} WHERE memory_id = :memory_id"),
+                {"memory_id": old_memory.id},
+            )
+    except Exception:
+        logger.exception("Failed to remove superseded memory %s from FTS5", old_memory.id)
 
 
 # ─── Viewer identity validation ─────────────────────────────────────────────

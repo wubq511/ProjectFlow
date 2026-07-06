@@ -324,23 +324,30 @@ def _build_memory_context(
 
 
 def _memory_metadata(memory_context: MemoryContext | None) -> dict[str, Any]:
-    """Return memory usage metadata for AgentEvent output_snapshot."""
+    """Return memory usage metadata for AgentEvent output_snapshot.
+
+    Nested under ``_memory`` to avoid overwriting agent output keys.
+    """
     if memory_context is None:
         return {
-            "memory_used": False,
-            "memory_backend": MemoryBackend.none.value,
-            "used_memory_ids": [],
-            "memory_retrieval_count": 0,
-            "memory_injected_count": 0,
-            "memory_latency_ms": 0.0,
+            "_memory": {
+                "used": False,
+                "backend": MemoryBackend.none.value,
+                "used_memory_ids": [],
+                "retrieval_count": 0,
+                "injected_count": 0,
+                "latency_ms": 0.0,
+            }
         }
     return {
-        "memory_used": bool(memory_context.text),
-        "memory_backend": memory_context.memory_backend.value,
-        "used_memory_ids": memory_context.used_memory_ids,
-        "memory_retrieval_count": memory_context.retrieval_count,
-        "memory_injected_count": memory_context.injected_count,
-        "memory_latency_ms": memory_context.latency_ms,
+        "_memory": {
+            "used": bool(memory_context.text),
+            "backend": memory_context.memory_backend.value,
+            "used_memory_ids": memory_context.used_memory_ids,
+            "retrieval_count": memory_context.retrieval_count,
+            "injected_count": memory_context.injected_count,
+            "latency_ms": memory_context.latency_ms,
+        }
     }
 
 

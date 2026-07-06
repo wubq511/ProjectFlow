@@ -52,6 +52,8 @@ def start_agent_run(
             raise HTTPException(status_code=404, detail="项目不存在") from exc
         if "项目不存在" in msg:
             raise HTTPException(status_code=404, detail="项目不存在") from exc
+        if "不属于" in msg:
+            raise HTTPException(status_code=400, detail=msg) from exc
         raise HTTPException(status_code=400, detail=msg) from exc
 
 
