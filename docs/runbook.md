@@ -35,6 +35,33 @@ python -m pip install -e ".[dev]"
 
 File upload support requires `python-multipart` (installed as part of `[dev]` above, or manually via `pip install python-multipart`). LLM client uses `httpx>=0.27.0` for connection pooling (installed as part of `[dev]` above).
 
+### Optional Vector Retrieval (memory-vector extra)
+
+默认安装使用 FTS5+jieba 中文分词检索，零外部依赖。如需向量检索增强：
+
+```bash
+python -m pip install -e ".[dev,memory-vector]"
+```
+
+预热向量模型（下载/缓存 embedding 模型到 `backend/data/memory-models/`）：
+
+```bash
+python -m app.memory.warmup
+# 无 memory-vector extra → 打印跳过信息，exit 0
+# 有 extra → 初始化模型，exit 0
+# 初始化失败 → exit 1
+```
+
+环境变量：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MEMORY_VECTOR_ENABLED` | `false` | 设为 `true` 启用向量检索优先路径 |
+| `MEMORY_VECTOR_MODEL` | `shibing624/text2vec-base-chinese` | 中文 embedding 模型 |
+| `MEMORY_VECTOR_MODEL_DIR` | 空（自动 `data/memory-models/`） | 模型缓存目录 |
+
+详见 `docs/T42/memory-vector-optional.md`。
+
 ```
 
 Run the API:
