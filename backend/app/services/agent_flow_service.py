@@ -44,13 +44,18 @@ def run_agent_flow(
     llm_client: LLMClient | None = None,
     workspace_state: WorkspaceStateResponse | None = None,
     auto_commit: bool = True,
+    viewer_user_id: str | None = None,
 ) -> AgentFlowRead:
     if workspace_state is None:
         workspace_state = get_workspace_state(session, workspace_id, project_id=project_id)
     if workspace_state is None:
         raise ValueError("Workspace not found")
 
-    coordinator = CoordinatorAgent(session=session, llm_client=llm_client)
+    coordinator = CoordinatorAgent(
+        session=session,
+        llm_client=llm_client,
+        viewer_user_id=viewer_user_id,
+    )
     result = method(coordinator, workspace_state, user_instruction)
     created_ids, proposal_id = _persist_agent_output(
         session,

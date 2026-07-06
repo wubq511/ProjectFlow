@@ -44,7 +44,15 @@ def start_agent_run(
     Creates the run record and returns the run_id for subsequent calls.
     """
     service = get_agent_runtime_service(session)
-    return service.start_run(request)
+    try:
+        return service.start_run(request)
+    except ValueError as exc:
+        msg = str(exc)
+        if "不是" in msg and "成员" in msg:
+            raise HTTPException(status_code=404, detail="项目不存在") from exc
+        if "项目不存在" in msg:
+            raise HTTPException(status_code=404, detail="项目不存在") from exc
+        raise HTTPException(status_code=400, detail=msg) from exc
 
 
 @router.get("/{run_id}", response_model=RunStatusResponse)

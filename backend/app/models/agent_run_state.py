@@ -25,6 +25,7 @@ class AgentRunV2(SQLModel, table=True):
     project_id: str = Field(foreign_key="projects.id", index=True)
     workspace_id: str = Field(foreign_key="workspaces.id", index=True)
     user_message_id: str | None = Field(default=None)
+    viewer_user_id: str = Field(default="")
     status: AgentRunStatus = Field(default=AgentRunStatus.created, index=True)
     current_turn: int = Field(default=0)
     current_step: int = Field(default=0)

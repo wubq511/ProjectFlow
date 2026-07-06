@@ -45,12 +45,34 @@ def test_engine():
 def client(test_engine):
     """Create test client with test database."""
     from app.core.database import get_session
+    from app.models import Project, User, Workspace, WorkspaceMembership
 
     def override_get_session():
         with Session(test_engine) as session:
             yield session
 
     app.dependency_overrides[get_session] = override_get_session
+
+    # Seed shared runtime test fixtures so start_run can validate viewer membership
+    with Session(test_engine) as session:
+        user = User(id="user_runtime", display_name="Runtime User")
+        workspace = Workspace(id="ws_456", name="Runtime Workspace", owner_user_id=user.id)
+        project = Project(
+            id="proj_789",
+            workspace_id=workspace.id,
+            name="Runtime Project",
+            idea="Test runtime",
+            deadline="2026-07-15",
+            deliverables="Demo",
+            created_by=user.id,
+        )
+        membership = WorkspaceMembership(workspace_id=workspace.id, user_id=user.id, role="owner")
+        session.add(user)
+        session.add(workspace)
+        session.add(project)
+        session.add(membership)
+        session.commit()
+
     with TestClient(app, headers={"Authorization": "Bearer test-internal-service-token"}) as c:
         yield c
     app.dependency_overrides.clear()
@@ -79,6 +101,7 @@ class TestStartAgentRun:
         try:
             with TestClient(app) as unauthenticated_client:
                 response = unauthenticated_client.post("/internal/agent-runs", json={
+                    "viewer_user_id": "user_runtime",
                     "conversation_id": "conv_123",
                     "workspace_id": "ws_456",
                     "project_id": "proj_789",
@@ -93,6 +116,7 @@ class TestStartAgentRun:
     def test_start_run(self, client):
         """Test creating a new agent run."""
         response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -112,6 +136,7 @@ class TestGetRunStatus:
         """Test getting status of an existing run."""
         # Create a run first
         create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -142,6 +167,7 @@ class TestAppendEvents:
         """Test appending a state patch."""
         # Create a run
         create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -173,6 +199,7 @@ class TestAppendEvents:
         """Test appending events."""
         # Create a run
         create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -209,6 +236,7 @@ class TestAppendEvents:
     def test_append_persists_runtime_events_with_trace_for_query(self, client):
         """Runtime append persists bounded event payload and trace for resume/query."""
         create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -273,6 +301,7 @@ class TestAppendEvents:
         """Test appending tool results."""
         # Create a run
         create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -307,6 +336,7 @@ class TestAppendEvents:
         """Test appending state patch, events, and tool results together."""
         # Create a run
         create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -365,6 +395,7 @@ class TestAppendEvents:
     def test_state_patch_auto_generates_run_state_changed_event(self, client):
         """state_patch 非空时自动生成 run.state_changed 事件。"""
         create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -396,6 +427,7 @@ class TestAppendEvents:
     def test_state_changed_event_before_user_events(self, client):
         """run.state_changed 事件在用户提交的 events 之前。"""
         create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -433,6 +465,7 @@ class TestAppendEvents:
     def test_invalid_state_transition_rejected(self, client):
         """非法状态转换应返回 400 错误。"""
         create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -453,6 +486,7 @@ class TestAppendEvents:
     def test_valid_state_transition_accepted(self, client):
         """合法状态转换应成功。"""
         create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -486,6 +520,7 @@ class TestCancelRun:
         """Test cancelling a run."""
         # Create a run
         create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -519,6 +554,7 @@ class TestEventSequenceAssignment:
         """Test that event_seq increments correctly."""
         # Create a run
         create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -562,6 +598,7 @@ class TestSideEffectsTracking:
         """Test that side effects accumulate across tool calls."""
         # Create a run
         create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
             "conversation_id": "conv_123",
             "workspace_id": "ws_456",
             "project_id": "proj_789",
@@ -682,6 +719,7 @@ def _create_runtime_linked_clarify_proposal(test_engine) -> tuple[str, str, str]
             conversation_id="conv_confirm",
             workspace_id=workspace.id,
             project_id=project.id,
+            viewer_user_id=owner.id,
             status=AgentRunStatus.completed,
             current_turn=1,
             current_step=1,

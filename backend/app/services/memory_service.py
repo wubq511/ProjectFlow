@@ -23,6 +23,7 @@ from app.agent.memory.extractor import (
     extract_proposal_rejected,
     extract_assignment_confirmed,
 )
+from app.agent.memory.retriever import MemoryBackend, MemoryRetriever, RetrievalResult
 from app.core.database import engine as _default_engine
 from app.models import (
     AgentProposal,
@@ -197,6 +198,7 @@ def _write_candidates(
     3. 全新 → create
     """
     written: list[ProjectMemory] = []
+    retriever = MemoryRetriever(session.connection())
 
     for cand in candidates:
         # Rule 1: Check idempotent key (same source_hash)
@@ -260,6 +262,9 @@ def _write_candidates(
         )
         session.add(new_memory)
         session.flush()  # Get the ID
+
+        # Index the new memory for FTS5 retrieval
+        retriever.index_memory(new_memory)
 
         # Supersede old active memory if exists
         if active_same_key is not None:
@@ -391,6 +396,30 @@ def get_visible_memories(
             visible.append(mem)
 
     return visible
+
+
+def retrieve_visible_memory_ids(
+    session: Session,
+    *,
+    project_id: str,
+    viewer_user_id: str,
+    query: str = "",
+    limit: int = 50,
+) -> RetrievalResult:
+    """Retrieve visible candidate memory IDs using the same can_view_memory logic.
+
+    This is the service-level entry point reused by context injection, JSON list,
+    and Markdown export consistency checks.
+    """
+    from app.agent.memory.retriever import retrieve_memory_ids
+
+    return retrieve_memory_ids(
+        session,
+        project_id=project_id,
+        query=query,
+        viewer_user_id=viewer_user_id,
+        limit=limit,
+    )
 
 
 # ─── Markdown export ────────────────────────────────────────────────────────

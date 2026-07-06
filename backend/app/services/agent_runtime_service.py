@@ -4,13 +4,18 @@ Manages AgentRun lifecycle, event appending, and tool result persistence.
 Implements idempotency key validation and atomic event_seq assignment.
 """
 
+import logging
 import uuid
 from datetime import datetime, timezone
 
 from sqlmodel import Session, select
 
+logger = logging.getLogger(__name__)
+
+from app.agent.memory.context_builder import build_memory_context
 from app.models.agent_run_state import AgentRunEvent, AgentRunV2
 from app.models.enums import AgentRunStatus, RuntimeEventType
+from app.services.memory_service import validate_viewer
 from app.schemas.runtime import (
     AppendRequest,
     AppendResponse,
@@ -47,13 +52,28 @@ class AgentRuntimeService:
         self.session = session
 
     def start_run(self, request: RunStartRequest) -> RunStartResponse:
-        """Create a new agent run."""
+        """Create a new agent run.
+
+        Validates the viewer, stores viewer_user_id on the run record, and builds
+        the memory context on the FastAPI side so the sidecar receives it through
+        the run input/context without needing DB or ProjectMemory access.
+        """
+        # Validate viewer identity (required, project must exist and viewer must be member)
+        if not request.viewer_user_id or not request.viewer_user_id.strip():
+            raise ValueError("viewer_user_id 不能为空")
+        validate_viewer(
+            self.session,
+            project_id=request.project_id,
+            viewer_user_id=request.viewer_user_id,
+        )
+
         run = AgentRunV2(
             id=str(uuid.uuid4()),
             conversation_id=request.conversation_id,
             project_id=request.project_id,
             workspace_id=request.workspace_id,
             user_message_id=request.user_message_id,
+            viewer_user_id=request.viewer_user_id,
             status=AgentRunStatus.created,
             current_turn=0,
             current_step=0,
@@ -68,10 +88,36 @@ class AgentRuntimeService:
         self.session.commit()
         self.session.refresh(run)
 
+        # Build memory context on the FastAPI side; sidecar receives it via response
+        memory_context = self._build_memory_context_for_run(
+            request.project_id,
+            request.viewer_user_id,
+            query=request.user_content,
+        )
+
         return RunStartResponse(
             run_id=run.id,
             status=run.status,
+            memory_context=memory_context.to_dict() if memory_context else None,
         )
+
+    def _build_memory_context_for_run(
+        self,
+        project_id: str,
+        viewer_user_id: str,
+        query: str,
+    ):
+        """Build memory context for the sidecar; failures are non-blocking."""
+        try:
+            return build_memory_context(
+                self.session,
+                project_id=project_id,
+                viewer_user_id=viewer_user_id,
+                query=query,
+            )
+        except Exception:
+            logger.exception("Failed to build memory context for run")
+            return None
 
     def get_run_status(self, run_id: str) -> RunStatusResponse | None:
         """Get current run status."""
