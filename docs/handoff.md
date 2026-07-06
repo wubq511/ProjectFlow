@@ -35,10 +35,42 @@ Third vertical slice of ProjectMemory V1 (issue #73). When an assignment proposa
 **Key files:** `backend/app/agent/memory/extractor.py`, `backend/app/services/assignment_service.py`, `backend/app/services/memory_service.py`, `backend/app/tests/test_assignment_memory.py`
 
 **What remains (T42 V1 next tracer bullets):**
-- `replan_confirmed`/`replan_rejected` extractor
 - FTS5 retrieval + Agent context injection
 - Frontend memory list/export UI
 - Optional vector retrieval (memory-vector extra)
+
+### T42 — ProjectMemory V1 Replan Memory Tracer (2026-07-06)
+
+Fourth vertical slice of ProjectMemory V1 (issue #74). When a replan proposal is confirmed or rejected through the AgentProposal lifecycle, ProjectFlow creates governed memory entries for the decision.
+
+**What was built:**
+
+- **Deterministic extractor**: `extract_replan_confirmed` creates exactly 1 `plan` memory (always) + optional aggregated `tradeoff` memory (when stage/task adjustment reasons exist) + optional aggregated `boundary` memory (when can_cut/status/cancelled changes exist). `extract_replan_rejected` creates exactly 1 `rejection` memory only when `rejection_reason` is non-empty. No LLM calls.
+- **Tradeoff aggregation**: Multiple stage-adjustment and task-change reasons are canonicalized (stable sort) and aggregated into at most 1 tradeoff memory. Unsafe aggregation (insufficient rationale) skips that memory type.
+- **Boundary aggregation**: Multiple task can_cut/status changes aggregated into at most 1 boundary memory. Task titles sorted and deduplicated.
+- **Scope**: All replan memories use `scope=project` (cross-stage/cross-task consistency). No invented related IDs.
+- **Hook**: `confirm_proposal()` in `agent_proposal_service.py` dispatches `replan_confirmed` memory extraction for `proposal_type=replan`. `reject_proposal()` dispatches `replan_rejected` vs `proposal_rejected` based on proposal_type. New source types: `replan_confirmed`, `replan_rejected`.
+- **Dispatch refactor**: `confirm_proposal()` memory hook now uses a `_source_type_map` dict instead of hardcoded `if clarify` check, making it extensible for future proposal types.
+- **Known V1 gap**: Direct `/replans/confirm` API path does NOT trigger memory extraction — documented and tested as a known gap.
+- **Idempotency & supersede**: Same source_hash → skip; different hash → supersede old active memory for the same memory type. Tested.
+- **No raw IDs**: All content/rationale use display names and Chinese labels. Verified.
+- **Team visibility**: All replan memories are team-visible. Verified.
+
+**Acceptance criteria verified (10/10):**
+1. Confirming replan triggers extraction after business commit ✓
+2. Exactly one plan memory on confirm ✓
+3. Tradeoff/boundary memory when explicit rationale exists ✓
+4. Canonicalized and aggregated same-type adjustments ✓
+5. Project-level scope for cross-stage/task replans, no invented related IDs ✓
+6. Rejection memory only when reason exists; empty/blank skip ✓
+7. `/replans/confirm` path documented as known V1 gap (not modified) ✓
+8. Idempotent replay ✓
+9. Supersede on changed source content ✓
+10. No raw IDs in user-visible fields ✓
+
+**Test results:** 20 new tests in `test_replan_memory.py`, 450+ backend tests total pass.
+
+**Key files:** `backend/app/agent/memory/extractor.py`, `backend/app/services/memory_service.py`, `backend/app/services/agent_proposal_service.py`, `backend/app/tests/test_replan_memory.py`
 
 ### T42 — ProjectMemory V1 Proposal Rejection Memory (2026-07-06)
 
@@ -70,7 +102,6 @@ Second vertical slice of ProjectMemory V1 (issue #72). When a proposal is reject
 **Key files:** `backend/app/agent/memory/extractor.py`, `backend/app/services/agent_proposal_service.py`, `backend/app/services/memory_service.py`, `backend/app/tests/test_proposal_rejection_memory.py`, `frontend/src/components/agent/agent-proposal-panel.tsx`, `frontend/src/components/risk/replan-diff.tsx`, `frontend/src/lib/api.ts`
 
 **What remains (T42 V1 next tracer bullets):**
-- `replan_confirmed`/`replan_rejected` extractor
 - FTS5 retrieval + Agent context injection
 - Frontend memory list/export UI
 - Optional vector retrieval (memory-vector extra)
@@ -111,8 +142,6 @@ First vertical slice of ProjectMemory V1 (issue #71). When a direction card is c
 **Key files:** `backend/app/models/project_memory.py`, `backend/app/agent/memory/extractor.py`, `backend/app/agent/memory/display_resolver.py`, `backend/app/services/memory_service.py`, `backend/app/api/routes_memories.py`, `backend/app/schemas/project_memory.py`, `backend/app/tests/test_project_memory.py`
 
 **What remains (T42 V1 next tracer bullets):**
-- `assignment_confirmed` extractor
-- `replan_confirmed`/`replan_rejected` extractor
 - FTS5 retrieval + Agent context injection
 - Frontend memory list/export UI
 - Optional vector retrieval (memory-vector extra)
