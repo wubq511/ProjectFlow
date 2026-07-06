@@ -89,5 +89,17 @@ A deterministic function that reads a Memory Source Event payload and produces P
 _Avoid_: LLM-based extraction, embedding pipeline
 
 **Viewer Identity Context**:
-An explicit, unauthenticated viewer_user_id passed on memory read/export requests. Missing or invalid → 400; viewer outside workspace → 404. No fallback to owner view.
+An explicit, unauthenticated viewer_user_id passed on memory read/export and Agent run requests. Missing or invalid → 400; viewer outside workspace → 404. No fallback to owner view.
 _Avoid_: Auth session, JWT, implicit viewer
+
+**MemoryRetriever**:
+The local-first retrieval runtime for ProjectMemory. Tries SQLite FTS5 with jieba tokenization, falls back to structured field filtering, and returns candidate memory IDs (not prompt text). Fail-closed on errors: memory_backend becomes `none` and the Agent run continues.
+_Avoid_: Vector database, embedding search, prompt builder
+
+**MemoryContext**:
+The viewer-visible, budget-truncated ProjectMemory text injected into Agent prompts. Built by FastAPI from candidate IDs; capped by token budget and hard memory count. Carries metadata: memory_backend, used_memory_ids, retrieval/injected counts, latency.
+_Avoid_: Raw memory list, unlimited context, sidecar-built context
+
+**memory_backend**:
+Observable metadata recording which retrieval path served a run: `fts5`, `sqlite_field`, or `none`. Stored in AgentEvent output_snapshot, never in AgentRunState.side_effects.
+_Avoid_: AgentRunState side effect, business state
