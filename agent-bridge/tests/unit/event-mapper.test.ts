@@ -76,6 +76,41 @@ describe("event-mapper", () => {
     expect(result.payload.is_error).toBe(true);
   });
 
+  it("maps agent_end to agent.failed when last message has stopReason=error", () => {
+    const piEvent: PiEvent = {
+      type: "agent_end",
+      data: {},
+      messages: [{ role: "assistant", stopReason: "error" } as unknown],
+    };
+    const result = mapPiEvent(piEvent, runId);
+    expect(result.type).toBe("agent.failed");
+    expect(result.newStatus).toBe("failed");
+    expect(result.payload.reason).toBe("模型返回错误");
+  });
+
+  it("maps agent_end to run.cancelled when last message has stopReason=aborted", () => {
+    const piEvent: PiEvent = {
+      type: "agent_end",
+      data: {},
+      messages: [{ role: "assistant", stopReason: "aborted" } as unknown],
+    };
+    const result = mapPiEvent(piEvent, runId);
+    expect(result.type).toBe("run.cancelled");
+    expect(result.newStatus).toBe("cancelled");
+    expect(result.payload.reason).toBe("模型返回中止");
+  });
+
+  it("maps agent_end to agent.completed when last message has stopReason=stop", () => {
+    const piEvent: PiEvent = {
+      type: "agent_end",
+      data: {},
+      messages: [{ role: "assistant", stopReason: "stop" } as unknown],
+    };
+    const result = mapPiEvent(piEvent, runId);
+    expect(result.type).toBe("agent.completed");
+    expect(result.newStatus).toBe("completed");
+  });
+
   it("maps policy_block to tool.blocked", () => {
     const piEvent: PiEvent = { type: "policy_block", data: { reason: "策略拒绝" } };
     const result = mapPiEvent(piEvent, runId);

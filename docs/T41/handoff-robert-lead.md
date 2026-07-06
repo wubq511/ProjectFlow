@@ -154,7 +154,7 @@ S1 → S2 ──────────→ S9 ──→ S10 ──→ S15
 - **Foundation unit tests**（66 个）：manifest parser, policy engine, event mapper, trace envelope builder, result normalizer, budget checker, run state transition validator, side effect status classifier, advisory/proposal boundary, tool result factory
 - **Evaluation tests**（65 个）：skill selection matrix (18 user message patterns × 6 skills), tool evaluation matrix (12 tools × risk category + effect type), skill→tool mapping, proposal/advisory boundary, execution mode, manifest safety
 - **Privacy/resume tests**（37 个）：trace defaults, debug raw payload, secret exclusion, redaction behavior, resume policy, data classification
-- verification: backend 385 passed, agent-bridge 554 passed (18 files), frontend 46 passed, sidecar typecheck/build pass
+- verification: backend 385 passed, agent-bridge 558 passed (18 files), frontend 46 passed, sidecar typecheck/build pass
 
 ## 与其他成员的接口
 

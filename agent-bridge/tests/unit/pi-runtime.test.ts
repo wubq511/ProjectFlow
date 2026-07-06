@@ -10,6 +10,9 @@ import type { FastapiClient } from "../../src/tools/fastapi-client.js";
 import { ToolRegistry } from "../../src/tools/registry.js";
 import { registerMockTools } from "../../src/tools/mock-tools.js";
 import type { WireAppendRequest, WireAppendResponse } from "../../src/types/wire.js";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 
 function createState() {
   return createRunState({
@@ -295,5 +298,65 @@ describe("pi-runtime", () => {
     );
 
     expect(state.status).toBe("cancelled");
+  });
+
+  it("sets failed state and emits failure event when model returns stopReason=error", async () => {
+    const calls: WireAppendRequest[] = [];
+    const registry = new ToolRegistry();
+    registerMockTools(registry);
+
+    const EMPTY_USAGE: Usage = {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    };
+
+    const errorStreamFn: StreamFn = (model, _context, _options) => {
+      const stream = createAssistantMessageEventStream();
+      queueMicrotask(() => {
+        const message: AssistantMessage = {
+          role: "assistant",
+          content: [{ type: "text", text: "模型发生错误" }],
+          api: model.api,
+          provider: model.provider,
+          model: model.name,
+          usage: EMPTY_USAGE,
+          stopReason: "error",
+          timestamp: Date.now(),
+        };
+        stream.push({ type: "done", reason: "error", message });
+      });
+      return stream;
+    };
+
+    const state = await executeRun(
+      createState(),
+      {
+        conversationId: "conv_1",
+        workspaceId: "ws_1",
+        projectId: "proj_1",
+        userContent: "触发模型错误",
+      },
+      registry,
+      createModelRouter(),
+      createFastapiClient(calls),
+      new EventStream(),
+      { streamFn: errorStreamFn },
+    );
+
+    expect(state.status).toBe("failed");
+    expect(calls.some((call) => call.state_patch?.status === "failed")).toBe(true);
+    expect(
+      calls.some((call) =>
+        call.events?.some((event) => event.type === "agent.failed" || event.type === "run.failed"),
+      ),
+    ).toBe(true);
+    // A failed run must NOT emit agent.completed — only agent.failed
+    expect(
+      calls.some((call) => call.events?.some((event) => event.type === "agent.completed")),
+    ).toBe(false);
   });
 });

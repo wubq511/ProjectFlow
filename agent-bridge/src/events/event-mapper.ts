@@ -51,6 +51,8 @@ export interface PiEvent {
   isError?: boolean;
   message?: unknown;
   assistantMessageEvent?: unknown;
+  /** Pi AgentEvent.messages — available on agent_end events. */
+  messages?: unknown[];
 }
 
 export interface MappedEvent {
@@ -170,16 +172,25 @@ export function mapPiEvent(piEvent: PiEvent, runId: string): MappedEvent {
       };
 
     case "agent_end": {
-      const failed = !!(piEvent.error || piEvent.isError);
+      // Derive failure from explicit error flags OR from the last assistant message's stopReason
+      const lastMsg = piEvent.messages?.[piEvent.messages.length - 1] as
+        | { stopReason?: string }
+        | undefined;
+      const stopReason = lastMsg?.stopReason;
+      const cancelled = stopReason === "aborted";
+      const failed = !!(piEvent.error || piEvent.isError || stopReason === "error");
+      const newStatus: RunStatus = cancelled ? "cancelled" : failed ? "failed" : "completed";
       return {
-        type: failed ? "agent.failed" : "agent.completed",
+        type: cancelled ? "run.cancelled" : failed ? "agent.failed" : "agent.completed",
         payload: {
           run_id: runId,
           ...(piEvent.error ? { error: piEvent.error } : {}),
           ...(piEvent.isError !== undefined ? { is_error: piEvent.isError } : {}),
+          ...(stopReason === "error" ? { reason: "模型返回错误" } : {}),
+          ...(stopReason === "aborted" ? { reason: "模型返回中止" } : {}),
           ...piEvent.data,
         },
-        newStatus: failed ? "failed" : "completed",
+        newStatus,
       };
     }
 

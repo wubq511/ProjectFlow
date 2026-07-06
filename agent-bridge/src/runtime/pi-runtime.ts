@@ -296,7 +296,16 @@ function applyPiEventToRunState(event: AgentEvent, runState: AgentRunState): voi
       break;
     }
     case "agent_end": {
-      runState.status = "completed";
+      // Derive terminal status from the last assistant message's stopReason
+      const lastMsg = event.messages?.[event.messages.length - 1];
+      const stopReason = (lastMsg as AssistantMessage | undefined)?.stopReason;
+      if (stopReason === "error") {
+        runState.status = "failed";
+      } else if (stopReason === "aborted") {
+        runState.status = "cancelled";
+      } else {
+        runState.status = "completed";
+      }
       runState.completedAt = new Date().toISOString();
       runState.updatedAt = new Date().toISOString();
       break;
@@ -406,7 +415,11 @@ export async function executeRun(
     runState.status = "model_streaming";
     runState.updatedAt = new Date().toISOString();
 
+    let agentEndProcessed = false;
     const piEventSink = async (event: AgentEvent) => {
+      if (event.type === "agent_end") {
+        agentEndProcessed = true;
+      }
       await handlePiEvent(event, runState, fastapiClient, stream, callbacks, traceIncludeSensitiveData);
     };
 
@@ -425,14 +438,29 @@ export async function executeRun(
       streamFn,
     );
 
-    // Step 8: Complete (if not already completed by agent_end event)
-    // Status may have been mutated by handlePiEvent callback during runAgentLoop
+    // Step 8: Finalize terminal status (if not already set by agent_end event)
+    // Status may have been mutated by handlePiEvent callback during runAgentLoop.
+    // If agent_end was already processed, it already emitted the terminal event —
+    // we only emit a fallback event when agent_end was NOT processed.
     const statusAfterRun = runState.status as string;
     if (options.signal?.aborted || statusAfterRun === "cancelling" || statusAfterRun === "cancelled") {
       runState.status = "cancelled";
       runState.completedAt = new Date().toISOString();
       runState.updatedAt = new Date().toISOString();
-    } else if ((runState.status as string) !== "completed") {
+    } else if (statusAfterRun === "failed" && !agentEndProcessed) {
+      // agent_end was not emitted — emit failure event ourselves
+      await persistAndEmitMappedEvent(
+        {
+          type: "agent.failed",
+          payload: { reason: "模型返回错误" },
+          newStatus: runState.status,
+        },
+        runState,
+        fastapiClient,
+        stream,
+        traceIncludeSensitiveData,
+      );
+    } else if (statusAfterRun !== "completed" && statusAfterRun !== "failed" && !agentEndProcessed) {
       runState.status = "completed";
       runState.completedAt = new Date().toISOString();
       runState.updatedAt = new Date().toISOString();

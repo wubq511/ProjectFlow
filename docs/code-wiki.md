@@ -63,7 +63,7 @@ ProjectFlow/
 │   │   ├── types/             # run-state.ts, tool-manifest.ts, tool-result.ts, wire.ts, runtime-event.ts
 │   │   └── utils/             # 工具函数
 │   ├── skills/                # 6 SKILL.md files
-│   └── tests/unit/            # 11 test files, 237 tests
+│   └── tests/unit/            # 18 test files, 558 tests
 ├── frontend/
 │   ├── src/
 │   │   ├── app/               # Next.js 页面路由（不写业务逻辑）
@@ -724,11 +724,11 @@ Base URL: `http://localhost:8000/api`
 - vitest + @testing-library/react
 - 覆盖：api.ts、app-shell、projectflow-home、action-card、agent-proposal-panel、project-dashboard、task-status-update、error-boundaries
 
-### 验证基线（2026-07-05）
+### 验证基线（2026-07-06）
 
-- 后端 pytest：302 passing
-- agent-bridge：200 tests passing, typecheck passing, build passing
-- 前端：26 tests passing, lint passing, build passing
+- 后端 pytest：385 passing
+- agent-bridge：558 tests passing, typecheck passing, build passing
+- 前端：46 tests passing, lint passing, build passing
 
 ---
 
