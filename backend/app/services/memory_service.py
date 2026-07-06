@@ -9,7 +9,6 @@ Key invariants:
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -26,7 +25,7 @@ from app.agent.memory.extractor import (
     extract_replan_confirmed,
     extract_replan_rejected,
 )
-from app.agent.memory.retriever import MemoryBackend, MemoryRetriever, RetrievalResult
+from app.agent.memory.retriever import MemoryRetriever, RetrievalResult
 from app.core.database import engine as _default_engine
 from app.models import (
     AgentProposal,
@@ -39,7 +38,6 @@ from app.models import (
     User,
     WorkspaceMembership,
 )
-from app.models.enums import MemorySourceType
 
 logger = logging.getLogger(__name__)
 

@@ -11,16 +11,13 @@ Run explicitly with:
 from __future__ import annotations
 
 import json
-import uuid
-from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.agent.memory.retriever import MemoryBackend, retrieve_memory_ids
-from app.agent.memory.vector_retriever import VectorBackendError, is_vector_available
+from app.agent.memory.vector_retriever import is_vector_available
 from app.core.database import get_session
 from app.main import app
 from app.services.memory_service import set_memory_engine

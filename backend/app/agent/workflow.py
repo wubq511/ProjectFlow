@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -13,6 +14,9 @@ from app.agent.prompts import build_prompt_messages
 from app.models import AgentEvent
 from app.models.enums import AgentEventStatus, AgentEventType
 from app.schemas.workspace_state import WorkspaceStateResponse
+
+
+logger = logging.getLogger(__name__)
 
 
 class AgentRunStatus(str, Enum):

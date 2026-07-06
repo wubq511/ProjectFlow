@@ -4,7 +4,7 @@ All user-visible ProjectMemory text must go through this module.
 Falls back to safe Chinese placeholders when the entity is not found.
 """
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.models import User, Project, Task, Stage
 

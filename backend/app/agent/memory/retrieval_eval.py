@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -36,7 +36,6 @@ from sqlmodel import Session
 
 from app.agent.memory.extractor import ProjectMemoryCandidate
 from app.agent.memory.retriever import MemoryBackend, RetrievalResult, retrieve_memory_ids
-from app.models import ProjectMemory
 from app.services.memory_service import EXTRACTOR_VERSION, _write_candidates
 
 
@@ -365,12 +364,6 @@ def run_retrieval_eval(
 
     for q in queries:
         expected_fids = set(q["expected_fixture_ids"])
-        # Convert expected fixture IDs to DB IDs (skip missing)
-        expected_db_ids = {
-            fixture_id_to_db_id[fid]
-            for fid in expected_fids
-            if fid in fixture_id_to_db_id
-        }
 
         start = time.perf_counter()
         result: RetrievalResult = retrieve_memory_ids(

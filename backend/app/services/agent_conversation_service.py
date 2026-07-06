@@ -9,8 +9,6 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, desc, select
 
-logger = logging.getLogger(__name__)
-
 from app.agent.llm_client import LLMClient, build_agent_llm_client
 from app.agent.prompts import _compact_workspace_state_json
 from app.models import AgentEvent, AgentProposal, Project
@@ -28,6 +26,9 @@ from app.schemas.agent_conversation import (
 from app.services.agent_flow_service import run_agent_flow
 from app.services.workspace_state_service import get_workspace_state
 from app.schemas.workspace_state import WorkspaceStateResponse
+
+
+logger = logging.getLogger(__name__)
 
 
 MODULE_EVENT_TYPE: dict[str, AgentEventType] = {

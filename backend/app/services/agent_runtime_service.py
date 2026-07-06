@@ -10,8 +10,6 @@ from datetime import datetime, timezone
 
 from sqlmodel import Session, select
 
-logger = logging.getLogger(__name__)
-
 from app.agent.memory.context_builder import build_memory_context
 from app.models.agent_run_state import AgentRunEvent, AgentRunV2
 from app.models.enums import AgentRunStatus, RuntimeEventType
@@ -26,6 +24,9 @@ from app.schemas.runtime import (
     RunStatusResponse,
     ToolResultAppendResponse,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class AgentRuntimeService:

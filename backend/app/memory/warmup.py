@@ -58,9 +58,6 @@ def run_warmup(
 
         # Delegate model loading to VectorRetriever — single source of truth
         # Use a dummy connection; we only need the model, not the sqlite-vec extension
-        import sqlite3
-
-        conn = sqlite3.connect(":memory:")
         from sqlalchemy import create_engine
         from sqlalchemy.pool import StaticPool
         from sqlmodel import Session

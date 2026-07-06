@@ -14,7 +14,6 @@ Covers all acceptance criteria:
 """
 
 import json
-import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -288,7 +287,6 @@ def test_idempotent_replay_no_duplicates(client: TestClient):
 
 def test_changed_reason_supersedes_old(client: TestClient):
     """不同 reason 的同 (project, source_type, source_id, memory_type) supersede 旧记忆。"""
-    from sqlmodel import select
     from app.agent.memory.extractor import ProjectMemoryCandidate
     from app.services.memory_service import _write_candidates, get_memory_engine, EXTRACTOR_VERSION
 
@@ -404,7 +402,7 @@ def test_markdown_no_raw_ids(client: TestClient):
 def test_extractor_deterministic():
     """extract_proposal_rejected 对相同输入产生相同输出。"""
     from unittest.mock import MagicMock
-    from app.agent.memory.extractor import extract_proposal_rejected, _compute_source_hash
+    from app.agent.memory.extractor import extract_proposal_rejected
 
     proposal = MagicMock()
     proposal.id = "test-id"

@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -138,6 +139,27 @@ def _write_memory(
 
 
 # ─── Retrieval backend tests ─────────────────────────────────────────────────
+
+
+def test_workflow_memory_context_failure_is_advisory(monkeypatch):
+    """Memory context failures should not block the Agent workflow."""
+    from app.agent import workflow
+
+    def fail_memory_context(*_args, **_kwargs):
+        raise RuntimeError("memory backend unavailable")
+
+    monkeypatch.setattr(workflow, "build_memory_context", fail_memory_context)
+    workspace_state = SimpleNamespace(project=SimpleNamespace(id="project-1"))
+
+    assert (
+        workflow._build_memory_context(
+            object(),
+            workspace_state,
+            viewer_user_id="viewer-1",
+            query="更新项目计划",
+        )
+        is None
+    )
 
 
 def test_retrieve_memory_ids_uses_fts5(session: Session, client: TestClient):

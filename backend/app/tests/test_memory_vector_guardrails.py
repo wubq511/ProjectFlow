@@ -18,7 +18,6 @@ import json
 import subprocess
 import sys
 import uuid
-from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,7 +27,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.agent.memory.context_builder import MemoryContext, build_memory_context
 from app.agent.memory.extractor import ProjectMemoryCandidate
-from app.agent.memory.retriever import MemoryBackend, MemoryRetriever, retrieve_memory_ids
+from app.agent.memory.retriever import MemoryBackend, retrieve_memory_ids
 from app.agent.memory.vector_retriever import VectorBackendError, is_vector_available
 from app.core.database import get_session
 from app.main import app
@@ -243,6 +242,7 @@ def test_vector_search_not_tried_by_default(session: Session, client: TestClient
         # is_vector_available should NOT be called when prefer_vector=False
         # (the vector path is simply skipped, not even checked)
         assert result.backend == MemoryBackend.fts5
+        mock_avail.assert_not_called()
 
 
 def test_memory_backend_reflects_actual_backend(session: Session, client: TestClient):

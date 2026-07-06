@@ -768,7 +768,6 @@ def test_idempotent_replay_no_duplicates(client: TestClient):
 
 def test_changed_source_supersedes_old(client: TestClient):
     """不同 source_hash 的同 (project, source_type, source_id, memory_type) supersede 旧记忆。"""
-    from sqlmodel import select
     from app.agent.memory.extractor import ProjectMemoryCandidate
     from app.services.memory_service import _write_candidates, get_memory_engine, EXTRACTOR_VERSION
 

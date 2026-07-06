@@ -413,7 +413,7 @@ def test_query_set_coverage(session: Session, client: TestClient):
     """Every memory_type in the fixture set is covered by at least one query."""
     workspace, project, owner, member, _ = _create_eval_fixture(client)
 
-    fixture_map = write_eval_fixtures(
+    write_eval_fixtures(
         session,
         workspace_id=workspace["id"],
         project_id=project["id"],

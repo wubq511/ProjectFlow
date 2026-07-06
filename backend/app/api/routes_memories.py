@@ -86,7 +86,7 @@ def api_list_memories(
     session: Session = Depends(get_session),
 ):
     """只读记忆列表（JSON）。需要 viewer_user_id。"""
-    project = _validate_and_get_project(session, project_id, viewer_user_id)
+    _validate_and_get_project(session, project_id, viewer_user_id)
 
     memories = get_visible_memories(
         session, project_id=project_id, viewer_user_id=viewer_user_id

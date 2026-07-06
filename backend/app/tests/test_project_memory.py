@@ -17,7 +17,6 @@ Covers all 13 acceptance criteria:
 """
 
 import json
-import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -191,7 +190,6 @@ def test_changed_source_supersedes_old(client: TestClient):
     由于 mock provider 总是生成相同 payload，E2E 无法直接测试 supersede。
     通过直接调用 memory_service 的 _write_candidates 来测试。
     """
-    from sqlmodel import select
     from app.agent.memory.extractor import ProjectMemoryCandidate
     from app.services.memory_service import _write_candidates, get_memory_engine, EXTRACTOR_VERSION
 

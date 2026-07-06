@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlmodel import Session
@@ -251,7 +251,6 @@ def extract_assignment_confirmed(
     """
     project_name = resolve_project_name(session, project.id)
     task_title = resolve_task_title(session, task.id)
-    stage_title = resolve_stage_title(session, stage.id)
     owner_name = resolve_display_name(session, assignment_proposal.recommended_owner_user_id)
 
     source_hash = _compute_source_hash(
@@ -274,7 +273,7 @@ def extract_assignment_confirmed(
         f"分工理由：{assignment_proposal.reason}。"
     )
     assignment_rationale = (
-        f"分工确认时团队明确了任务负责人。来源：分工确认。"
+        "分工确认时团队明确了任务负责人。来源：分工确认。"
     )
 
     candidates.append(
@@ -307,7 +306,7 @@ def extract_assignment_confirmed(
                 f"来源：项目「{project_name}」的分工确认。"
             )
             constraint_rationale = (
-                f"分工确认时捕获了成员的可用性或偏好约束。来源：分工确认。"
+                "分工确认时捕获了成员的可用性或偏好约束。来源：分工确认。"
             )
 
             candidates.append(
