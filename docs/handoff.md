@@ -158,6 +158,31 @@ First vertical slice of ProjectMemory V1 (issue #71). When a direction card is c
 - Frontend memory list/export UI
 - Optional vector retrieval (memory-vector extra)
 
+### T42 — ProjectMemory V1 Retrieval Evaluation Harness (2026-07-07, issue #76)
+
+Quality guardrail for the default FTS5 retrieval path. Fixed Chinese fixtures and queries make retrieval quality regressions measurable without requiring optional vector dependencies.
+
+**What was built:**
+
+- **`retrieval_eval.py`**: Fixed fixture set (13 entries covering direction, boundary, rejection, assignment, member_constraint, plan, tradeoff, plus expired + subject_and_owner), annotated query set (10 realistic Chinese queries with expected memory IDs), `write_eval_fixtures()` / `run_retrieval_eval()` / `check_visibility_enforcement()` entry points. Harness exercises the `retrieve_memory_ids` service seam, not private tokenizer details.
+- **`test_retrieval_eval.py`**: 11 tests covering recall@10 threshold (100% vs 90% target), FTS5 backend usage, latency assertion (< 500ms per query, actual < 7ms), expired fixture filtering, irrelevant-memory flagging, outsider visibility bypass prevention, owner/subject `subject_and_owner` access, result structure completeness, memory_type coverage, and no-external-dep enforcement.
+- **No external dependencies**: Runs without torch, sentence-transformers, sqlite-vec, embedding model files, or network downloads.
+
+**Acceptance criteria verified (9/9):**
+1. Fixed fixture set covering all V1 memory_type values ✓
+2. Default query set with realistic Chinese queries and expected IDs ✓
+3. Harness exercises service/API retrieval seam ✓
+4. FTS5 recall@10 ≥ 90% (measured: 100%) ✓
+5. Latency recorded under V1 target; irrelevant-memory inclusion flagged ✓
+6. Runs in default dev/test install without optional deps ✓
+7. CI/document verification path runs default evaluation ✓
+8. Visibility-sensitive fixtures prevent can_view_memory bypass ✓
+9. Documentation explains how to extend query set without weakening baseline ✓
+
+**Test results:** 11 new tests in `test_retrieval_eval.py`, 497 backend tests total pass.
+
+**Key files:** `backend/app/agent/memory/retrieval_eval.py`, `backend/app/tests/test_retrieval_eval.py`
+
 ### T41 — Agent Runtime Sidecar Implementation (2026-07-04~06)
 
 T41 Agent Runtime work now has S3, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, and S16 on the integrated mainline. The sidecar owns runtime/tool registration and event bridging, while FastAPI owns service-token-protected persistence through `/internal/agent-tools/*` and `/internal/agent-runs/*`.
@@ -881,7 +906,7 @@ Implemented scope:
 
 ## Verification Baseline
 
-Latest verification baseline after T42 replan memory tracer + retrieval:
+Latest verification baseline after T42 retrieval eval harness (issue #76):
 
 ```bash
 cd backend
@@ -898,7 +923,7 @@ cd frontend
 
 Results:
 
-- Backend: 486 tests passed.
+- Backend: 497 tests passed.
 - Agent-bridge: 559 tests passed across 18 files.
 - Frontend tests: 46 passed across 9 files (API layer, project dashboard, home page, app shell, action card, task status update, error boundaries, assignment flow panel, agent sidebar).
 - Frontend lint passed.
