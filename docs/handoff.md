@@ -4,6 +4,49 @@ Status: current as of 2026-07-06.
 
 ## Latest Architecture Handoff
 
+### T42 — ProjectMemory V1 Direction Card Tracer Bullet (2026-07-06)
+
+First vertical slice of ProjectMemory V1 (issue #71). When a direction card is confirmed through the clarify proposal flow, ProjectFlow creates governed project memory and exposes it through read surfaces.
+
+**What was built:**
+
+- **Data model**: `ProjectMemory` + `ProjectMemorySync` tables with idempotent unique index on `(project_id, source_type, source_id, memory_type, source_hash)`. Memory lifecycle: active → superseded (archived reserved for V1.1).
+- **Deterministic extractor**: `MemoryExtractor` for `direction_card_confirmed` creates exactly 1 `direction` memory + optional 1 `boundary` memory (boundaries canonicalized in stable sorted order). No LLM calls.
+- **Display resolver**: `display_resolver.py` resolves structural IDs to display names/titles with safe Chinese placeholders. No raw IDs in user-visible text.
+- **Memory service**: `extract_from_event()` runs synchronously after business commit, opens new session, swallows exceptions (never rolls back business decision). Idempotent write: same source_hash → skip; different hash → supersede old.
+- **Hook**: `confirm_proposal()` in `agent_proposal_service.py` calls `extract_from_event(source_type="direction_card_confirmed", source_id=proposal.id)` after commit for clarify proposals.
+- **Viewer validation**: Explicit `viewer_user_id` required on memory read/export. Missing → 400; non-member → 404. No fallback to owner view.
+- **Visibility**: `team` (all workspace members) and `subject_and_owner` (subject + owner snapshot only). Fail-closed on missing subject/owner.
+- **API**: `GET /projects/{project_id}/memories?viewer_user_id=...` (JSON) and `GET /projects/{project_id}/memories.md?viewer_user_id=...` (Markdown export). Both return `Cache-Control: no-store`.
+- **Markdown export**: 5 topic groups (方向与边界 / 被拒绝方案 / 分工与资源 / 重排取舍 / 被替代或归档的历史判断).
+
+**Acceptance criteria verified (13/13):**
+1. Extraction triggers only after business commit ✓
+2. Exactly one direction memory ✓
+3. Boundaries canonicalized, at most one boundary ✓
+4. Idempotent replay (same hash → skip) ✓
+5. Changed source → supersede old ✓
+6. No raw IDs in content/rationale/Markdown ✓
+7. Missing/malformed viewer_user_id → 400 ✓
+8. Non-member viewer → 404 ✓
+9. JSON and Markdown same visible set ✓
+10. Cache-Control: no-store ✓
+11. Extractor deterministic, no LLM ✓
+12. T41 sidecar database-free (architectural) ✓
+13. Tests cover end-to-end path ✓
+
+**Test results:** 22 new tests in `test_project_memory.py`, 407 backend tests total pass.
+
+**Key files:** `backend/app/models/project_memory.py`, `backend/app/agent/memory/extractor.py`, `backend/app/agent/memory/display_resolver.py`, `backend/app/services/memory_service.py`, `backend/app/api/routes_memories.py`, `backend/app/schemas/project_memory.py`, `backend/app/tests/test_project_memory.py`
+
+**What remains (T42 V1 next tracer bullets):**
+- `proposal_rejected` extractor (requires non-empty rejection_reason)
+- `assignment_confirmed` extractor
+- `replan_confirmed`/`replan_rejected` extractor
+- FTS5 retrieval + Agent context injection
+- Frontend memory list/export UI
+- Optional vector retrieval (memory-vector extra)
+
 ### T41 — Agent Runtime Sidecar Implementation (2026-07-04~06)
 
 T41 Agent Runtime work now has S3, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, and S16 on the integrated mainline. The sidecar owns runtime/tool registration and event bridging, while FastAPI owns service-token-protected persistence through `/internal/agent-tools/*` and `/internal/agent-runs/*`.
@@ -727,7 +770,7 @@ Implemented scope:
 
 ## Verification Baseline
 
-Latest verification baseline after Phase 41:
+Latest verification baseline after T42 direction card tracer bullet:
 
 ```bash
 cd backend
@@ -744,8 +787,8 @@ cd frontend
 
 Results:
 
-- Backend: 385 tests passed.
-- Agent-bridge: 559 tests passed across 18 files.
+- Backend: 407 tests passed.
+- Agent-bridge: 558 tests passed across 18 files.
 - Frontend tests: 46 passed across 9 files (API layer, project dashboard, home page, app shell, action card, task status update, error boundaries, assignment flow panel, agent sidebar).
 - Frontend lint passed.
 - Frontend build passed.
@@ -754,8 +797,8 @@ Results:
 
 Backend:
 
-- Implemented routes: 70 endpoint method/path pairs covering health, LLM diagnostics, users, workspaces, invitations, member-profiles, projects, resources, stages, tasks, workspace-state, agent, agent-proposals, assignments, action-cards, check-ins, risks, replans, seed/reset, timeline, export, and demo reset.
-- Domain models/persistence tables implemented (19 tables, all enums).
+- Implemented routes: 72 endpoint method/path pairs covering health, LLM diagnostics, users, workspaces, invitations, member-profiles, projects, resources, stages, tasks, workspace-state, agent, agent-proposals, assignments, action-cards, check-ins, risks, replans, seed/reset, timeline, export, project-memories, and demo reset.
+- Domain models/persistence tables implemented (21 tables, all enums).
 - AgentEvent now records `status` for success, repaired, fallback, or failed agent runs.
 - AgentProposal stores pending clarify/plan/breakdown/replan outputs; confirmation persists to project state.
 - Negotiate agent output is timeline-only and does not create generic AgentProposal records.

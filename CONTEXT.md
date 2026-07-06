@@ -59,3 +59,19 @@ _Avoid_: Human approval, proposal confirmation
 **ProjectFlow Tool**:
 A narrow, typed Agent-callable capability that reads, analyzes, or creates pending ProjectFlow artifacts through FastAPI-owned contracts.
 _Avoid_: Generic API caller, shell tool, direct database tool
+
+**ProjectMemory**:
+A governed context record derived from a Memory Source Event, storing a project decision's conclusion (content) and rationale. Not Primary Project State; used to inform future Agent judgment.
+_Avoid_: Chat history, long-term memory node, user memory
+
+**Memory Source Event**:
+A formal project decision point that triggers ProjectMemory extraction. V1 events: direction_card_confirmed, proposal_rejected, assignment_confirmed, replan_confirmed, replan_rejected.
+_Avoid_: Any user action, chat message, Agent intermediate reasoning
+
+**MemoryExtractor**:
+A deterministic function that reads a Memory Source Event payload and produces ProjectMemory candidates through fixed Chinese templates, without calling an LLM.
+_Avoid_: LLM-based extraction, embedding pipeline
+
+**Viewer Identity Context**:
+An explicit, unauthenticated viewer_user_id passed on memory read/export requests. Missing or invalid → 400; viewer outside workspace → 404. No fallback to owner view.
+_Avoid_: Auth session, JWT, implicit viewer
