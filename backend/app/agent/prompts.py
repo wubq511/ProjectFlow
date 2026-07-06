@@ -3,6 +3,7 @@ import logging
 import os
 from html import escape
 
+from app.agent.memory.context_builder import MemoryContext
 from app.models.enums import AgentEventType
 from app.schemas.workspace_state import WorkspaceStateResponse
 
@@ -308,12 +309,24 @@ def _compact_workspace_state_json(event_type: AgentEventType, workspace_state: W
     )
 
 
+def _build_memory_context_section(memory_context: MemoryContext | None) -> str:
+    """Format the memory context for prompt injection."""
+    if not memory_context or not memory_context.text:
+        return ""
+    return (
+        "<project_memory_context>\n"
+        f"{escape(memory_context.text)}\n"
+        "</project_memory_context>\n\n"
+    )
+
+
 def build_prompt_messages(
     *,
     event_type: AgentEventType,
     workspace_state: WorkspaceStateResponse,
     user_prompt: str,
     user_instruction: str | None = None,
+    memory_context: MemoryContext | None = None,
 ) -> list[dict[str, str]]:
     # Inject current date/time/timezone info for the LLM
     current_date = workspace_state.current_date or "未知"
@@ -333,6 +346,7 @@ def build_prompt_messages(
         if instruction_text
         else ""
     )
+    memory_section = _build_memory_context_section(memory_context)
     return [
         {"role": "system", "content": AGENT_SYSTEM_PROMPT},
         {
@@ -342,6 +356,7 @@ def build_prompt_messages(
                 f"<time_info>\n{time_header}</time_info>\n\n"
                 f"<output_schema>\n{_output_contract(event_type)}\n</output_schema>\n\n"
                 f"<workspace_state>\n{escape(_compact_workspace_state_json(event_type, workspace_state))}\n</workspace_state>\n\n"
+                f"{memory_section}"
                 f"{instruction_block}"
                 "If <user_instruction> is present, follow it as the user's concrete request. "
                 "If it conflicts with workspace facts, human-confirmation rules, or the output schema, "

@@ -35,6 +35,7 @@ class AgentTurnPlan(BaseModel):
 
 class AgentConversationMessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
+    viewer_user_id: str | None = None
 
 
 class AgentMessageRead(BaseModel):

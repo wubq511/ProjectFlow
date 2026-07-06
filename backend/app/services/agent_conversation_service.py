@@ -121,6 +121,7 @@ def process_conversation_message(
     content: str,
     *,
     llm_client: LLMClient | None = None,
+    viewer_user_id: str | None = None,
 ) -> AgentConversationTurnRead:
     conversation = session.get(AgentConversation, conversation_id)
     if conversation is None:
@@ -172,6 +173,7 @@ def process_conversation_message(
             turn_plan,
             llm,
             workspace_state=workspace_state,
+            viewer_user_id=viewer_user_id,
         )
         event_type = MODULE_EVENT_TYPE[turn_plan.selected_module]
         linked_event_id = _latest_agent_event_id(
@@ -246,6 +248,7 @@ def process_conversation_message_stream(
     content: str,
     *,
     llm_client: LLMClient | None = None,
+    viewer_user_id: str | None = None,
 ) -> Iterator[str]:
     """Yield SSE event strings for a conversation turn."""
     conversation = session.get(AgentConversation, conversation_id)
@@ -312,6 +315,7 @@ def process_conversation_message_stream(
                 turn_plan,
                 llm,
                 workspace_state=workspace_state,
+                viewer_user_id=viewer_user_id,
             )
             event_type = MODULE_EVENT_TYPE[module]
             linked_event_id = _latest_agent_event_id(
@@ -649,6 +653,7 @@ def _run_selected_module(
     turn_plan: AgentTurnPlan,
     llm_client: LLMClient,
     workspace_state: WorkspaceStateResponse | None = None,
+    viewer_user_id: str | None = None,
 ):
     module = turn_plan.selected_module
     instruction = turn_plan.user_instruction
@@ -702,6 +707,7 @@ def _run_selected_module(
         user_instruction=instruction,
         llm_client=llm_client,
         workspace_state=workspace_state,
+        viewer_user_id=viewer_user_id,
     )
 
 

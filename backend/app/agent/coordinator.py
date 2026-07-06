@@ -20,9 +20,16 @@ from app.schemas.workspace_state import WorkspaceStateResponse
 
 
 class CoordinatorAgent:
-    def __init__(self, *, llm_client: LLMClient | None = None, session: Session | None = None):
+    def __init__(
+        self,
+        *,
+        llm_client: LLMClient | None = None,
+        session: Session | None = None,
+        viewer_user_id: str | None = None,
+    ):
         self.llm_client = llm_client or build_agent_llm_client()
         self.session = session
+        self.viewer_user_id = viewer_user_id
 
     def generate_direction_card(
         self,
@@ -167,4 +174,5 @@ class CoordinatorAgent:
             user_prompt=request.user_prompt,
             fallback_payload=request.fallback_payload,
             user_instruction=request.user_instruction,
+            viewer_user_id=self.viewer_user_id,
         )

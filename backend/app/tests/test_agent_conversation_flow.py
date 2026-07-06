@@ -59,7 +59,7 @@ def test_project_conversation_endpoint_gets_or_creates_active_conversation(clien
 
 
 def test_conversation_blocks_breakdown_before_stages_and_records_messages(client: TestClient):
-    _owner, _workspace, project = _create_project_fixture(client)
+    owner, _workspace, project = _create_project_fixture(client)
     client.patch(
         f"/api/projects/{project['id']}",
         json={
@@ -79,7 +79,7 @@ def test_conversation_blocks_breakdown_before_stages_and_records_messages(client
 
     response = client.post(
         f"/api/agent/conversations/{conversation['id']}/messages",
-        json={"content": "直接帮我拆解任务"},
+        json={"content": "直接帮我拆解任务", "viewer_user_id": owner["id"]},
     )
 
     assert response.status_code == 200

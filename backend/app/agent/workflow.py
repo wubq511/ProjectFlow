@@ -7,6 +7,7 @@ from typing import Any
 from sqlmodel import Session
 
 from app.agent.llm_client import LLMClient, LLMConnectionError, LLMError, LLMTimeoutError
+from app.agent.memory.context_builder import MemoryBackend, MemoryContext, build_memory_context
 from app.agent.output_schemas import AgentOutputBase, AgentOutputValidationError, validate_agent_output
 from app.agent.prompts import build_prompt_messages
 from app.models import AgentEvent
@@ -76,6 +77,7 @@ def generate_structured_output(
     user_prompt: str,
     fallback_payload: dict[str, Any],
     user_instruction: str | None = None,
+    viewer_user_id: str | None = None,
 ) -> AgentRunResult:
     feedback = _rejection_feedback_text(
         session,
@@ -85,11 +87,19 @@ def generate_structured_output(
     if feedback:
         user_prompt = f"{feedback}\n\n{user_prompt}"
 
+    memory_context = _build_memory_context(
+        session,
+        workspace_state,
+        viewer_user_id=viewer_user_id,
+        query=user_prompt,
+    )
+
     messages = build_prompt_messages(
         event_type=event_type,
         workspace_state=workspace_state,
         user_prompt=user_prompt,
         user_instruction=user_instruction,
+        memory_context=memory_context,
     )
     last_raw: str | None = None
     last_error: Exception | None = None
@@ -124,6 +134,7 @@ def generate_structured_output(
                 user_prompt,
                 output,
                 user_instruction=user_instruction,
+                memory_context=memory_context,
             )
             return AgentRunResult(
                 output=output,
@@ -165,6 +176,7 @@ def generate_structured_output(
         user_prompt,
         output,
         user_instruction=user_instruction,
+        memory_context=memory_context,
     )
     return AgentRunResult(
         output=output,
@@ -186,6 +198,7 @@ def _fallback_after_provider_error(
     attempts: int,
     raw_output: str | None,
     provider_error: LLMError,
+    memory_context: MemoryContext | None = None,
 ) -> AgentRunResult:
     try:
         output = validate_agent_output(event_type, fallback_payload, workspace_state=workspace_state)
@@ -209,6 +222,7 @@ def _fallback_after_provider_error(
         output,
         user_instruction=user_instruction,
         provider_error=provider_error,
+        memory_context=memory_context,
     )
     return AgentRunResult(
         output=output,
@@ -281,6 +295,55 @@ def _repair_json_text(raw: str) -> str:
     return text
 
 
+def _build_memory_context(
+    session: Session | None,
+    workspace_state: WorkspaceStateResponse,
+    *,
+    viewer_user_id: str | None,
+    query: str,
+) -> MemoryContext | None:
+    """Build memory context when session, project, and viewer are available."""
+    if session is None:
+        return None
+    project = workspace_state.project
+    if project is None or not viewer_user_id or not viewer_user_id.strip():
+        return None
+    try:
+        return build_memory_context(
+            session,
+            project_id=project.id,
+            viewer_user_id=viewer_user_id,
+            query=query,
+        )
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception:
+        # Memory context is advisory; never block the Agent run
+        logger.exception("Failed to build memory context for project %s", project.id)
+        return None
+
+
+def _memory_metadata(memory_context: MemoryContext | None) -> dict[str, Any]:
+    """Return memory usage metadata for AgentEvent output_snapshot."""
+    if memory_context is None:
+        return {
+            "memory_used": False,
+            "memory_backend": MemoryBackend.none.value,
+            "used_memory_ids": [],
+            "memory_retrieval_count": 0,
+            "memory_injected_count": 0,
+            "memory_latency_ms": 0.0,
+        }
+    return {
+        "memory_used": bool(memory_context.text),
+        "memory_backend": memory_context.memory_backend.value,
+        "used_memory_ids": memory_context.used_memory_ids,
+        "memory_retrieval_count": memory_context.retrieval_count,
+        "memory_injected_count": memory_context.injected_count,
+        "memory_latency_ms": memory_context.latency_ms,
+    }
+
+
 def _log_agent_event(
     session: Session | None,
     workspace_state: WorkspaceStateResponse,
@@ -290,6 +353,7 @@ def _log_agent_event(
     output: AgentOutputBase,
     user_instruction: str | None = None,
     provider_error: LLMError | None = None,
+    memory_context: MemoryContext | None = None,
 ) -> None:
     if session is None:
         return
@@ -312,13 +376,15 @@ def _log_agent_event(
             "message": str(provider_error),
             "detail": provider_error.detail,
         }
+    output_dict = output.model_dump(mode="json")
+    output_dict.update(_memory_metadata(memory_context))
     event = AgentEvent(
         project_id=workspace_state.project.id if workspace_state.project else "",
         workspace_id=workspace_state.workspace_id,
         event_type=event_type,
         status=AgentEventStatus(status.value),
         input_snapshot=json.dumps(input_snapshot, ensure_ascii=False),
-        output_snapshot=json.dumps(output.model_dump(mode="json"), ensure_ascii=False),
+        output_snapshot=json.dumps(output_dict, ensure_ascii=False),
         reasoning_summary=output.reason,
     )
     session.add(event)
@@ -335,6 +401,8 @@ def _log_failed_agent_event(
 ) -> None:
     if session is None:
         return
+    output_dict = {"error": str(error)}
+    output_dict.update(_memory_metadata(None))
     event = AgentEvent(
         project_id=workspace_state.project.id if workspace_state.project else "",
         workspace_id=workspace_state.workspace_id,
@@ -353,7 +421,7 @@ def _log_failed_agent_event(
                 "task_count": len(workspace_state.project.tasks) if workspace_state.project else 0,
             },
         }, ensure_ascii=False),
-        output_snapshot=json.dumps({"error": str(error)}, ensure_ascii=False),
+        output_snapshot=json.dumps(output_dict, ensure_ascii=False),
         reasoning_summary=str(error),
     )
     session.add(event)
