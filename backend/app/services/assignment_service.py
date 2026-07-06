@@ -231,6 +231,22 @@ def finalize_assignment_proposal(session: Session, proposal_id: str) -> Assignme
     session.add(proposal)
     session.commit()
     session.refresh(proposal)
+
+    # ── ProjectMemory extraction hook ──
+    # Runs AFTER the business decision commits; failures are absorbed.
+    try:
+        from app.services.memory_service import extract_from_event
+        extract_from_event(
+            source_type="assignment_confirmed",
+            source_id=proposal.id,
+        )
+    except Exception:
+        import logging as _logging
+        _logging.getLogger(__name__).exception(
+            "ProjectMemory extraction failed for assignment_confirmed/%s",
+            proposal.id,
+        )
+
     return proposal
 
 
@@ -266,6 +282,23 @@ def finalize_assignment_proposals_by_stage(session: Session, stage_id: str) -> l
     session.commit()
     for proposal in proposals:
         session.refresh(proposal)
+
+    # ── ProjectMemory extraction hooks ──
+    # Runs AFTER the business decision commits; failures are absorbed.
+    for proposal in proposals:
+        try:
+            from app.services.memory_service import extract_from_event
+            extract_from_event(
+                source_type="assignment_confirmed",
+                source_id=proposal.id,
+            )
+        except Exception:
+            import logging as _logging
+            _logging.getLogger(__name__).exception(
+                "ProjectMemory extraction failed for assignment_confirmed/%s",
+                proposal.id,
+            )
+
     return proposals
 
 

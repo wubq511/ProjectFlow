@@ -4,6 +4,42 @@ Status: current as of 2026-07-06.
 
 ## Latest Architecture Handoff
 
+### T42 — ProjectMemory V1 Assignment Memory with Subject-and-Owner Privacy (2026-07-06)
+
+Third vertical slice of ProjectMemory V1 (issue #73). When an assignment proposal is finalized, ProjectFlow creates a team-visible assignment memory and optionally a subject-and-owner member_constraint memory. Missing subject or owner fails closed (never downgraded to team). Multi-member private constraints are skipped.
+
+**What was built:**
+
+- **Deterministic extractor**: `extract_assignment_confirmed` creates exactly 1 `assignment` memory (team-visible, scope=task) + optional 1 `member_constraint` memory (subject_and_owner visibility, scope=member) when `constraint_respected` is non-empty and both `subject_user_id` (recommended_owner) and `owner_user_id_snapshot` (project.created_by) are present.
+- **Fail-closed behavior**: Missing subject or owner → no member_constraint written, never downgraded to team. Multi-member constraints → at most 1 member_constraint per source event (skip rather than merge/split).
+- **Owner snapshot**: `owner_user_id_snapshot` resolved at write time from `project.created_by`, does not drift if later project ownership changes.
+- **Hook**: `finalize_assignment_proposal()` and `finalize_assignment_proposals_by_stage()` in `assignment_service.py` call `extract_from_event(source_type="assignment_confirmed", source_id=proposal.id)` after commit. Failures absorbed, never roll back business decision.
+- **Dispatch refactor**: `extract_from_event()` now supports both AgentProposal-based and AssignmentProposal-based source types via separate `_AGENT_PROPOSAL_EXTRACTORS` and `_ASSIGNMENT_PROPOSAL_EXTRACTORS` dispatch tables.
+- **Content/rationale semantics**: `content` uses display names (member name, project name, task title), includes backup owner if present. `rationale` cites source. No raw IDs.
+- **Visibility**: `assignment` is team-visible; `member_constraint` is subject_and_owner (only subject and owner snapshot can see). JSON list, Markdown export, and visibility logic consistent.
+
+**Acceptance criteria verified (10/10):**
+1. Finalizing triggers extraction after business commit ✓
+2. Exactly one team-visible assignment memory ✓
+3. member_constraint only for single subject with explicit constraint ✓
+4. subject_and_owner with subject_user_id and owner_user_id_snapshot ✓
+5. Missing subject/owner fails closed ✓
+6. Multi-member constraints skipped ✓
+7. Owner snapshot resolved at write time, does not drift ✓
+8. JSON/Markdown/context visibility consistent ✓
+9. No raw IDs in user-visible fields ✓
+10. Tests cover all paths ✓
+
+**Test results:** 25 new tests in `test_assignment_memory.py`, 450 backend tests total pass, 46 frontend tests pass.
+
+**Key files:** `backend/app/agent/memory/extractor.py`, `backend/app/services/assignment_service.py`, `backend/app/services/memory_service.py`, `backend/app/tests/test_assignment_memory.py`
+
+**What remains (T42 V1 next tracer bullets):**
+- `replan_confirmed`/`replan_rejected` extractor
+- FTS5 retrieval + Agent context injection
+- Frontend memory list/export UI
+- Optional vector retrieval (memory-vector extra)
+
 ### T42 — ProjectMemory V1 Proposal Rejection Memory (2026-07-06)
 
 Second vertical slice of ProjectMemory V1 (issue #72). When a proposal is rejected with a non-empty reason, ProjectFlow creates a governed rejection memory. Empty/blank reasons are tolerated for legacy compatibility but do not produce memory.
@@ -34,7 +70,6 @@ Second vertical slice of ProjectMemory V1 (issue #72). When a proposal is reject
 **Key files:** `backend/app/agent/memory/extractor.py`, `backend/app/services/agent_proposal_service.py`, `backend/app/services/memory_service.py`, `backend/app/tests/test_proposal_rejection_memory.py`, `frontend/src/components/agent/agent-proposal-panel.tsx`, `frontend/src/components/risk/replan-diff.tsx`, `frontend/src/lib/api.ts`
 
 **What remains (T42 V1 next tracer bullets):**
-- `assignment_confirmed` extractor
 - `replan_confirmed`/`replan_rejected` extractor
 - FTS5 retrieval + Agent context injection
 - Frontend memory list/export UI
@@ -805,7 +840,7 @@ Implemented scope:
 
 ## Verification Baseline
 
-Latest verification baseline after T42 direction card tracer bullet:
+Latest verification baseline after T42 assignment memory:
 
 ```bash
 cd backend
@@ -822,8 +857,8 @@ cd frontend
 
 Results:
 
-- Backend: 407 tests passed.
-- Agent-bridge: 558 tests passed across 18 files.
+- Backend: 450 tests passed.
+- Agent-bridge: 559 tests passed across 18 files.
 - Frontend tests: 46 passed across 9 files (API layer, project dashboard, home page, app shell, action card, task status update, error boundaries, assignment flow panel, agent sidebar).
 - Frontend lint passed.
 - Frontend build passed.

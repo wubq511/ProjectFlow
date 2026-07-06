@@ -19,9 +19,14 @@ from datetime import datetime
 
 from sqlmodel import Session
 
-from app.agent.memory.display_resolver import resolve_project_name, resolve_display_name
+from app.agent.memory.display_resolver import (
+    resolve_project_name,
+    resolve_display_name,
+    resolve_task_title,
+    resolve_stage_title,
+)
 from app.agent.output_schemas import DirectionCardOutput
-from app.models import AgentProposal, Project
+from app.models import AgentProposal, AssignmentProposal, Project, Task, Stage
 
 
 EXTRACTOR_VERSION = "det-v1.0-zh"
@@ -199,5 +204,129 @@ def extract_proposal_rejected(
             visibility="team",
         )
     ]
+
+    return candidates
+
+
+# ─── assignment_confirmed extractor ──────────────────────────────────────────
+
+
+def _get_assignment_confirmed_stable_fields(
+    assignment_proposal: AssignmentProposal,
+    task_title: str,
+    owner_display_name: str,
+) -> dict:
+    """提取 assignment finalization 中影响抽取语义的稳定字段。"""
+    stable: dict = {
+        "task_id": assignment_proposal.task_id,
+        "task_title": task_title,
+        "recommended_owner_user_id": assignment_proposal.recommended_owner_user_id,
+        "owner_display_name": owner_display_name,
+        "reason": assignment_proposal.reason,
+    }
+    if assignment_proposal.backup_owner_user_id:
+        stable["backup_owner_user_id"] = assignment_proposal.backup_owner_user_id
+    if assignment_proposal.constraint_respected:
+        stable["constraint_respected"] = assignment_proposal.constraint_respected
+    return stable
+
+
+def extract_assignment_confirmed(
+    session: Session,
+    *,
+    assignment_proposal: AssignmentProposal,
+    project: Project,
+    task: Task,
+    stage: Stage,
+) -> list[ProjectMemoryCandidate]:
+    """assignment_confirmed → 1 条 team-visible assignment 记忆
+    + 可选 1 条 member_constraint 记忆（仅当 constraint_respected 非空且仅涉及单个 subject）。
+
+    member_constraint 使用 visibility=subject_and_owner：
+    - subject_user_id = assignment_proposal.recommended_owner_user_id
+    - owner_user_id_snapshot = project.created_by（项目创建者作为 owner snapshot）
+
+    多成员 private constraints → 跳过，不聚合也不拆分。
+    缺少 subject 或 owner → fail closed，不写 member_constraint。
+    """
+    project_name = resolve_project_name(session, project.id)
+    task_title = resolve_task_title(session, task.id)
+    stage_title = resolve_stage_title(session, stage.id)
+    owner_name = resolve_display_name(session, assignment_proposal.recommended_owner_user_id)
+
+    source_hash = _compute_source_hash(
+        _get_assignment_confirmed_stable_fields(
+            assignment_proposal, task_title, owner_name
+        )
+    )
+
+    candidates: list[ProjectMemoryCandidate] = []
+
+    # ── assignment 记忆（team-visible）──
+    backup_clause = ""
+    if assignment_proposal.backup_owner_user_id:
+        backup_name = resolve_display_name(session, assignment_proposal.backup_owner_user_id)
+        backup_clause = f"，备选负责人为{backup_name}"
+
+    assignment_content = (
+        f"项目「{project_name}」的「{task_title}」任务"
+        f"由{owner_name}负责{backup_clause}。"
+        f"分工理由：{assignment_proposal.reason}。"
+    )
+    assignment_rationale = (
+        f"分工确认时团队明确了任务负责人。来源：分工确认。"
+    )
+
+    candidates.append(
+        ProjectMemoryCandidate(
+            memory_type="assignment",
+            scope="task",
+            content=assignment_content,
+            rationale=assignment_rationale,
+            source_type="assignment_confirmed",
+            source_id=assignment_proposal.id,
+            source_hash=source_hash,
+            visibility="team",
+            related_stage_id=stage.id,
+            related_task_id=task.id,
+        )
+    )
+
+    # ── member_constraint 记忆（subject_and_owner）──
+    # 仅当 constraint_respected 非空时考虑
+    constraint_text = (assignment_proposal.constraint_respected or "").strip()
+    if constraint_text:
+        subject_user_id = assignment_proposal.recommended_owner_user_id
+        owner_user_id_snapshot = project.created_by
+
+        # Fail closed: 必须同时有 subject 和 owner
+        if subject_user_id and owner_user_id_snapshot:
+            # 单成员约束 → 写 member_constraint
+            constraint_content = (
+                f"{owner_name}的约束：{constraint_text}。"
+                f"来源：项目「{project_name}」的分工确认。"
+            )
+            constraint_rationale = (
+                f"分工确认时捕获了成员的可用性或偏好约束。来源：分工确认。"
+            )
+
+            candidates.append(
+                ProjectMemoryCandidate(
+                    memory_type="member_constraint",
+                    scope="member",
+                    content=constraint_content,
+                    rationale=constraint_rationale,
+                    source_type="assignment_confirmed",
+                    source_id=assignment_proposal.id,
+                    source_hash=source_hash,
+                    visibility="subject_and_owner",
+                    subject_user_id=subject_user_id,
+                    owner_user_id_snapshot=owner_user_id_snapshot,
+                    related_stage_id=stage.id,
+                    related_task_id=task.id,
+                )
+            )
+        # else: 缺少 subject 或 owner → fail closed，不写 member_constraint
+        # 不降级为 team
 
     return candidates

@@ -21,13 +21,17 @@ from app.agent.memory.extractor import (
     ProjectMemoryCandidate,
     extract_direction_card_confirmed,
     extract_proposal_rejected,
+    extract_assignment_confirmed,
 )
 from app.core.database import engine as _default_engine
 from app.models import (
     AgentProposal,
+    AssignmentProposal,
     Project,
     ProjectMemory,
     ProjectMemorySync,
+    Task,
+    Stage,
     User,
     WorkspaceMembership,
 )
@@ -52,10 +56,19 @@ def get_memory_engine():
 
 # ─── Source type → extractor dispatch ────────────────────────────────────────
 
-_EXTRACTOR_DISPATCH = {
+# AgentProposal-based extractors
+_AGENT_PROPOSAL_EXTRACTORS = {
     "direction_card_confirmed": extract_direction_card_confirmed,
     "proposal_rejected": extract_proposal_rejected,
 }
+
+# AssignmentProposal-based extractors
+_ASSIGNMENT_PROPOSAL_EXTRACTORS = {
+    "assignment_confirmed": extract_assignment_confirmed,
+}
+
+# All registered source types
+_EXTRACTOR_DISPATCH = set(_AGENT_PROPOSAL_EXTRACTORS) | set(_ASSIGNMENT_PROPOSAL_EXTRACTORS)
 
 
 # ─── Write path ─────────────────────────────────────────────────────────────
@@ -67,31 +80,72 @@ def extract_from_event(source_type: str, source_id: str) -> None:
     在业务 service session.commit() 之后同步调用，包在 try/except 里。
     内部开新 session 写 ProjectMemory。
     失败只记日志，不抛异常，不回滚业务决策。
+
+    支持 AgentProposal-based 和 AssignmentProposal-based 两种 source type。
     """
     try:
-        extractor_fn = _EXTRACTOR_DISPATCH.get(source_type)
-        if extractor_fn is None:
+        if source_type not in _EXTRACTOR_DISPATCH:
             logger.warning("No extractor registered for source_type=%s", source_type)
             return
 
         with Session(_memory_engine) as mem_session:
-            # Load the proposal and project in the new session
-            proposal = mem_session.get(AgentProposal, source_id)
-            if proposal is None:
-                logger.error("Proposal %s not found for memory extraction", source_id)
-                return
+            # ── AgentProposal-based extractors ──
+            if source_type in _AGENT_PROPOSAL_EXTRACTORS:
+                extractor_fn = _AGENT_PROPOSAL_EXTRACTORS[source_type]
+                proposal = mem_session.get(AgentProposal, source_id)
+                if proposal is None:
+                    logger.error("AgentProposal %s not found for memory extraction", source_id)
+                    return
 
-            project = mem_session.get(Project, proposal.project_id)
-            if project is None:
-                logger.error("Project %s not found for memory extraction", proposal.project_id)
-                return
+                project = mem_session.get(Project, proposal.project_id)
+                if project is None:
+                    logger.error("Project %s not found for memory extraction", proposal.project_id)
+                    return
 
-            # Run the deterministic extractor
-            candidates = extractor_fn(
-                mem_session,
-                proposal=proposal,
-                project=project,
-            )
+                candidates = extractor_fn(
+                    mem_session,
+                    proposal=proposal,
+                    project=project,
+                )
+                workspace_id = proposal.workspace_id
+                project_id = proposal.project_id
+
+            # ── AssignmentProposal-based extractors ──
+            elif source_type in _ASSIGNMENT_PROPOSAL_EXTRACTORS:
+                extractor_fn = _ASSIGNMENT_PROPOSAL_EXTRACTORS[source_type]
+                assignment_proposal = mem_session.get(AssignmentProposal, source_id)
+                if assignment_proposal is None:
+                    logger.error("AssignmentProposal %s not found for memory extraction", source_id)
+                    return
+
+                project = mem_session.get(Project, assignment_proposal.project_id)
+                if project is None:
+                    logger.error("Project %s not found for memory extraction", assignment_proposal.project_id)
+                    return
+
+                task = mem_session.get(Task, assignment_proposal.task_id)
+                if task is None:
+                    logger.error("Task %s not found for memory extraction", assignment_proposal.task_id)
+                    return
+
+                stage = mem_session.get(Stage, assignment_proposal.stage_id)
+                if stage is None:
+                    logger.error("Stage %s not found for memory extraction", assignment_proposal.stage_id)
+                    return
+
+                candidates = extractor_fn(
+                    mem_session,
+                    assignment_proposal=assignment_proposal,
+                    project=project,
+                    task=task,
+                    stage=stage,
+                )
+                workspace_id = project.workspace_id
+                project_id = assignment_proposal.project_id
+
+            else:
+                # Should not reach here due to the check above
+                return
 
             if not candidates:
                 logger.info(
@@ -104,8 +158,8 @@ def extract_from_event(source_type: str, source_id: str) -> None:
             # Idempotent write
             written = _write_candidates(
                 mem_session,
-                workspace_id=proposal.workspace_id,
-                project_id=proposal.project_id,
+                workspace_id=workspace_id,
+                project_id=project_id,
                 candidates=candidates,
                 extractor_version=EXTRACTOR_VERSION,
             )
