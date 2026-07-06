@@ -427,8 +427,10 @@ def test_agent_event_records_memory_metadata(session: Session, client: TestClien
 # ─── AgentRunState.side_effects tests ────────────────────────────────────────
 
 
-def test_side_effects_does_not_record_memory_usage(client: TestClient):
+def test_side_effects_does_not_record_memory_usage(client: TestClient, engine):
     """AgentRunV2 side_effects never contains memory usage metadata."""
+    from app.models.agent_run_state import AgentRunV2
+
     workspace, project, owner, *_ = _create_fixture(client)
 
     response = client.post(
@@ -445,6 +447,19 @@ def test_side_effects_does_not_record_memory_usage(client: TestClient):
     assert response.status_code == 200
     data = response.json()
     assert data["memory_context"] is not None
+
+    # Verify side_effects does not contain memory metadata
+    run_id = data["run_id"]
+    with Session(engine) as session:
+        run = session.get(AgentRunV2, run_id)
+        assert run is not None
+        side_effects = run.side_effects or []
+        # side_effects is a list of strings; none should reference memory metadata
+        for effect in side_effects:
+            if isinstance(effect, str):
+                assert "memory_used" not in effect
+                assert "memory_backend" not in effect
+                assert "used_memory_ids" not in effect
 
 
 # ─── Viewer validation tests ─────────────────────────────────────────────────

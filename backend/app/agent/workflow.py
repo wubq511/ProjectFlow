@@ -315,6 +315,8 @@ def _build_memory_context(
             viewer_user_id=viewer_user_id,
             query=query,
         )
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except Exception:
         # Memory context is advisory; never block the Agent run
         logger.exception("Failed to build memory context for project %s", project.id)

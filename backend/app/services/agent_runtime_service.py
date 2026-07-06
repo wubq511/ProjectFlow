@@ -115,6 +115,8 @@ class AgentRuntimeService:
                 viewer_user_id=viewer_user_id,
                 query=query,
             )
+        except (KeyboardInterrupt, SystemExit):
+            raise
         except Exception:
             logger.exception("Failed to build memory context for run")
             return None

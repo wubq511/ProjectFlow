@@ -173,6 +173,7 @@ def process_conversation_message(
             turn_plan,
             llm,
             workspace_state=workspace_state,
+            viewer_user_id=viewer_user_id,
         )
         event_type = MODULE_EVENT_TYPE[turn_plan.selected_module]
         linked_event_id = _latest_agent_event_id(

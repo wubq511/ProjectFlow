@@ -315,7 +315,7 @@ def _build_memory_context_section(memory_context: MemoryContext | None) -> str:
         return ""
     return (
         "<project_memory_context>\n"
-        f"{memory_context.text}\n"
+        f"{escape(memory_context.text)}\n"
         "</project_memory_context>\n\n"
     )
 

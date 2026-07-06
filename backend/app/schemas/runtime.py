@@ -399,7 +399,7 @@ class RunStartRequest(BaseModel):
     project_id: str
     user_message_id: str | None = None
     user_content: str
-    viewer_user_id: str | None = None
+    viewer_user_id: str | None = Field(default=None, description="Required viewer user ID for memory visibility filtering; service returns 400 if missing")
     workspace_state: dict[str, Any] = Field(default_factory=dict)
     recent_messages: list[dict[str, Any]] = Field(default_factory=list)
     pending_proposals: list[dict[str, Any]] = Field(default_factory=list)

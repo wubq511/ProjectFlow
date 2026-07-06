@@ -75,6 +75,11 @@ class MemoryRetriever:
             return ""
         return " ".join(jieba.cut_for_search(text_value.strip()))
 
+    @staticmethod
+    def _safe_fts_query(tokens: str) -> str:
+        """Wrap each token in double-quotes to prevent FTS5 operator injection."""
+        return " ".join(f'"{t}"' for t in tokens.split() if t.strip())
+
     def index_memory(self, memory: ProjectMemory) -> None:
         """Add or update a memory in the FTS5 index."""
         if not self._fts_available:
@@ -113,13 +118,14 @@ class MemoryRetriever:
         if self._fts_available and query.strip():
             try:
                 tokens = self._tokenize(query)
+                safe_query = self._safe_fts_query(tokens)
                 rows = self.connection.execute(
                     text(
                         f"SELECT memory_id, rank FROM {self._FTS_TABLE} "
                         "WHERE project_memory_fts MATCH :query "
                         "ORDER BY rank LIMIT :limit"
                     ),
-                    {"query": tokens, "limit": limit},
+                    {"query": safe_query, "limit": limit},
                 ).fetchall()
                 candidates = [(row[0], float(row[1])) for row in rows]
                 return candidates, MemoryBackend.fts5
