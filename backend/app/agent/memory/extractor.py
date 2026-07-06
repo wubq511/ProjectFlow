@@ -25,7 +25,7 @@ from app.agent.memory.display_resolver import (
     resolve_task_title,
     resolve_stage_title,
 )
-from app.agent.output_schemas import DirectionCardOutput
+from app.agent.output_schemas import DirectionCardOutput, ReplanOutput
 from app.models import AgentProposal, AssignmentProposal, Project, Task, Stage
 
 
@@ -330,3 +330,216 @@ def extract_assignment_confirmed(
         # 不降级为 team
 
     return candidates
+
+
+# ─── replan_confirmed extractor ─────────────────────────────────────────────
+
+
+def _get_replan_confirmed_stable_fields(output: ReplanOutput) -> dict:
+    """提取 ReplanOutput 中影响抽取语义的稳定字段。"""
+    stage_adjs = sorted(
+        [
+            {
+                "stage_id": adj.stage_id,
+                "new_start_date": adj.new_start_date.isoformat() if adj.new_start_date else None,
+                "new_end_date": adj.new_end_date.isoformat() if adj.new_end_date else None,
+                "reason": adj.reason,
+            }
+            for adj in output.stage_adjustments
+        ],
+        key=lambda x: x["stage_id"],
+    )
+    task_chgs = sorted(
+        [
+            {
+                "task_id": tc.task_id,
+                "title": tc.title,
+                "status": tc.status.value if tc.status else None,
+                "owner_user_id": tc.owner_user_id,
+                "due_date": tc.due_date.isoformat() if tc.due_date else None,
+                "can_cut": tc.can_cut,
+                "reason": tc.reason,
+            }
+            for tc in output.task_changes
+        ],
+        key=lambda x: x["task_id"],
+    )
+    return {
+        "impact": output.impact,
+        "reason": output.reason,
+        "stage_adjustments": stage_adjs,
+        "task_changes": task_chgs,
+    }
+
+
+def _has_tradeoff_rationale(output: ReplanOutput) -> bool:
+    """检查 replan 输出中是否包含显式的权衡/延迟/替换理由。"""
+    for adj in output.stage_adjustments:
+        if adj.reason.strip():
+            return True
+    for tc in output.task_changes:
+        if tc.reason.strip():
+            return True
+    return False
+
+
+def _has_boundary_rationale(output: ReplanOutput) -> bool:
+    """检查 replan 输出中是否包含显式的范围边界变更理由。"""
+    for tc in output.task_changes:
+        if tc.can_cut is not None or (tc.status and tc.status.value in ("cancelled", "blocked")):
+            return True
+    return False
+
+
+def extract_replan_confirmed(
+    session: Session,
+    *,
+    proposal: AgentProposal,
+    project: Project,
+) -> list[ProjectMemoryCandidate]:
+    """replan_confirmed → 1 条 plan 记忆
+    + 显式权衡理由时 → 至多 1 条 tradeoff 记忆
+    + 显式范围边界变更时 → 至多 1 条 boundary 记忆
+
+    visibility=team, scope=project
+    跨阶段/跨任务 replan 使用 project 级 scope，不编造 related IDs。
+    """
+    payload = proposal.payload
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    output = ReplanOutput.model_validate(payload)
+
+    project_name = resolve_project_name(session, project.id)
+    source_hash = _compute_source_hash(_get_replan_confirmed_stable_fields(output))
+    candidates: list[ProjectMemoryCandidate] = []
+
+    # ── plan 记忆（始终创建）──
+    plan_content = f"项目「{project_name}」的计划已调整：{output.impact}。"
+    plan_rationale = f"重排理由：{output.reason}。来源：重排确认。"
+
+    candidates.append(
+        ProjectMemoryCandidate(
+            memory_type="plan",
+            scope="project",
+            content=plan_content,
+            rationale=plan_rationale,
+            source_type="replan_confirmed",
+            source_id=proposal.id,
+            source_hash=source_hash,
+            visibility="team",
+        )
+    )
+
+    # ── tradeoff 记忆（至多 1 条，聚合）──
+    if _has_tradeoff_rationale(output):
+        adj_reasons = []
+        for adj in output.stage_adjustments:
+            if adj.reason.strip():
+                stage_title = resolve_stage_title(session, adj.stage_id)
+                adj_reasons.append(f"「{stage_title}」：{adj.reason.strip()}")
+        tc_reasons = []
+        for tc in output.task_changes:
+            if tc.reason.strip():
+                task_title = resolve_task_title(session, tc.task_id)
+                tc_reasons.append(f"「{task_title}」：{tc.reason.strip()}")
+
+        all_reasons = adj_reasons + tc_reasons
+        if all_reasons:
+            aggregated_cn = "；".join(sorted(all_reasons)) if len(all_reasons) > 1 else all_reasons[0]
+
+            tradeoff_content = f"项目「{project_name}」的重排权衡：{aggregated_cn}。"
+            tradeoff_rationale = "重排确认时团队对阶段和任务进行了调整。来源：重排确认。"
+
+            candidates.append(
+                ProjectMemoryCandidate(
+                    memory_type="tradeoff",
+                    scope="project",
+                    content=tradeoff_content,
+                    rationale=tradeoff_rationale,
+                    source_type="replan_confirmed",
+                    source_id=proposal.id,
+                    source_hash=source_hash,
+                    visibility="team",
+                )
+            )
+
+    # ── boundary 记忆（至多 1 条）──
+    if _has_boundary_rationale(output):
+        boundary_changes = []
+        for tc in output.task_changes:
+            if tc.can_cut is not None or (tc.status and tc.status.value in ("cancelled", "blocked")):
+                task_title = resolve_task_title(session, tc.task_id)
+                boundary_changes.append(task_title)
+
+        if boundary_changes:
+            sorted_boundaries = sorted(set(boundary_changes))
+            boundary_cn = "、".join(sorted_boundaries)
+
+            boundary_content = f"项目「{project_name}」的范围调整：涉及「{boundary_cn}」等任务。"
+            boundary_rationale = "重排确认时团队对任务范围和优先级进行了调整。来源：重排确认。"
+
+            candidates.append(
+                ProjectMemoryCandidate(
+                    memory_type="boundary",
+                    scope="project",
+                    content=boundary_content,
+                    rationale=boundary_rationale,
+                    source_type="replan_confirmed",
+                    source_id=proposal.id,
+                    source_hash=source_hash,
+                    visibility="team",
+                )
+            )
+
+    return candidates
+
+
+# ─── replan_rejected extractor ──────────────────────────────────────────────
+
+
+def _get_replan_rejected_stable_fields(
+    proposal: AgentProposal,
+    rejection_reason: str,
+) -> dict:
+    """提取 replan rejection 中影响抽取语义的稳定字段。"""
+    return {
+        "proposal_type": proposal.proposal_type,
+        "rejection_reason": rejection_reason,
+    }
+
+
+def extract_replan_rejected(
+    session: Session,
+    *,
+    proposal: AgentProposal,
+    project: Project,
+) -> list[ProjectMemoryCandidate]:
+    """replan_rejected → 1 条 rejection 记忆（仅当 rejection_reason 非空）。
+
+    visibility=team, scope=project
+    与 proposal_rejected 共享 rejection memory_type 但 source_type 区分。
+    """
+    rejection_reason = (proposal.rejection_reason or "").strip()
+    if not rejection_reason:
+        return []
+
+    project_name = resolve_project_name(session, project.id)
+    source_hash = _compute_source_hash(
+        _get_replan_rejected_stable_fields(proposal, rejection_reason)
+    )
+
+    content = f"项目「{project_name}」的重排方案未被采纳。"
+    rationale = f"拒绝理由：{rejection_reason}。来源：重排方案拒绝。"
+
+    return [
+        ProjectMemoryCandidate(
+            memory_type="rejection",
+            scope="project",
+            content=content,
+            rationale=rationale,
+            source_type="replan_rejected",
+            source_id=proposal.id,
+            source_hash=source_hash,
+            visibility="team",
+        )
+    ]

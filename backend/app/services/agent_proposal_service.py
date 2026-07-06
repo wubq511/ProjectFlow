@@ -169,17 +169,23 @@ def confirm_proposal(
 
     # ── ProjectMemory extraction hook ──
     # Runs AFTER the business decision commits; failures are absorbed.
-    if proposal.proposal_type == "clarify":
+    _source_type_map = {
+        "clarify": "direction_card_confirmed",
+        "replan": "replan_confirmed",
+    }
+    memory_source_type = _source_type_map.get(proposal.proposal_type)
+    if memory_source_type:
         try:
             from app.services.memory_service import extract_from_event
             extract_from_event(
-                source_type="direction_card_confirmed",
+                source_type=memory_source_type,
                 source_id=proposal.id,
             )
         except Exception:
             import logging as _logging
             _logging.getLogger(__name__).exception(
-                "ProjectMemory extraction failed for direction_card_confirmed %s",
+                "ProjectMemory extraction failed for %s %s",
+                memory_source_type,
                 proposal.id,
             )
 
@@ -209,21 +215,23 @@ def reject_proposal(session: Session, proposal_id: str, reason: str | None = Non
     session.commit()
     session.refresh(proposal)
 
-    # ── ProjectMemory extraction hook (proposal_rejected) ──
+    # ── ProjectMemory extraction hook (proposal rejected / replan rejected) ──
     # Only extract when rejection_reason is non-empty.
     # Runs AFTER the business decision commits; failures are absorbed.
     # Does NOT create an AgentEvent.
     if reason and reason.strip():
+        _rejection_source_type = "replan_rejected" if proposal.proposal_type == "replan" else "proposal_rejected"
         try:
             from app.services.memory_service import extract_from_event
             extract_from_event(
-                source_type="proposal_rejected",
+                source_type=_rejection_source_type,
                 source_id=proposal.id,
             )
         except Exception:
             import logging as _logging
             _logging.getLogger(__name__).exception(
-                "ProjectMemory extraction failed for proposal_rejected %s",
+                "ProjectMemory extraction failed for %s %s",
+                _rejection_source_type,
                 proposal.id,
             )
 
