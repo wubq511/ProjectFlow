@@ -6,7 +6,7 @@ The shipped MVP still uses a legacy single `CoordinatorAgent`. The confirmed T41
 
 ## Current Status
 
-All MVP phases and MVP Usable tasks complete. Phase 24-29 (Agent Output Quality, T23 Fixes, Code Review, Frontend Redesign) complete through 2026-06-05. Phase 37-39 (Workspace UX, Landing Redesign, Agent UX Fixes, Task Ordering, Stage Auto-Advance) complete through 2026-06-07. Phase 40 (Agent Sidebar Polish) complete 2026-06-07. Phase 41 (Security Review & Performance Optimization) complete 2026-06-08. T41 Agent Runtime architecture docs were confirmed and pushed on 2026-07-04; runtime/tool slices S3/S5/S6/S7/S8/S9/S10/S11/S12/S13/S14/S15/S16 were implemented through 2026-07-06.
+All MVP phases and MVP Usable tasks complete. Phase 24-29 (Agent Output Quality, T23 Fixes, Code Review, Frontend Redesign) complete through 2026-06-05. Phase 37-39 (Workspace UX, Landing Redesign, Agent UX Fixes, Task Ordering, Stage Auto-Advance) complete through 2026-06-07. Phase 40 (Agent Sidebar Polish) complete 2026-06-07. Phase 41 (Security Review & Performance Optimization) complete 2026-06-08. T41 Agent Runtime architecture docs were confirmed and pushed on 2026-07-04; runtime/tool slices S3/S5/S6/S7/S8/S9/S10/S11/S12/S13/S14/S15/S16 were implemented through 2026-07-06. T42 ProjectMemory V1 issues #71-#77 were implemented and stabilized through 2026-07-07; the remaining V1 closure gap is the frontend read-only memory list/export UI tracked by GitHub #80.
 
 - Phase 0 / GitHub #2 — Guardrails & Setup
 - Phase 1 / GitHub #3 — Account / Workspace / Member Profile
@@ -36,8 +36,9 @@ All MVP phases and MVP Usable tasks complete. Phase 24-29 (Agent Output Quality,
 - Phase 40 — Agent Sidebar UI Polish & Planner Reliability (2026-06-07)
 - Phase 41 — Security Review & Performance Optimization (2026-06-08)
 - T41 S6-S13 / GitHub #51-#58 — Stage plan proposal, advisory Risk/ActionCard write, AssignmentProposal tool, check-in inferred task changes through replan proposal, parity/cutover safety net, direction-card/task-breakdown proposal tools, S11 frontend integration, and advisory create_risk/create_checkin tools (2026-07-06)
+- T42 ProjectMemory V1 / GitHub #71-#77 — governed project memory, deterministic extraction, visibility, retrieval, Agent context injection, evaluation harness, and optional vector guardrails (2026-07-07)
 
-Implemented: FastAPI backend (public MVP APIs plus service-token-protected internal T41 tool/runtime endpoints, 20 persistence tables/domain models with indexed foreign keys), agent infrastructure with mock/OpenAI-compatible provider diagnostics (httpx connection pool), current time/resource-aware WorkspaceState prompts, enriched direction clarification, confirm-to-persist `AgentProposal` flow for clarify/plan/breakdown/replan, T41 internal tools for stage plan, direction card, task breakdown, advisory Risk/ActionCard creation, direct advisory `create_risk`/`create_checkin`, AssignmentProposal creation, check-in inferred task status changes through replan proposals instead of direct `Task.status` writes, T41 runtime event bridge with trace envelope and proposal confirmation events, timeline-only negotiate agent output, stage auto-advance on human task completion, Task `order_index` sort chain, seed/reset/export, file upload with type/size validation, Next.js frontend (7 routes, project resources panel, user identity switcher, Agent proposal/timeline status badges, stage-grouped task breakdown, pending proposal preview banners, lazy-loaded markdown, memoized streaming), 385 backend tests passing, 559 agent-bridge tests passing (S15 unit/eval/privacy tests completed), 46 frontend tests passing, agent-bridge typecheck/build clean, frontend lint+build clean.
+Implemented: FastAPI backend (public MVP APIs plus service-token-protected internal T41 tool/runtime endpoints, ProjectMemory governance tables, indexed domain models), agent infrastructure with mock/OpenAI-compatible provider diagnostics (httpx connection pool), current time/resource-aware WorkspaceState prompts, enriched direction clarification, confirm-to-persist `AgentProposal` flow for clarify/plan/breakdown/replan, T41 internal tools for stage plan, direction card, task breakdown, advisory Risk/ActionCard creation, direct advisory `create_risk`/`create_checkin`, AssignmentProposal creation, check-in inferred task status changes through replan proposals instead of direct `Task.status` writes, T41 runtime event bridge with trace envelope and proposal confirmation events, T42 ProjectMemory deterministic source-event extraction plus JSON/Markdown read APIs and Agent context injection, timeline-only negotiate agent output, stage auto-advance on human task completion, Task `order_index` sort chain, seed/reset/export, file upload with type/size validation, Next.js frontend (workspace route, project resources panel, user identity switcher, Agent proposal/timeline status badges, stage-grouped task breakdown, pending proposal preview banners, lazy-loaded markdown, memoized streaming), 514 backend tests passing with 4 skipped, 559 agent-bridge tests passing, 46 frontend tests passing, backend ruff clean, agent-bridge typecheck/build passing, frontend lint/build passing.
 
 ## Stack
 
@@ -86,8 +87,8 @@ cd backend
 
 ```bash
 cd frontend
-../scripts/npm install
-../scripts/npm run dev
+npm install
+npm run dev
 ```
 
 Open:
@@ -100,10 +101,10 @@ Frontend verification:
 
 ```bash
 cd frontend
-../scripts/npm run test
-../scripts/npm run lint
-../scripts/npm run build
-../scripts/npm audit --omit=dev
+npm run test
+npm run lint
+npm run build
+npm audit --omit=dev
 ```
 
 ## Project Docs
@@ -119,6 +120,8 @@ cd frontend
 - [Agent Runtime T41 overview](docs/T41/ProjectFlow_Agent_Runtime_Team_TDD.md)
 - [Agent Runtime foundation design](docs/T41/ProjectFlow_Agent_Runtime_Foundation_Design.md)
 - [Agent Tools & Skills design](docs/T41/ProjectFlow_Agent_Tools_Skills_Design.md)
+- [ProjectMemory V1 design](docs/T42/project-memory-design-v4.1.md)
+- [ProjectMemory V1 closure review](docs/T42/project-memory-v1-closure.md)
 - [Agent Runtime ADRs](docs/adr/)
 - [Domain glossary](CONTEXT.md)
 - [T23 test docs](docs/T23/)

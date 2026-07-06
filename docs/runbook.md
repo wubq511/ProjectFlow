@@ -1,6 +1,6 @@
 # ProjectFlow Runbook
 
-Status: current as of 2026-06-08.
+Status: current as of 2026-07-07.
 
 ## Prerequisites
 
@@ -62,8 +62,6 @@ python -m app.memory.warmup
 
 详见 `docs/T42/memory-vector-optional.md`。
 
-```
-
 Run the API:
 
 ```bash
@@ -100,15 +98,15 @@ curl -X POST http://localhost:8000/api/llm/diagnostic ^
 
 ```bash
 cd frontend
-../scripts/npm install
-../scripts/npm run dev
+npm install
+npm run dev
 ```
 
 shadcn/ui components are pre-installed. To add more:
 
 ```bash
 cd frontend
-../scripts/npx shadcn@latest add <component-name>
+npx shadcn@latest add <component-name>
 ```
 
 Open:
@@ -120,7 +118,7 @@ http://localhost:3000
 If port 3000 is occupied:
 
 ```bash
-../scripts/npm run dev -- --port 3001
+npm run dev -- --port 3001
 ```
 
 ## Verification
@@ -136,25 +134,27 @@ Frontend:
 
 ```bash
 cd frontend
-../scripts/npm run test
-../scripts/npm run lint
-../scripts/npm run build
-../scripts/npm audit --omit=dev
+npm run test
+npm run lint
+npm run build
+npm audit --omit=dev
 ```
 
-Expected baseline as of 2026-07-06:
+Expected baseline as of 2026-07-07:
 
-- Backend tests pass: 385 tests (MVP API/model smoke plus CORS, agent schema/module/provider/fallback, timeline logging, assignment, action-card, check-in, risk, replan, seed/reset/export, demo reset, LLM diagnostic, agent proposal confirmation, T41 internal tool/runtime contract, service-token auth, idempotency, side-effect reconciliation, and runtime event bridge tests).
-- Agent bridge tests pass: 559 tests across 18 unit files; `../scripts/npm run typecheck` and `../scripts/npm run build` pass in `agent-bridge/`.
+- Backend tests pass: 514 passed, 4 skipped (MVP API/model smoke plus CORS, agent schema/module/provider/fallback, timeline logging, assignment, action-card, check-in, risk, replan, seed/reset/export, demo reset, LLM diagnostic, agent proposal confirmation, T41 internal tool/runtime contract, service-token auth, idempotency, side-effect reconciliation, runtime event bridge tests, and T42 ProjectMemory tests).
+- Agent bridge tests pass: 559 tests across 18 unit files; `npm run typecheck` and `npm run build` pass in `agent-bridge/`.
 - Frontend tests pass: 46 tests across 9 files (API layer, project dashboard, home page, app shell, action cards, task status update, error boundaries, assignment flow panel, agent proposal panel with generation-status badge coverage).
 - Frontend lint passes.
 - Frontend production build passes.
-- `../scripts/npm audit --omit=dev` reports 0 vulnerabilities.
+- `npm audit --omit=dev` reports 0 vulnerabilities.
 
 Known non-blocking warnings:
 
 - Backend pytest may show a FastAPI/Starlette `TestClient` deprecation warning.
 - Vitest may show a Vite CJS Node API deprecation warning.
+- Frontend lint currently reports 2 React hook dependency warnings in `workspace-content.tsx` and `workspace-create-form.tsx`.
+- Frontend tests currently report a framer-motion ref warning from `AgentArtifactCard`; tests still pass.
 
 ## LLM Provider Diagnostic
 

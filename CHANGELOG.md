@@ -4,6 +4,12 @@ All notable changes to ProjectFlow are documented here. Format follows [Keep a C
 
 ## [Unreleased]
 
+### T42 ProjectMemory V1
+
+- Implemented governed ProjectMemory backend/runtime slices for issues #71-#77: deterministic extraction, source hooks, visibility, retrieval, Agent context injection, evaluation harness, and optional vector guardrails.
+- Stabilized ProjectMemory acceptance path in commit `03e7bda`; backend ruff passes and backend test baseline is 514 passed / 4 skipped.
+- Added T42 closure review documenting the remaining V1 frontend memory list/export UI gap.
+
 ### T41 Agent Runtime Sidecar
 
 - S3: Sidecar 骨架（HTTP server、config、health endpoint）

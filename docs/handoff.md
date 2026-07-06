@@ -4,6 +4,20 @@ Status: current as of 2026-07-07.
 
 ## Latest Architecture Handoff
 
+### T42 — ProjectMemory V1 Closure Review (2026-07-07)
+
+Issues #71-#77 are closed and merged to `main` through commit `03e7bda` (`fix(t42): stabilize project memory acceptance`). This completes the ProjectMemory backend/runtime/evaluation/vector-guardrail slices, but the PRD remains in acceptance rather than complete.
+
+**Closure result:**
+
+- Backend/runtime V1 path is implemented: governed persistence, deterministic extractor, source hooks, idempotency/supersede, visibility, JSON list, Markdown export API, default FTS5+jieba retrieval, Agent context injection, retrieval evaluation, and optional vector guardrails.
+- Verification after stabilization: backend `ruff check app` passed; backend tests `514 passed, 4 skipped`; frontend tests `46 passed`; frontend lint passed with 2 existing React hook warnings; frontend production build passed; frontend production dependency audit reported 0 vulnerabilities; agent-bridge tests/typecheck/build passed.
+- GitHub issues #71, #72, #73, #74, #75, #76, and #77 are closed.
+- Remaining V1 closure gap: project-page read-only ProjectMemory list/export UI, tracked as GitHub issue #80. Backend endpoints exist, but the frontend currently has no memory API wrapper, component, or project-page entry point.
+- Accepted V1 limitation: alternate `/api/replans/confirm` path still does not produce ProjectMemory; current frontend does not use this endpoint.
+
+**Canonical closure record:** `docs/T42/project-memory-v1-closure.md`
+
 ### T42 — ProjectMemory V1 Optional Vector Extra & Dependency Guardrails (2026-07-07, issue #77)
 
 Add the optional `memory-vector` dependency path and guardrails for vector retrieval without changing ProjectMemory V1's default local-first behavior.
@@ -34,7 +48,7 @@ Add the optional `memory-vector` dependency path and guardrails for vector retri
 
 **Key files:** `backend/pyproject.toml`, `backend/app/agent/memory/vector_retriever.py`, `backend/app/agent/memory/retriever.py`, `backend/app/agent/memory/context_builder.py`, `backend/app/services/memory_service.py`, `backend/app/core/config.py`, `backend/app/memory/__init__.py`, `backend/app/memory/__main__.py`, `backend/app/memory/warmup.py`, `backend/app/tests/test_memory_vector_guardrails.py`, `backend/app/tests/test_memory_vector.py`, `docs/T42/memory-vector-optional.md`
 
-**What remains (T42 V1 next tracer bullets):**
+**What remains (T42 V1 closure gap):**
 - Frontend memory list/export UI
 
 ### T42 — ProjectMemory V1 Replan Memory Tracer (2026-07-06, issue #74)
@@ -935,7 +949,7 @@ Implemented scope:
 
 ## Verification Baseline
 
-Latest verification baseline after T42 retrieval eval harness (issue #76):
+Latest verification baseline after T42 ProjectMemory V1 stabilization (issues #71-#77):
 
 ```bash
 cd backend
@@ -944,19 +958,20 @@ cd backend
 
 ```bash
 cd frontend
-../scripts/npm run test
-../scripts/npm run lint
-../scripts/npm run build
-../scripts/npm audit --omit=dev
+npm run test
+npm run lint
+npm run build
+npm audit --omit=dev
 ```
 
 Results:
 
-- Backend: 497 tests passed.
+- Backend: 514 tests passed, 4 skipped.
 - Agent-bridge: 559 tests passed across 18 files.
 - Frontend tests: 46 passed across 9 files (API layer, project dashboard, home page, app shell, action card, task status update, error boundaries, assignment flow panel, agent sidebar).
-- Frontend lint passed.
+- Frontend lint passed with 2 existing React hook warnings.
 - Frontend build passed.
+- Frontend production dependency audit reported 0 vulnerabilities.
 
 ## Current Implementation Surface
 
