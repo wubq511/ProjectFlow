@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     feature_create_risk: bool = True
     feature_create_checkin: bool = True
 
+    # ── T42 ProjectMemory Vector Retrieval ───────────────────────────
+    memory_vector_enabled: bool = False  # 是否优先使用向量检索
+    memory_vector_model: str = "shibing624/text2vec-base-chinese"  # 默认中文模型
+    memory_vector_model_dir: str = ""  # 空=自动 data/memory-models/
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     def enabled_agent_tools(self) -> set[str]:

@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryBackend(str, Enum):
+    vector = "vector"
     fts5 = "fts5"
     sqlite_field = "sqlite_field"
     none = "none"
@@ -109,12 +110,29 @@ class MemoryRetriever:
         query: str,
         *,
         limit: int = 50,
+        prefer_vector: bool = False,
     ) -> tuple[list[tuple[str, float]], MemoryBackend]:
         """Search memories and return (memory_id, score) pairs.
 
-        Tries FTS5 first; if that fails, falls back to structured field filtering.
-        Returns an empty list with backend=MemoryBackend.none if both fail.
+        When prefer_vector=True, tries vector retrieval first; on failure
+        falls back to FTS5 → sqlite_field → none.
+        When prefer_vector=False (default), uses FTS5 → sqlite_field → none.
         """
+        # ── Optional vector path ──
+        if prefer_vector and query.strip():
+            try:
+                from app.agent.memory.vector_retriever import VectorBackendError, VectorRetriever, VectorConfig
+
+                vr = VectorRetriever(self.connection)
+                candidates, _ = vr.search(project_id, query, limit=limit)
+                if candidates:
+                    return candidates, MemoryBackend.vector
+            except VectorBackendError as exc:
+                logger.warning("Vector retrieval failed, falling back to FTS5: %s", exc)
+            except Exception as exc:
+                logger.warning("Vector retrieval unexpected error, falling back to FTS5: %s", exc)
+
+        # ── FTS5 path ──
         if self._fts_available and query.strip():
             try:
                 tokens = self._tokenize(query)
@@ -185,11 +203,12 @@ def retrieve_memory_ids(
     viewer_user_id: str,
     *,
     limit: int = 50,
+    prefer_vector: bool = False,
 ) -> RetrievalResult:
     """Retrieve candidate memory IDs for a viewer.
 
     Steps:
-    1. Search via FTS5 or sqlite_field fallback.
+    1. Search via vector (if prefer_vector), FTS5, or sqlite_field fallback.
     2. Reload each candidate from the authoritative ProjectMemory table.
     3. Filter by project, workspace membership, active status, expiry, and
        visibility.
@@ -207,7 +226,7 @@ def retrieve_memory_ids(
     member_ids = get_workspace_member_ids(session, project.workspace_id)
 
     retriever = MemoryRetriever(session.connection())
-    raw_candidates, backend = retriever.search(project_id, query, limit=limit)
+    raw_candidates, backend = retriever.search(project_id, query, limit=limit, prefer_vector=prefer_vector)
 
     now = datetime.now(UTC)
     visible_ids: list[str] = []

@@ -67,6 +67,7 @@ def build_memory_context(
     *,
     token_budget: int = 2000,
     max_memories: int = 10,
+    prefer_vector: bool = False,
 ) -> MemoryContext:
     """Build a memory context string for prompt injection.
 
@@ -82,6 +83,7 @@ def build_memory_context(
         query=query,
         viewer_user_id=viewer_user_id,
         limit=max(50, max_memories * 2),
+        prefer_vector=prefer_vector,
     )
 
     # Reserve budget for header/footer wrapping text

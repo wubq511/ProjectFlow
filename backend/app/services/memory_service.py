@@ -421,6 +421,7 @@ def retrieve_visible_memory_ids(
     viewer_user_id: str,
     query: str = "",
     limit: int = 50,
+    prefer_vector: bool = False,
 ) -> RetrievalResult:
     """Retrieve visible candidate memory IDs using the same can_view_memory logic.
 
@@ -435,6 +436,7 @@ def retrieve_visible_memory_ids(
         query=query,
         viewer_user_id=viewer_user_id,
         limit=limit,
+        prefer_vector=prefer_vector,
     )
 
 

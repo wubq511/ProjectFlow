@@ -6,6 +6,7 @@
 *.sqlite3
 backend/data/
 !backend/data/uploads/
+backend/data/memory-models/
 backend/data/uploads/*
 !backend/data/uploads/.gitkeep
 

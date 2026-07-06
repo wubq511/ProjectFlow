@@ -1,8 +1,41 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-06.
+Status: current as of 2026-07-07.
 
 ## Latest Architecture Handoff
+
+### T42 — ProjectMemory V1 Optional Vector Extra & Dependency Guardrails (2026-07-07, issue #77)
+
+Add the optional `memory-vector` dependency path and guardrails for vector retrieval without changing ProjectMemory V1's default local-first behavior.
+
+**What was built:**
+
+- **`memory-vector` extra**: `pyproject.toml` adds `[project.optional-dependencies] memory-vector` with `sentence-transformers>=2.2.0` and `sqlite-vec>=0.2.0`. Default `pip install -e ".[dev]"` does not install torch, sentence-transformers, sqlite-vec, or embedding model files.
+- **`vector_retriever.py`**: All vector-only imports (sentence_transformers, sqlite_vec) are inside functions, never at module top level. `is_vector_available()` checks importability without triggering downloads. `VectorRetriever` class with lazy model/extension initialization, `embed()`, `index_memory()`, `search()`. `VectorBackendError` on init failure for caller-side fallback.
+- **`MemoryBackend.vector`**: Enum extended with `vector` value. `MemoryRetriever.search()` gains `prefer_vector: bool = False` parameter. When True, tries vector first then falls back to FTS5 → sqlite_field → none. When False (default), unchanged FTS5 → sqlite_field → none chain.
+- **`prefer_vector` propagation**: `retrieve_memory_ids()`, `build_memory_context()`, `retrieve_visible_memory_ids()` all accept `prefer_vector` kwarg.
+- **Warmup module**: `python -m app.memory.warmup` — without extra prints skip message and exits 0; with extra initializes embedding model; on failure exits 1. FTS5 retrieval always functional regardless.
+- **Config**: `MEMORY_VECTOR_ENABLED`, `MEMORY_VECTOR_MODEL`, `MEMORY_VECTOR_MODEL_DIR` in `Settings`. Model directory `backend/data/memory-models/` added to `.gitignore`.
+- **Guardrail tests**: `test_memory_vector_guardrails.py` (13 tests) — default install no vector deps, retriever no vector imports at module level, warmup skip, fallback to FTS5, memory_backend reflects actual backend, prefer_vector signature compatibility.
+- **Vector-only tests**: `test_memory_vector.py` — auto-skipped without extra, runs only with `pip install -e ".[memory-vector]"`.
+- **Documentation**: `docs/T42/memory-vector-optional.md` — default vs extra path, warmup behavior, model storage, fallback semantics, environment variables.
+
+**Acceptance criteria verified (10/10):**
+1. Default install does not install vector deps ✓
+2. Vector deps only through `memory-vector` extra ✓
+3. Default path does not import vector deps at module import time ✓
+4. `python -m app.memory.warmup` prints skip message and exits 0 without extra ✓
+5. With extra, warmup can initialize/download embedding model ✓
+6. sqlite-vec/embedding init failure reports clear error, FTS5 stays functional ✓
+7. Vector unavailable falls back to fts5 → sqlite_field → none ✓
+8. `memory_backend` reflects actual backend used ✓
+9. Optional vector tests only run in vector-enabled env ✓
+10. Documentation states default path, extra path, warmup, model storage, fallback ✓
+
+**Key files:** `backend/pyproject.toml`, `backend/app/agent/memory/vector_retriever.py`, `backend/app/agent/memory/retriever.py`, `backend/app/agent/memory/context_builder.py`, `backend/app/services/memory_service.py`, `backend/app/core/config.py`, `backend/app/memory/__init__.py`, `backend/app/memory/__main__.py`, `backend/app/memory/warmup.py`, `backend/app/tests/test_memory_vector_guardrails.py`, `backend/app/tests/test_memory_vector.py`, `docs/T42/memory-vector-optional.md`
+
+**What remains (T42 V1 next tracer bullets):**
+- Frontend memory list/export UI
 
 ### T42 — ProjectMemory V1 Replan Memory Tracer (2026-07-06, issue #74)
 
@@ -33,7 +66,6 @@ Fourth vertical slice of ProjectMemory V1. When a replan proposal is confirmed o
 
 **What remains (T42 V1 next tracer bullets):**
 - Frontend memory list/export UI
-- Optional vector retrieval (memory-vector extra)
 
 ### T42 — ProjectMemory V1 Default Retrieval & Agent Context Injection (2026-07-06, issue #75)
 
@@ -84,7 +116,6 @@ Third vertical slice of ProjectMemory V1 (issue #73). When an assignment proposa
 
 **What remains (T42 V1 next tracer bullets):**
 - Frontend memory list/export UI
-- Optional vector retrieval (memory-vector extra)
 
 ### T42 — ProjectMemory V1 Proposal Rejection Memory (2026-07-06)
 
@@ -117,7 +148,6 @@ Second vertical slice of ProjectMemory V1 (issue #72). When a proposal is reject
 
 **What remains (T42 V1 next tracer bullets):**
 - Frontend memory list/export UI
-- Optional vector retrieval (memory-vector extra)
 
 ### T42 — ProjectMemory V1 Direction Card Tracer Bullet (2026-07-06)
 
@@ -156,7 +186,6 @@ First vertical slice of ProjectMemory V1 (issue #71). When a direction card is c
 
 **What remains (T42 V1 next tracer bullets):**
 - Frontend memory list/export UI
-- Optional vector retrieval (memory-vector extra)
 
 ### T42 — ProjectMemory V1 Retrieval Evaluation Harness (2026-07-07, issue #76)
 
