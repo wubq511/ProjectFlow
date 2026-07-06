@@ -27,7 +27,7 @@ T41 Agent Runtime work now has S3, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, 
 
 **Code review:** Two-axis review (Standards + Spec) completed. Hard violations fixed around XML escaping, skill tool filtering, provider parallel gating, manifest input schema forwarding, FastAPI tool envelope, cancel terminal state, references, S16 debug storage, S12 disabled/not-found terminal result handling, S13 proposal idempotency transaction boundaries, internal endpoint service-token auth, and S11 advisory write boundaries. `update_stage_progress` and `submit_tool_result` were removed from the active internal agent tool surface because stage progress has no valid current commit model and proposal confirmation must remain a user/public API boundary. Judgement calls remain for future refactors around `skill-selector.ts` matching strategy, `pi-runtime.ts` module size, and repeated proposal-tool handler shape.
 
-**Test results:** 385 backend tests pass, 558 sidecar unit tests pass (18 files), 46 frontend tests pass (9 files), sidecar typecheck/build pass.
+**Test results:** 385 backend tests pass, 559 sidecar unit tests pass (18 files), 46 frontend tests pass (9 files), sidecar typecheck/build pass.
 
 **What remains (deferred):**
 - None (all slices completed)
@@ -745,7 +745,7 @@ cd frontend
 Results:
 
 - Backend: 385 tests passed.
-- Agent-bridge: 558 tests passed across 18 files.
+- Agent-bridge: 559 tests passed across 18 files.
 - Frontend tests: 46 passed across 9 files (API layer, project dashboard, home page, app shell, action card, task status update, error boundaries, assignment flow panel, agent sidebar).
 - Frontend lint passed.
 - Frontend build passed.

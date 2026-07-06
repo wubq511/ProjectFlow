@@ -195,6 +195,18 @@ describe("pi-runtime", () => {
       agent_event_id: "event_1",
       created_ids: ["prop_1"],
     });
+    const proposalToolResult = calls
+      .flatMap((call) => call.tool_results ?? [])
+      .find((result) => result.tool_name === "generate_stage_plan_proposal");
+    expect(proposalToolResult?.result).toMatchObject({
+      side_effect_status: "proposal_persisted",
+      idempotency_key: expect.any(String),
+      links: {
+        proposal_id: "prop_1",
+        agent_event_id: "event_1",
+        created_ids: ["prop_1"],
+      },
+    });
     expect(streamed).toContain("proposal.created");
   });
 

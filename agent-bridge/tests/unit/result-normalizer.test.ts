@@ -40,4 +40,31 @@ describe("result-normalizer", () => {
     expect(record?.input).toEqual({ prompt: "raw-input" });
     expect(record?.output).toEqual({ secret: "raw-output" });
   });
+
+  it("normalizes FastAPI wire tool results to sidecar camelCase shape", () => {
+    const result = normalizeResult(
+      {
+        status: "success",
+        data: { proposal_id: "prop_1" },
+        side_effect_status: "proposal_persisted",
+        idempotency_key: "idem_1",
+        links: {
+          agent_event_id: "event_1",
+          proposal_id: "prop_1",
+          created_ids: ["prop_1"],
+        },
+        observation: "阶段计划草案已创建",
+        trace: { redacted: true },
+      },
+      { user_instruction: "生成阶段计划" },
+    );
+
+    expect(result.sideEffectStatus).toBe("proposal_persisted");
+    expect(result.idempotencyKey).toBe("idem_1");
+    expect(result.links).toMatchObject({
+      agentEventId: "event_1",
+      proposalId: "prop_1",
+      createdIds: ["prop_1"],
+    });
+  });
 });

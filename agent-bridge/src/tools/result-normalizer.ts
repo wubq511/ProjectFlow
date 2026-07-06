@@ -37,9 +37,10 @@ export function normalizeResult(
 
   // If result is already a valid ProjectFlowToolResult, normalize it
   if (isToolResult(result)) {
+    const normalized = normalizeToolResultShape(result);
     return {
-      ...result,
-      trace: buildTrace(inputArgs, result.data, opts),
+      ...normalized,
+      trace: buildTrace(inputArgs, normalized.data, opts),
     };
   }
 
@@ -58,6 +59,59 @@ function isToolResult(value: unknown): value is ProjectFlowToolResult {
   if (typeof value !== "object" || value === null) return false;
   const obj = value as Record<string, unknown>;
   return typeof obj.status === "string" && typeof obj.observation === "string";
+}
+
+function normalizeToolResultShape(value: ProjectFlowToolResult | Record<string, unknown>): ProjectFlowToolResult {
+  const obj = value as Record<string, unknown>;
+  const links = normalizeLinks(obj.links);
+  const trace = normalizeTrace(obj.trace);
+
+  return {
+    status: obj.status as ProjectFlowToolResult["status"],
+    ...(obj.data !== undefined ? { data: obj.data } : {}),
+    ...(obj.error !== undefined ? { error: obj.error as ProjectFlowToolResult["error"] } : {}),
+    sideEffectStatus: (obj.sideEffectStatus ?? obj.side_effect_status ?? "no_side_effect") as ProjectFlowToolResult["sideEffectStatus"],
+    ...(obj.idempotencyKey || obj.idempotency_key
+      ? { idempotencyKey: (obj.idempotencyKey ?? obj.idempotency_key) as string }
+      : {}),
+    ...(links ? { links } : {}),
+    observation: obj.observation as string,
+    trace,
+  };
+}
+
+function normalizeLinks(value: unknown): ProjectFlowToolResult["links"] | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const obj = value as Record<string, unknown>;
+  return {
+    ...(obj.agentEventId || obj.agent_event_id
+      ? { agentEventId: (obj.agentEventId ?? obj.agent_event_id) as string }
+      : {}),
+    ...(obj.agentRunId || obj.agent_run_id
+      ? { agentRunId: (obj.agentRunId ?? obj.agent_run_id) as string }
+      : {}),
+    ...(obj.proposalId || obj.proposal_id
+      ? { proposalId: (obj.proposalId ?? obj.proposal_id) as string }
+      : {}),
+    ...(Array.isArray(obj.createdIds)
+      ? { createdIds: obj.createdIds as string[] }
+      : Array.isArray(obj.created_ids)
+        ? { createdIds: obj.created_ids as string[] }
+        : {}),
+  };
+}
+
+function normalizeTrace(value: unknown): ToolTrace {
+  if (typeof value !== "object" || value === null) return { redacted: true };
+  const obj = value as Record<string, unknown>;
+  return {
+    ...(obj.inputHash || obj.input_hash ? { inputHash: (obj.inputHash ?? obj.input_hash) as string } : {}),
+    ...(obj.outputHash || obj.output_hash ? { outputHash: (obj.outputHash ?? obj.output_hash) as string } : {}),
+    ...(obj.debugPayloadId || obj.debug_payload_id
+      ? { debugPayloadId: (obj.debugPayloadId ?? obj.debug_payload_id) as string }
+      : {}),
+    redacted: typeof obj.redacted === "boolean" ? obj.redacted : true,
+  };
 }
 
 function buildTrace(input: unknown, output: unknown, opts: NormalizeOptions): ToolTrace {

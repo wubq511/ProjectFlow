@@ -118,7 +118,7 @@ cd frontend
 Expected baseline as of 2026-07-06:
 
 - Backend tests pass: 385 tests (MVP API/model smoke plus CORS, agent schema/module/provider/fallback, timeline logging, assignment, action-card, check-in, risk, replan, seed/reset/export, demo reset, LLM diagnostic, agent proposal confirmation, T41 internal tool/runtime contract, service-token auth, idempotency, side-effect reconciliation, and runtime event bridge tests).
-- Agent bridge tests pass: 558 tests across 18 unit files; `../scripts/npm run typecheck` and `../scripts/npm run build` pass in `agent-bridge/`.
+- Agent bridge tests pass: 559 tests across 18 unit files; `../scripts/npm run typecheck` and `../scripts/npm run build` pass in `agent-bridge/`.
 - Frontend tests pass: 46 tests across 9 files (API layer, project dashboard, home page, app shell, action cards, task status update, error boundaries, assignment flow panel, agent proposal panel with generation-status badge coverage).
 - Frontend lint passes.
 - Frontend production build passes.

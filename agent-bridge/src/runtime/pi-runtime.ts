@@ -167,6 +167,7 @@ function toPiTool(
             toolName,
           },
         });
+        normalized.idempotencyKey ??= idempotencyKey;
 
         const productEvents = buildToolResultProductEvents(
           normalized,
@@ -183,13 +184,7 @@ function toPiTool(
             tool_call_id: toolCallId,
             tool_name: toolName,
             tool_version: manifest.version,
-            result: {
-              status: normalized.status,
-              data: normalized.data,
-              side_effect_status: normalized.sideEffectStatus,
-              observation: normalized.observation,
-              trace: toWireTrace(normalized.trace),
-            },
+            result: toWireToolResult(normalized),
           }],
         });
         assignPersistedEventSeqs(productEvents, appendResponse);
@@ -641,6 +636,28 @@ function toWireTrace(trace: ToolTrace): NonNullable<WireProjectFlowToolResult["t
     ...(trace.outputHash ? { output_hash: trace.outputHash } : {}),
     ...(trace.debugPayloadId ? { debug_payload_id: trace.debugPayloadId } : {}),
     redacted: trace.redacted,
+  };
+}
+
+function toWireToolResult(result: ProjectFlowToolResult): WireProjectFlowToolResult {
+  return {
+    status: result.status,
+    ...(result.data !== undefined ? { data: result.data } : {}),
+    ...(result.error ? { error: result.error } : {}),
+    side_effect_status: result.sideEffectStatus,
+    ...(result.idempotencyKey ? { idempotency_key: result.idempotencyKey } : {}),
+    ...(result.links
+      ? {
+          links: {
+            ...(result.links.agentEventId ? { agent_event_id: result.links.agentEventId } : {}),
+            ...(result.links.agentRunId ? { agent_run_id: result.links.agentRunId } : {}),
+            ...(result.links.proposalId ? { proposal_id: result.links.proposalId } : {}),
+            ...(result.links.createdIds ? { created_ids: result.links.createdIds } : {}),
+          },
+        }
+      : {}),
+    observation: result.observation,
+    trace: toWireTrace(result.trace),
   };
 }
 
