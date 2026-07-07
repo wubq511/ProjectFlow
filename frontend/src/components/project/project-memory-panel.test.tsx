@@ -176,4 +176,57 @@ describe("ProjectMemoryPanel", () => {
 
     expect(screen.getByText("相关成员和负责人可见")).toBeTruthy();
   });
+
+  it("clears old memories and shows loading when the viewer changes", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/projects/project-1/memories?viewer_user_id=user-owner")) {
+        return jsonResponse([
+          {
+            ...baseMemory,
+            id: "memory-private",
+            memory_type: "member_constraint",
+            content: "所有者私有约束",
+            status: "active",
+            visibility: "subject_and_owner",
+          },
+        ]);
+      }
+      if (url.includes("/projects/project-1/memories?viewer_user_id=user-member")) {
+        return jsonResponse([]);
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = render(
+      <ProjectMemoryPanel
+        key="user-owner"
+        projectId="project-1"
+        projectName="Demo"
+        currentUserId="user-owner"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("所有者私有约束")).toBeTruthy();
+    });
+
+    rerender(
+      <ProjectMemoryPanel
+        key="user-member"
+        projectId="project-1"
+        projectName="Demo"
+        currentUserId="user-member"
+      />,
+    );
+
+    expect(screen.queryByText("所有者私有约束")).toBeNull();
+    expect(screen.getByText("加载项目记忆…")).toBeTruthy();
+
+    await waitFor(() => {
+      expect(screen.getByText("暂无可见项目记忆")).toBeTruthy();
+    });
+    expect(screen.queryByText("所有者私有约束")).toBeNull();
+  });
 });

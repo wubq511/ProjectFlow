@@ -648,6 +648,7 @@ function ViewRenderer({
       return (
         <div className="space-y-6">
           <ProjectMemoryPanel
+            key={`${project.id}-${currentUserId ?? "none"}`}
             projectId={project.id}
             projectName={project.name}
             currentUserId={currentUserId}

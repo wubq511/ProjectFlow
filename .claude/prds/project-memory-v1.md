@@ -1,7 +1,7 @@
 ---
 name: project-memory-v1
 description: Governed project memory for ProjectFlow decisions, retrieval, visibility, and Agent context injection
-status: acceptance
+status: complete
 created: 2026-07-06T09:29:56Z
 updated: 2026-07-07
 ---
@@ -10,14 +10,15 @@ updated: 2026-07-07
 
 ## Implementation Status
 
-Issues #71-#77 are closed and merged to `main` as of 2026-07-07, with latest stabilization commit `03e7bda`. This completes the backend/runtime/evaluation/vector-guardrail implementation slices:
+Issues #71-#80 are closed and merged to `main` as of 2026-07-07. This completes the V1 implementation:
 
 - Data model, deterministic extractor, source hooks, idempotent writes, supersede behavior, and visibility governance.
 - Direction-card, proposal rejection, assignment, and replan memory source events.
 - JSON memory list, Markdown export API, default FTS5+jieba retrieval, Agent context injection, and observability metadata.
 - Retrieval evaluation harness and optional `memory-vector` dependency guardrails.
+- Frontend read-only ProjectMemory list and Markdown export UI for the current viewer.
 
-The PRD is still in acceptance, not complete. The remaining V1 closure gap is the project-page read-only ProjectMemory list/export UI, now tracked as GitHub issue #80: backend JSON and Markdown endpoints exist, but the frontend has no memory list/export entry point yet. The known replan path (b) gap through `/api/replans/confirm` remains an accepted V1 limitation documented in the design.
+There are no remaining V1 closure gaps. The known replan path (b) gap through `/api/replans/confirm` remains an accepted V1 limitation documented in the design.
 
 ## Problem Statement
 
