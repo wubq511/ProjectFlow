@@ -14,11 +14,19 @@ from typing import Any
 from pydantic import ValidationError
 from sqlmodel import Session, select
 
-from app.agent.coordinator import CoordinatorAgent
-from app.agent.output_schemas import ActionCardProposal, CheckInAnalysisOutput, RiskAnalysisOutput
+from app.agent.output_schemas import (
+    ActionCardProposal,
+    CheckInAnalysisOutput,
+    DirectionCardOutput,
+    RiskAnalysisOutput,
+    ReplanOutput,
+    StagePlanOutput,
+    TaskBreakdownOutput,
+)
 from app.models import ActionCard, AgentEvent, AgentProposal, AssignmentProposal, Stage, Task, User, WorkspaceMembership
 from app.models.enums import (
     ActionCardStatus,
+    AgentEventStatus,
     AgentEventType,
     AgentProposalStatus,
     SideEffectStatus,
@@ -34,8 +42,7 @@ from app.schemas.runtime import ProjectFlowToolResult, ToolError, ToolExecutionR
 from app.schemas.workspace_state import WorkspaceStateResponse
 from app.services.action_card_service import create_action_card
 from app.services.agent_conversation_service import read_project_conversation
-from app.services.agent_flow_service import run_agent_flow
-from app.services.agent_proposal_service import list_proposals_by_project, to_proposal_read
+from app.services.agent_proposal_service import create_proposal, list_proposals_by_project, to_proposal_read
 from app.services.assignment_service import create_assignment_proposal
 from app.services.checkin_service import create_checkin_cycle, create_checkin_response
 from app.services.risk_service import create_risk
@@ -163,42 +170,31 @@ def execute_agent_tool(
                 observation="已复用同一次工具调用生成的阶段计划草案。",
             )
 
-        try:
-            flow_result = run_agent_flow(
+        # Sidecar direct-persist path: LLM already generated the output
+        if "output" in args and isinstance(args["output"], dict):
+            try:
+                validated = StagePlanOutput.model_validate(args["output"])
+            except ValidationError as exc:
+                return _failed(
+                    "STAGE_PLAN_OUTPUT_INVALID",
+                    f"Sidecar 提供的阶段计划输出校验失败：{exc}",
+                    side_effect_status=SideEffectStatus.no_side_effect,
+                )
+            return _persist_proposal_from_sidecar(
                 session,
-                workspace_id,
-                lambda coordinator, state, instruction: coordinator.generate_stage_plan(
-                    state,
-                    user_instruction=instruction,
-                ),
+                workspace_id=workspace_id,
                 project_id=project_id,
-                user_instruction=args.get("user_instruction") if isinstance(args.get("user_instruction"), str) else None,
-                auto_commit=False,
-            )
-        except ValueError as exc:
-            return _failed(
-                "STAGE_PLAN_PROPOSAL_FAILED",
-                str(exc),
-                side_effect_status=SideEffectStatus.no_side_effect,
-            )
-        if flow_result.proposal_id:
-            _tag_proposal_event_with_idempotency_key(
-                session,
-                proposal_id=flow_result.proposal_id,
+                proposal_type="plan",
+                event_type=AgentEventType.plan,
+                output=validated,
                 request=request,
+                observation="已生成待确认的阶段计划草案。",
             )
-            session.commit()
-        return _proposal_tool_result(
-            proposal_id=flow_result.proposal_id,
-            agent_event_id=_proposal_agent_event_id(session, flow_result.proposal_id),
-            output=flow_result.model_dump(mode="json"),
-            request=request,
-            created_ids=flow_result.created_ids,
-            observation=(
-                "已生成待确认的阶段计划草案。"
-                if flow_result.proposal_id
-                else "未生成阶段计划草案。"
-            ),
+
+        return _failed(
+            "STAGE_PLAN_OUTPUT_REQUIRED",
+            "stage-plan-proposal requires sidecar-generated output — the sidecar LLM should generate the proposal content directly.",
+            side_effect_status=SideEffectStatus.no_side_effect,
         )
 
     if tool_name == "checkins-and-risks-analysis":
@@ -212,21 +208,69 @@ def execute_agent_tool(
         if cached_event is not None:
             return _cached_advisory_tool_result(cached_event)
 
-        try:
-            return _execute_checkins_and_risks_analysis(
+        # Sidecar direct-persist path: LLM already generated checkin + risk analysis
+        if "checkin_analysis_output" in args and "risk_analysis_output" in args:
+            try:
+                checkin_output = CheckInAnalysisOutput.model_validate(args["checkin_analysis_output"])
+                risk_output = RiskAnalysisOutput.model_validate(args["risk_analysis_output"])
+            except ValidationError as exc:
+                return _failed(
+                    "CHECKINS_RISKS_OUTPUT_INVALID",
+                    f"Sidecar 提供的签到/风险分析输出校验失败：{exc}",
+                    side_effect_status=SideEffectStatus.no_side_effect,
+                )
+            action_cards_result = _parse_action_cards_argument(args)
+            if isinstance(action_cards_result, ProjectFlowToolResult):
+                return action_cards_result
+            action_cards = action_cards_result
+
+            # Create AgentEvent for traceability (store both outputs)
+            agent_event_id = _create_sidecar_agent_event(
                 session,
-                request=request,
-                dispatch_tool_name=tool_name,
                 workspace_id=workspace_id,
                 project_id=project_id,
-                user_instruction=args.get("user_instruction") if isinstance(args.get("user_instruction"), str) else None,
+                event_type=AgentEventType.checkin,
+                output={"checkin_analysis": checkin_output.model_dump(mode="json"), "risk_analysis": risk_output.model_dump(mode="json")},
+                request=request,
             )
-        except ValueError as exc:
-            return _failed(
-                "CHECKINS_AND_RISKS_ANALYSIS_FAILED",
-                str(exc),
-                side_effect_status=SideEffectStatus.no_side_effect,
+            created_ids = _dedupe_ids(
+                [
+                    *_persist_advisory_risks(session, project_id, checkin_output.risks),
+                    *_persist_advisory_risks(session, project_id, risk_output.risks),
+                    *_persist_advisory_action_cards(session, project_id, action_cards),
+                ]
             )
+            replan_signal = _build_replan_signal(checkin_output, risk_output)
+            data = {
+                "event_type": "checkin_and_risk_analysis",
+                "status": "success",
+                "checkin_analysis": checkin_output.model_dump(mode="json"),
+                "risk_analysis": risk_output.model_dump(mode="json"),
+                "replan_signal": replan_signal,
+                "created_ids": created_ids,
+                "related_event_ids": [agent_event_id],
+            }
+            observation = _build_checkin_risk_observation(created_ids, replan_signal)
+            _tag_agent_event_with_tool_request(
+                session,
+                event_id=agent_event_id,
+                request=request,
+                dispatch_tool_name=tool_name,
+            )
+            session.commit()
+            return _advisory_tool_result(
+                data=data,
+                request=request,
+                agent_event_id=agent_event_id,
+                created_ids=created_ids,
+                observation=observation,
+            )
+
+        return _failed(
+            "CHECKINS_RISKS_OUTPUT_REQUIRED",
+            "checkins-and-risks-analysis requires sidecar-generated checkin_analysis_output and risk_analysis_output — the sidecar LLM should generate the analysis content directly.",
+            side_effect_status=SideEffectStatus.no_side_effect,
+        )
 
     if tool_name == "replan-proposal":
         cached_proposal = _find_proposal_for_idempotency_key(
@@ -253,42 +297,31 @@ def execute_agent_tool(
         if pending_proposal is not None:
             return _blocked_pending_replan_result(pending_proposal, request)
 
-        try:
-            flow_result = run_agent_flow(
+        # Sidecar direct-persist path
+        if "output" in args and isinstance(args["output"], dict):
+            try:
+                validated = ReplanOutput.model_validate(args["output"])
+            except ValidationError as exc:
+                return _failed(
+                    "REPLAN_OUTPUT_INVALID",
+                    f"Sidecar 提供的重规划输出校验失败：{exc}",
+                    side_effect_status=SideEffectStatus.no_side_effect,
+                )
+            return _persist_proposal_from_sidecar(
                 session,
-                workspace_id,
-                lambda coordinator, state, instruction: coordinator.replan(
-                    state,
-                    user_instruction=instruction,
-                ),
+                workspace_id=workspace_id,
                 project_id=project_id,
-                user_instruction=args.get("user_instruction") if isinstance(args.get("user_instruction"), str) else None,
-                auto_commit=False,
-            )
-        except ValueError as exc:
-            return _failed(
-                "REPLAN_PROPOSAL_FAILED",
-                str(exc),
-                side_effect_status=SideEffectStatus.no_side_effect,
-            )
-        if flow_result.proposal_id:
-            _tag_proposal_event_with_idempotency_key(
-                session,
-                proposal_id=flow_result.proposal_id,
+                proposal_type="replan",
+                event_type=AgentEventType.replan,
+                output=validated,
                 request=request,
+                observation="已生成待确认的计划调整草案。",
             )
-            session.commit()
-        return _proposal_tool_result(
-            proposal_id=flow_result.proposal_id,
-            agent_event_id=_proposal_agent_event_id(session, flow_result.proposal_id),
-            output=flow_result.model_dump(mode="json"),
-            request=request,
-            created_ids=flow_result.created_ids,
-            observation=(
-                "已生成待确认的计划调整草案。"
-                if flow_result.proposal_id
-                else "未生成计划调整草案。"
-            ),
+
+        return _failed(
+            "REPLAN_OUTPUT_REQUIRED",
+            "replan-proposal requires sidecar-generated output — the sidecar LLM should generate the proposal content directly.",
+            side_effect_status=SideEffectStatus.no_side_effect,
         )
 
     if tool_name == "direction-card-proposal":
@@ -308,42 +341,31 @@ def execute_agent_tool(
                 observation="已复用同一次工具调用生成的方向卡草案。",
             )
 
-        try:
-            flow_result = run_agent_flow(
+        # Sidecar direct-persist path
+        if "output" in args and isinstance(args["output"], dict):
+            try:
+                validated = DirectionCardOutput.model_validate(args["output"])
+            except ValidationError as exc:
+                return _failed(
+                    "DIRECTION_CARD_OUTPUT_INVALID",
+                    f"Sidecar 提供的方向卡输出校验失败：{exc}",
+                    side_effect_status=SideEffectStatus.no_side_effect,
+                )
+            return _persist_proposal_from_sidecar(
                 session,
-                workspace_id,
-                lambda coordinator, state, instruction: coordinator.generate_direction_card(
-                    state,
-                    user_instruction=instruction,
-                ),
+                workspace_id=workspace_id,
                 project_id=project_id,
-                user_instruction=args.get("user_instruction") if isinstance(args.get("user_instruction"), str) else None,
-                auto_commit=False,
-            )
-        except ValueError as exc:
-            return _failed(
-                "DIRECTION_CARD_PROPOSAL_FAILED",
-                str(exc),
-                side_effect_status=SideEffectStatus.no_side_effect,
-            )
-        if flow_result.proposal_id:
-            _tag_proposal_event_with_idempotency_key(
-                session,
-                proposal_id=flow_result.proposal_id,
+                proposal_type="clarify",
+                event_type=AgentEventType.clarify,
+                output=validated,
                 request=request,
+                observation="已生成待确认的方向卡草案。",
             )
-            session.commit()
-        return _proposal_tool_result(
-            proposal_id=flow_result.proposal_id,
-            agent_event_id=_proposal_agent_event_id(session, flow_result.proposal_id),
-            output=flow_result.model_dump(mode="json"),
-            request=request,
-            created_ids=flow_result.created_ids,
-            observation=(
-                "已生成待确认的方向卡草案。"
-                if flow_result.proposal_id
-                else "未生成方向卡草案。"
-            ),
+
+        return _failed(
+            "DIRECTION_CARD_OUTPUT_REQUIRED",
+            "direction-card-proposal requires sidecar-generated output — the sidecar LLM should generate the proposal content directly.",
+            side_effect_status=SideEffectStatus.no_side_effect,
         )
 
     if tool_name == "task-breakdown-proposal":
@@ -363,42 +385,31 @@ def execute_agent_tool(
                 observation="已复用同一次工具调用生成的任务拆解草案。",
             )
 
-        try:
-            flow_result = run_agent_flow(
+        # Sidecar direct-persist path
+        if "output" in args and isinstance(args["output"], dict):
+            try:
+                validated = TaskBreakdownOutput.model_validate(args["output"])
+            except ValidationError as exc:
+                return _failed(
+                    "TASK_BREAKDOWN_OUTPUT_INVALID",
+                    f"Sidecar 提供的任务拆解输出校验失败：{exc}",
+                    side_effect_status=SideEffectStatus.no_side_effect,
+                )
+            return _persist_proposal_from_sidecar(
                 session,
-                workspace_id,
-                lambda coordinator, state, instruction: coordinator.generate_task_breakdown(
-                    state,
-                    user_instruction=instruction,
-                ),
+                workspace_id=workspace_id,
                 project_id=project_id,
-                user_instruction=args.get("user_instruction") if isinstance(args.get("user_instruction"), str) else None,
-                auto_commit=False,
-            )
-        except ValueError as exc:
-            return _failed(
-                "TASK_BREAKDOWN_PROPOSAL_FAILED",
-                str(exc),
-                side_effect_status=SideEffectStatus.no_side_effect,
-            )
-        if flow_result.proposal_id:
-            _tag_proposal_event_with_idempotency_key(
-                session,
-                proposal_id=flow_result.proposal_id,
+                proposal_type="breakdown",
+                event_type=AgentEventType.breakdown,
+                output=validated,
                 request=request,
+                observation="已生成待确认的任务拆解草案。",
             )
-            session.commit()
-        return _proposal_tool_result(
-            proposal_id=flow_result.proposal_id,
-            agent_event_id=_proposal_agent_event_id(session, flow_result.proposal_id),
-            output=flow_result.model_dump(mode="json"),
-            request=request,
-            created_ids=flow_result.created_ids,
-            observation=(
-                "已生成待确认的任务拆解草案。"
-                if flow_result.proposal_id
-                else "未生成任务拆解草案。"
-            ),
+
+        return _failed(
+            "TASK_BREAKDOWN_OUTPUT_REQUIRED",
+            "task-breakdown-proposal requires sidecar-generated output — the sidecar LLM should generate the proposal content directly.",
+            side_effect_status=SideEffectStatus.no_side_effect,
         )
 
     if tool_name == "assignment-recommendation":
@@ -421,6 +432,92 @@ def execute_agent_tool(
         return execute_create_checkin(session, request)
 
     raise ToolNotFoundError(f"Unknown agent tool: {tool_name}")
+
+
+# ─── Sidecar direct-persist helpers ────────────────────────────────────────
+# When the sidecar's LLM generates proposal content itself, it passes the
+# validated output dict in `request.arguments["output"]`.  These helpers
+# validate the schema, create an AgentEvent + AgentProposal, and return
+# a ProjectFlowToolResult — without calling CoordinatorAgent / llm_client.
+
+
+def _create_sidecar_agent_event(
+    session: Session,
+    *,
+    workspace_id: str,
+    project_id: str,
+    event_type: AgentEventType,
+    output: Any,
+    request: ToolExecutionRequest,
+) -> str:
+    """Create an AgentEvent record for a sidecar-originated proposal.
+
+    Returns the new event's ID.
+    """
+    event = AgentEvent(
+        project_id=project_id,
+        workspace_id=workspace_id,
+        event_type=event_type,
+        status=AgentEventStatus.success,
+        reasoning_summary=f"Sidecar LLM 生成，tool: {request.tool_name}",
+        user_confirmed=False,
+    )
+    event.set_input_snapshot({
+        "tool_idempotency_key": request.idempotency_key,
+        "tool_run_id": request.run_id,
+        "conversation_id": request.conversation_id,
+        "tool_call_id": request.tool_call_id,
+        "tool_name": request.tool_name,
+    })
+    event.set_output_snapshot(output.model_dump(mode="json") if hasattr(output, "model_dump") else output)
+    session.add(event)
+    session.flush()
+    return event.id
+
+
+def _persist_proposal_from_sidecar(
+    session: Session,
+    *,
+    workspace_id: str,
+    project_id: str,
+    proposal_type: str,
+    event_type: AgentEventType,
+    output: Any,
+    request: ToolExecutionRequest,
+    observation: str,
+) -> ProjectFlowToolResult:
+    """Validate sidecar-provided output, persist AgentEvent + AgentProposal, return result."""
+    agent_event_id = _create_sidecar_agent_event(
+        session,
+        workspace_id=workspace_id,
+        project_id=project_id,
+        event_type=event_type,
+        output=output,
+        request=request,
+    )
+    proposal = create_proposal(
+        session,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        proposal_type=proposal_type,
+        agent_event_id=agent_event_id,
+        payload=output.model_dump(mode="json"),
+        auto_commit=False,
+    )
+    _tag_proposal_event_with_idempotency_key(
+        session,
+        proposal_id=proposal.id,
+        request=request,
+    )
+    session.commit()
+    return _proposal_tool_result(
+        proposal_id=proposal.id,
+        agent_event_id=agent_event_id,
+        output=output.model_dump(mode="json"),
+        request=request,
+        created_ids=[],
+        observation=observation,
+    )
 
 
 def execute_read_only_tool(session: Session, request: ToolExecutionRequest) -> ProjectFlowToolResult:
@@ -493,109 +590,6 @@ def _find_pending_replan_proposal(
         )
         .order_by(AgentProposal.created_at.desc())
     ).first()
-
-
-def _execute_checkins_and_risks_analysis(
-    session: Session,
-    *,
-    request: ToolExecutionRequest,
-    dispatch_tool_name: str,
-    workspace_id: str,
-    project_id: str,
-    user_instruction: str | None,
-) -> ProjectFlowToolResult:
-    workspace_state = get_workspace_state(session, workspace_id, project_id=project_id)
-    if workspace_state is None:
-        return _failed(
-            "WORKSPACE_NOT_FOUND",
-            f"Workspace {workspace_id} not found",
-            side_effect_status=SideEffectStatus.no_side_effect,
-        )
-    if workspace_state.project is None:
-        return _failed(
-            "PROJECT_NOT_FOUND",
-            f"Project {project_id} not found in workspace {workspace_id}",
-            side_effect_status=SideEffectStatus.no_side_effect,
-        )
-    action_cards_result = _parse_action_cards_argument(request.arguments or {})
-    if isinstance(action_cards_result, ProjectFlowToolResult):
-        return action_cards_result
-    action_cards = action_cards_result
-
-    coordinator = CoordinatorAgent(session=session)
-    checkin_result = coordinator.analyze_checkin(
-        workspace_state,
-        user_instruction=user_instruction,
-    )
-    checkin_output = CheckInAnalysisOutput.model_validate(checkin_result.output.model_dump(mode="json"))
-    checkin_event_id = _latest_agent_event_id(
-        session,
-        workspace_id=workspace_id,
-        project_id=project_id,
-        event_type=AgentEventType.checkin,
-    )
-
-    risk_result = coordinator.analyze_risks(
-        workspace_state,
-        user_instruction=user_instruction,
-    )
-    risk_output = RiskAnalysisOutput.model_validate(risk_result.output.model_dump(mode="json"))
-    risk_event_id = _latest_agent_event_id(
-        session,
-        workspace_id=workspace_id,
-        project_id=project_id,
-        event_type=AgentEventType.risk,
-    )
-
-    created_ids = _dedupe_ids(
-        [
-            *_persist_advisory_risks(session, project_id, checkin_output.risks),
-            *_persist_advisory_risks(session, project_id, risk_output.risks),
-            *_persist_advisory_action_cards(session, project_id, action_cards),
-        ]
-    )
-    related_event_ids = [event_id for event_id in [checkin_event_id, risk_event_id] if event_id]
-    primary_event_id = checkin_event_id or risk_event_id
-    replan_signal = _build_replan_signal(checkin_output, risk_output)
-    data = {
-        "event_type": "checkin_and_risk_analysis",
-        "status": "success",
-        "checkin_analysis": checkin_result.output.model_dump(mode="json"),
-        "risk_analysis": risk_result.output.model_dump(mode="json"),
-        "replan_signal": replan_signal,
-        "created_ids": created_ids,
-        "related_event_ids": related_event_ids,
-    }
-    observation = _build_checkin_risk_observation(created_ids, replan_signal)
-
-    for event_id in related_event_ids:
-        _tag_agent_event_with_tool_request(
-            session,
-            event_id=event_id,
-            request=request,
-            dispatch_tool_name=dispatch_tool_name,
-        )
-    if primary_event_id is not None:
-        _store_advisory_tool_result(
-            session,
-            event_id=primary_event_id,
-            result=_advisory_tool_result(
-                data=data,
-                request=request,
-                agent_event_id=primary_event_id,
-                created_ids=created_ids,
-                observation=observation,
-            ),
-            related_event_ids=related_event_ids,
-        )
-    session.commit()
-    return _advisory_tool_result(
-        data=data,
-        request=request,
-        agent_event_id=primary_event_id,
-        created_ids=created_ids,
-        observation=observation,
-    )
 
 
 def _find_proposal_for_idempotency_key(

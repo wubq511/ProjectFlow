@@ -27,11 +27,20 @@ function createState() {
 }
 
 function createModelRouter(): ModelRouter {
-  return new ModelRouter({
-    defaultProvider: "mock",
-    defaultModel: "mock-model",
-    providers: {},
-  });
+  // Create a minimal mock ModelConfigStore for the mock provider
+  const mockStore = {
+    list: () => [],
+    listWire: () => [],
+    get: () => undefined,
+    getValid: () => undefined,
+    getDefault: () => undefined,
+    load: async () => {},
+    add: async () => { throw new Error("not implemented"); },
+    update: async () => { throw new Error("not implemented"); },
+    delete: async () => { throw new Error("not implemented"); },
+    persist: async () => {},
+  } as unknown as import("../../src/config/model-config-store.js").ModelConfigStore;
+  return new ModelRouter(mockStore);
 }
 
 function createFastapiClient(calls: WireAppendRequest[]): FastapiClient {

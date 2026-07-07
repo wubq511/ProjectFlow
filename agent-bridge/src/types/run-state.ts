@@ -46,6 +46,9 @@ export interface RunBudgetLimits {
   timeoutMs: number;
 }
 
+/** Thinking/reasoning level for models that support it. */
+export type ThinkingLevel = "low" | "medium" | "high" | "xhigh" | "max";
+
 export interface AgentRunState {
   runId: string;
   conversationId: string;
@@ -55,6 +58,7 @@ export interface AgentRunState {
   currentTurn: number;
   currentStep: number;
   model: { provider: string; name: string };
+  thinkingLevel?: ThinkingLevel;
   pendingToolCall?: PendingToolCall;
   sideEffects: SideEffect[];
   lastEventSeq: number;
@@ -75,6 +79,8 @@ export interface CreateRunStateInput {
   timeoutMs: number;
   /** External run ID (e.g. from FastAPI). If omitted, a local ID is generated. */
   runId?: string;
+  /** Thinking/reasoning level for models that support it. */
+  thinkingLevel?: ThinkingLevel;
 }
 
 let runCounter = 0;
@@ -91,6 +97,7 @@ export function createRunState(input: CreateRunStateInput): AgentRunState {
     currentTurn: 0,
     currentStep: 0,
     model: input.model,
+    thinkingLevel: input.thinkingLevel,
     sideEffects: [],
     lastEventSeq: 0,
     budgetLimits: {

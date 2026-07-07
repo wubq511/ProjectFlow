@@ -50,6 +50,9 @@ export function snakifyKeys(obj: unknown): unknown {
 
 // ─── Wire Format Types (snake_case, matching FastAPI schemas) ─────────
 
+/** Thinking/reasoning level for models that support it. */
+export type WireThinkingLevel = "low" | "medium" | "high" | "xhigh" | "max";
+
 export interface WireRunStartRequest {
   conversation_id: string;
   workspace_id: string;
@@ -66,6 +69,7 @@ export interface WireRunStartRequest {
     max_tool_calls?: number;
     timeout_ms?: number;
     trace_include_sensitive_data?: boolean;
+    thinking_level?: WireThinkingLevel;
   };
 }
 

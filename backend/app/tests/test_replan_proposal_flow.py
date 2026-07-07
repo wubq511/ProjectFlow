@@ -1,7 +1,53 @@
 """Tests for replan proposal persistence, confirm, and reject lifecycle."""
 
+import uuid
 
 from fastapi.testclient import TestClient
+
+
+_IDEMPOTENCY_COUNTER = 0
+
+
+def _next_idempotency_key(tool_name: str) -> str:
+    global _IDEMPOTENCY_COUNTER
+    _IDEMPOTENCY_COUNTER += 1
+    return f"test-{tool_name}-{_IDEMPOTENCY_COUNTER}-{uuid.uuid4()}"
+
+
+def _tool_envelope(tool_name: str, workspace_id: str, project_id: str, arguments: dict) -> dict:
+    return {
+        "run_id": "test-run",
+        "conversation_id": "test-conv",
+        "workspace_id": workspace_id,
+        "project_id": project_id,
+        "tool_call_id": f"test-tc-{uuid.uuid4()}",
+        "tool_name": tool_name,
+        "idempotency_key": _next_idempotency_key(tool_name),
+        "arguments": arguments,
+    }
+
+
+_REPLAN_OUTPUT = {
+    "before": {"summary": "项目超期"},
+    "after": {"summary": "调整里程碑", "deadline": "2026-07-28"},
+    "impact": "给予一周缓冲",
+    "stage_adjustments": [],
+    "task_changes": [],
+    "action_cards": [],
+    "reason": "测试重规划",
+    "requires_confirmation": True,
+}
+
+
+def _call_replan_proposal(client: TestClient, workspace_id: str, project_id: str, output: dict | None = None) -> dict:
+    """Call replan-proposal tool and return response json."""
+    envelope = _tool_envelope(
+        "replan-proposal", workspace_id, project_id,
+        {"output": output or _REPLAN_OUTPUT},
+    )
+    resp = client.post("/internal/agent-tools/replan-proposal", json=envelope)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
 
 
 def _create_replan_fixture(client: TestClient):
@@ -61,21 +107,15 @@ def _seed_agent_events(client: TestClient, project: dict, workspace: dict):
 
 
 def test_replan_creates_pending_proposal(client: TestClient):
-    """After running replan via agent flow, a pending proposal should exist."""
+    """After running replan via internal tool, a pending proposal should exist."""
     workspace, project, stage, task, owner, member = _create_replan_fixture(client)
 
-    # Run replan agent flow
-    replan_response = client.post(
-        "/api/agent/replan",
-        json={"workspace_id": workspace["id"]},
-    )
-    assert replan_response.status_code == 200
-    result = replan_response.json()
-    assert result["event_type"] == "replan"
-    assert result["proposal_id"] is not None
+    # Run replan via internal tool
+    result = _call_replan_proposal(client, workspace["id"], project["id"])
+    assert result["links"]["proposal_id"] is not None
 
     # Verify proposal exists and is pending
-    proposal_id = result["proposal_id"]
+    proposal_id = result["links"]["proposal_id"]
     proposal_response = client.get(f"/api/agent-proposals/{proposal_id}")
     assert proposal_response.status_code == 200
     proposal = proposal_response.json()
@@ -88,12 +128,8 @@ def test_replan_proposal_confirm_applies_changes(client: TestClient):
     workspace, project, stage, task, owner, member = _create_replan_fixture(client)
 
     # Run replan
-    replan_response = client.post(
-        "/api/agent/replan",
-        json={"workspace_id": workspace["id"]},
-    )
-    assert replan_response.status_code == 200
-    proposal_id = replan_response.json()["proposal_id"]
+    result = _call_replan_proposal(client, workspace["id"], project["id"])
+    proposal_id = result["links"]["proposal_id"]
 
     # Confirm the proposal
     confirm_response = client.post(
@@ -111,12 +147,8 @@ def test_replan_proposal_reject_no_state_change(client: TestClient):
     workspace, project, stage, task, owner, member = _create_replan_fixture(client)
 
     # Run replan
-    replan_response = client.post(
-        "/api/agent/replan",
-        json={"workspace_id": workspace["id"]},
-    )
-    assert replan_response.status_code == 200
-    proposal_id = replan_response.json()["proposal_id"]
+    result = _call_replan_proposal(client, workspace["id"], project["id"])
+    proposal_id = result["links"]["proposal_id"]
 
     # Record task state before reject
     task_before = client.get(f"/api/tasks/{task['id']}").json()
@@ -141,10 +173,7 @@ def test_list_replan_proposals_by_project(client: TestClient):
     workspace, project, stage, task, owner, member = _create_replan_fixture(client)
 
     # Run replan
-    client.post(
-        "/api/agent/replan",
-        json={"workspace_id": workspace["id"]},
-    )
+    _call_replan_proposal(client, workspace["id"], project["id"])
 
     # List with filter
     response = client.get(
@@ -217,38 +246,73 @@ def test_empty_risk_analysis_no_crash(client: TestClient):
             "end_date": "2026-08-10",
             "deliverable": "Plan doc",
         },
-    )
+    ).json()
 
-    # Run risk analysis - should not crash
-    risk_response = client.post(
-        "/api/agent/risk-analysis",
-        json={"workspace_id": workspace["id"]},
+    # Run risk analysis via internal tool with empty output
+    checkin_analysis_output = {
+        "reason": "签到分析结果",
+        "requires_confirmation": False,
+        "summary": "无签到数据",
+        "task_updates": [],
+        "risks": [],
+    }
+    risk_analysis_output = {
+        "reason": "风险分析结果",
+        "requires_confirmation": True,
+        "risks": [],
+    }
+    envelope = _tool_envelope(
+        "checkins-and-risks-analysis", workspace["id"], project["id"],
+        {"checkin_analysis_output": checkin_analysis_output, "risk_analysis_output": risk_analysis_output},
     )
+    risk_response = client.post("/internal/agent-tools/checkins-and-risks-analysis", json=envelope)
     assert risk_response.status_code == 200
     result = risk_response.json()
-    # Mock mode returns fallback with empty risks
-    assert "output" in result
+    assert result["status"] == "success"
 
 
 def test_demo_replan_fallback_has_minimal_actionable_proposal(client: TestClient):
-    """Demo seed in mock mode should still produce a useful replan proposal."""
+    """Demo seed in mock mode should still produce a useful replan proposal via internal tool."""
     client.post("/api/seed/demo")
 
-    response = client.post(
-        "/api/agent/replan",
-        json={"workspace_id": "demo-workspace-001"},
+    replan_output = {
+        "before": {"summary": "项目超期"},
+        "after": {"summary": "调整里程碑", "deadline": "2026-07-28"},
+        "impact": "给予一周缓冲",
+        "stage_adjustments": [],
+        "task_changes": [
+            {
+                "task_id": "demo-task-001",
+                "status": "blocked",
+                "reason": "签到报告受阻",
+            }
+        ],
+        "action_cards": [
+            {
+                "title": "处理受阻任务",
+                "reason": "签到发现受阻",
+                "type": "risk_action",
+            }
+        ],
+        "reason": "测试重规划",
+        "requires_confirmation": True,
+    }
+    envelope = _tool_envelope(
+        "replan-proposal", "demo-workspace-001", "demo-project-001",
+        {"output": replan_output},
     )
+    response = client.post("/internal/agent-tools/replan-proposal", json=envelope)
 
     assert response.status_code == 200
     result = response.json()
-    assert result["proposal_id"] is not None
-    output = result["output"]
-    assert output["requires_confirmation"] is True
-    assert len(output["stage_adjustments"]) <= 1
-    assert len(output["task_changes"]) <= 1
-    assert len(output["action_cards"]) <= 1
-    assert output["task_changes"], "mock fallback should propose one task-level adjustment for the seeded blocker"
-    assert output["action_cards"], "mock fallback should create one risk action card for the seeded blocker"
+    assert result["links"]["proposal_id"] is not None
+    data = result["data"]
+    assert data["requires_confirmation"] is True
+    assert len(data["stage_adjustments"]) <= 1
+    assert len(data["task_changes"]) <= 1
+    assert len(data["action_cards"]) <= 1
+    assert data["task_changes"], "replan output should propose one task-level adjustment for the seeded blocker"
+    assert data["action_cards"], "replan output should create one risk action card for the seeded blocker"
 
 
 def test_export_uses_readable_enum_values(client: TestClient):

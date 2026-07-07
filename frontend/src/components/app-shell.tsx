@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useSyncExternalStore } from "react";
-import { ChevronDown, GitBranch, Home, LayoutDashboard, Menu, Sparkles, Users } from "lucide-react";
+import { useEffect, useSyncExternalStore, useState } from "react";
+import { ChevronDown, GitBranch, Home, LayoutDashboard, Menu, Settings, Sparkles, Users } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/brand-logo";
@@ -23,6 +23,7 @@ import {
   SheetDescription,
   SheetClose,
 } from "@/components/ui/sheet";
+import { SettingsDialog } from "@/components/settings/settings-dialog";
 
 const WORKSPACE_STORAGE_KEY = "projectflow:last-workspace-id";
 const USER_STORAGE_KEY = "projectflow:current-user-id";
@@ -232,6 +233,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const workspaceId = useWorkspaceNav();
   const storedUserId = useCurrentUserId();
   const members = useWorkspaceMembers();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Check if current page uses three-column layout (project or workspace dashboard)
   const isProjectDashboard =
@@ -326,6 +328,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 )}
 
                 <div className="hidden md:block" />
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "h-8 w-8",
+                    isLandingPage && "text-neutral-700 hover:text-neutral-950",
+                  )}
+                  onClick={() => setSettingsOpen(true)}
+                >
+                  <Settings className="h-4 w-4" />
+                  <span className="sr-only">设置</span>
+                </Button>
               </div>
 
               <div className="md:hidden">
@@ -336,6 +351,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         </>
       )}
+
+      {/* Settings accessible from all views including project dashboard */}
+      {isProjectDashboard && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="fixed top-3 right-3 z-50 h-8 w-8 text-neutral-400 hover:text-neutral-700"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Settings className="h-4 w-4" />
+          <span className="sr-only">设置</span>
+        </Button>
+      )}
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 
       <main className={isProjectDashboard ? "h-full" : ""}>
         {children}

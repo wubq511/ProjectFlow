@@ -6,7 +6,7 @@ import { ProjectSidebar, type ProjectView } from "./project-sidebar";
 import { AgentSidebar } from "./agent-sidebar";
 import { ProjectContent } from "./project-content";
 import { WorkspaceContent } from "./workspace-content";
-import type { AddResourceRequest, AgentArtifact, AgentConversation, AgentStreamPhase, AgentSuggestion, ProjectState, WorkspaceState } from "@/lib/types";
+import type { AddResourceRequest, AgentArtifact, AgentConversation, AgentStreamPhase, AgentSuggestion, ProjectState, WorkspaceState, ThinkingLevel } from "@/lib/types";
 import type { AgentAction } from "./project-actions";
 
 interface WorkspaceLayoutProps {
@@ -33,7 +33,7 @@ interface WorkspaceLayoutProps {
   onClearSelectedProject: () => void;
   onShowWorkspace: (show: boolean) => void;
   onNavigateView: (view: ProjectView) => void;
-  onRunAgent?: (action: AgentAction) => void;
+  onRunAgent?: (action: AgentAction, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => void;
   onSendAgentMessage?: (content: string) => void | Promise<void>;
   onRespondToAssignment?: (
     proposalId: string,

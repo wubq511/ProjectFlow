@@ -1,310 +1,150 @@
 /**
- * Tests for ModelRouter — multi-provider model routing.
+ * Tests for ModelRouter — registry-based model resolution.
  *
- * Verifies:
- * - resolve() returns mock config for mock provider
- * - resolve() returns configured provider config
- * - resolve() throws for unconfigured provider
- * - resolve() uses default provider/model when not specified
- * - getEndpoint() returns correct URLs
- * - getAuthHeaders() returns correct headers per provider
- * - createModelRouterFromEnv() reads env vars correctly
+ * ModelRouter resolves model config entries from the ModelConfigStore registry.
+ * Actual API calls are handled by Pi SDK model objects via resolveRealModel().
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { ModelRouter, createModelRouterFromEnv } from "../../src/runtime/model-router.js";
-import type { ModelRouterConfig, ProviderConfig } from "../../src/runtime/model-router.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { ModelRouter } from "../../src/runtime/model-router.js";
+import type { ModelConfigStore } from "../../src/config/model-config-store.js";
+import type { ModelConfigEntryRuntime } from "../../src/types/model-config.js";
 
-const openaiProvider: ProviderConfig = {
-  baseUrl: "https://api.openai.com/v1",
-  apiKey: "sk-test-123",
-  defaultModel: "gpt-4o-mini",
-};
-
-const anthropicProvider: ProviderConfig = {
-  baseUrl: "https://api.anthropic.com/v1",
-  apiKey: "sk-ant-test-456",
-  defaultModel: "claude-sonnet-4-20250514",
-};
-
-const openrouterProvider: ProviderConfig = {
-  baseUrl: "https://openrouter.ai/api/v1",
-  apiKey: "sk-or-test-789",
-  defaultModel: "openai/gpt-4o-mini",
-};
-
-function makeRouter(overrides: Partial<ModelRouterConfig> = {}): ModelRouter {
-  return new ModelRouter({
-    defaultProvider: "mock",
-    defaultModel: "mock-model",
-    providers: {},
-    ...overrides,
-  });
+/** Minimal mock ModelConfigStore for testing. */
+function createMockStore(entries: ModelConfigEntryRuntime[], defaultId?: string): ModelConfigStore {
+  return {
+    list: () => entries,
+    listWire: () => entries,
+    get: (id: string) => entries.find((e) => e.id === id),
+    getValid: (id: string) => {
+      const e = entries.find((e) => e.id === id);
+      return e?.valid ? e : undefined;
+    },
+    getDefault: () => (defaultId ? entries.find((e) => e.id === defaultId) : entries.find((e) => e.isDefault && e.valid)),
+    load: async () => {},
+    add: async () => { throw new Error("not implemented"); },
+    update: async () => { throw new Error("not implemented"); },
+    delete: async () => { throw new Error("not implemented"); },
+    persist: async () => {},
+  } as unknown as ModelConfigStore;
 }
+
+const VALID_DEEPSEEK: ModelConfigEntryRuntime = {
+  id: "deepseek-v4-flash",
+  provider: "deepseek",
+  name: "deepseek-v4-flash",
+  displayName: "DeepSeek V4 Flash",
+  apiKeyEnvVar: "DEEPSEEK_API_KEY",
+  isDefault: true,
+  capabilities: { thinking: true, vision: false },
+  apiKeySet: true,
+  apiKeySuffix: "abcd",
+  valid: true,
+  invalidReason: undefined,
+  resolvedBaseUrl: undefined,
+};
+
+const VALID_XIAOMI: ModelConfigEntryRuntime = {
+  id: "mimo-v2.5",
+  provider: "xiaomi",
+  name: "mimo-v2.5",
+  displayName: "MiMo V2.5",
+  apiKeyEnvVar: "XIAOMI_API_KEY",
+  isDefault: false,
+  capabilities: { thinking: true, vision: true },
+  apiKeySet: true,
+  apiKeySuffix: "efgh",
+  valid: true,
+  invalidReason: undefined,
+  resolvedBaseUrl: undefined,
+};
+
+const INVALID_ENTRY: ModelConfigEntryRuntime = {
+  id: "bad-model",
+  provider: "unknown-provider",
+  name: "some-model",
+  displayName: "Bad Model",
+  apiKeyEnvVar: "MISSING_KEY",
+  isDefault: false,
+  capabilities: { thinking: false, vision: false },
+  apiKeySet: false,
+  apiKeySuffix: undefined,
+  valid: false,
+  invalidReason: "API key not set",
+  resolvedBaseUrl: undefined,
+};
 
 describe("ModelRouter", () => {
   describe("resolve", () => {
-    it("returns mock config for mock provider", () => {
-      const router = makeRouter();
-      const config = router.resolve("mock", "mock-model");
-
-      expect(config.provider).toBe("mock");
-      expect(config.name).toBe("mock-model");
-      expect(config.apiKey).toBeUndefined();
-      expect(config.baseUrl).toBeUndefined();
-    });
-
-    it("returns configured provider config", () => {
-      const router = makeRouter({
-        providers: { openai: openaiProvider },
-      });
-      const config = router.resolve("openai", "gpt-4o");
-
-      expect(config.provider).toBe("openai");
-      expect(config.name).toBe("gpt-4o");
-      expect(config.apiKey).toBe("sk-test-123");
-      expect(config.baseUrl).toBe("https://api.openai.com/v1");
-    });
-
-    it("uses router defaultModel when model not specified", () => {
-      const router = makeRouter({
-        defaultModel: "router-default",
-        providers: { openai: openaiProvider },
-      });
-      const config = router.resolve("openai");
-
-      expect(config.name).toBe("router-default");
-    });
-
-    it("uses provider defaultModel when router defaultModel is falsy", () => {
-      const router = new ModelRouter({
-        defaultProvider: "mock",
-        defaultModel: "",
-        providers: { openai: openaiProvider },
-      });
-      const config = router.resolve("openai");
-
-      expect(config.name).toBe("gpt-4o-mini");
-    });
-
-    it("uses default provider when not specified", () => {
-      const router = makeRouter({
-        defaultProvider: "openai",
-        defaultModel: "gpt-4o",
-        providers: { openai: openaiProvider },
-      });
+    it("returns default when no id provided", () => {
+      const store = createMockStore([VALID_DEEPSEEK, VALID_XIAOMI]);
+      const router = new ModelRouter(store);
       const config = router.resolve();
 
-      expect(config.provider).toBe("openai");
-      expect(config.name).toBe("gpt-4o");
+      expect(config?.id).toBe("deepseek-v4-flash");
+      expect(config?.provider).toBe("deepseek");
     });
 
-    it("uses default model when not specified and provider has no defaultModel", () => {
-      const router = makeRouter({
-        defaultProvider: "mock",
-        defaultModel: "default-model",
-      });
-      const config = router.resolve("mock");
+    it("returns entry by id", () => {
+      const store = createMockStore([VALID_DEEPSEEK, VALID_XIAOMI]);
+      const router = new ModelRouter(store);
+      const config = router.resolve("mimo-v2.5");
 
-      expect(config.name).toBe("default-model");
+      expect(config?.id).toBe("mimo-v2.5");
+      expect(config?.provider).toBe("xiaomi");
     });
 
-    it("throws for unconfigured provider", () => {
-      const router = makeRouter();
+    it("falls back to default for invalid entry id", () => {
+      const store = createMockStore([VALID_DEEPSEEK, INVALID_ENTRY]);
+      const router = new ModelRouter(store);
+      const config = router.resolve("bad-model");
 
-      expect(() => router.resolve("openai")).toThrow("未配置的模型提供商");
+      // Invalid entries are skipped, falls back to default
+      expect(config?.id).toBe("deepseek-v4-flash");
     });
 
-    it("supports deepseek provider", () => {
-      const router = makeRouter({
-        providers: {
-          deepseek: {
-            baseUrl: "https://api.deepseek.com/v1",
-            apiKey: "sk-ds-test",
-            defaultModel: "deepseek-chat",
-          },
-        },
-      });
-      const config = router.resolve("deepseek", "deepseek-chat");
+    it("falls back to default when id not found", () => {
+      const store = createMockStore([VALID_DEEPSEEK]);
+      const router = new ModelRouter(store);
+      const config = router.resolve("nonexistent");
 
-      expect(config.provider).toBe("deepseek");
-      expect(config.name).toBe("deepseek-chat");
-      expect(config.baseUrl).toBe("https://api.deepseek.com/v1");
+      expect(config?.id).toBe("deepseek-v4-flash");
     });
 
-    it("supports openrouter provider", () => {
-      const router = makeRouter({
-        providers: { openrouter: openrouterProvider },
-      });
-      const config = router.resolve("openrouter", "openai/gpt-4o-mini");
+    it("returns undefined when no entries exist", () => {
+      const store = createMockStore([]);
+      const router = new ModelRouter(store);
+      const config = router.resolve();
 
-      expect(config.provider).toBe("openrouter");
-      expect(config.name).toBe("openai/gpt-4o-mini");
+      expect(config).toBeUndefined();
     });
   });
 
-  describe("getEndpoint", () => {
-    it("returns mock URL for mock provider", () => {
-      const router = makeRouter();
-      expect(router.getEndpoint("mock")).toBe("http://localhost:mock");
-    });
+  describe("list", () => {
+    it("returns all entries including invalid", () => {
+      const store = createMockStore([VALID_DEEPSEEK, INVALID_ENTRY]);
+      const router = new ModelRouter(store);
+      const list = router.list();
 
-    it("returns provider baseUrl", () => {
-      const router = makeRouter({ providers: { openai: openaiProvider } });
-      expect(router.getEndpoint("openai")).toBe("https://api.openai.com/v1");
-    });
-
-    it("throws for unconfigured provider", () => {
-      const router = makeRouter();
-      expect(() => router.getEndpoint("openai")).toThrow("未配置的模型提供商");
+      expect(list).toHaveLength(2);
     });
   });
 
-  describe("getAuthHeaders", () => {
-    it("returns empty headers for mock provider", () => {
-      const router = makeRouter();
-      expect(router.getAuthHeaders("mock")).toEqual({});
+  describe("getDefault", () => {
+    it("returns the default entry", () => {
+      const store = createMockStore([VALID_DEEPSEEK, VALID_XIAOMI]);
+      const router = new ModelRouter(store);
+      const def = router.getDefault();
+
+      expect(def?.id).toBe("deepseek-v4-flash");
     });
 
-    it("returns Bearer token for OpenAI provider", () => {
-      const router = makeRouter({ providers: { openai: openaiProvider } });
-      const headers = router.getAuthHeaders("openai");
+    it("returns undefined when no default", () => {
+      const store = createMockStore([VALID_XIAOMI]);
+      const router = new ModelRouter(store);
+      const def = router.getDefault();
 
-      expect(headers.Authorization).toBe("Bearer sk-test-123");
-      expect(headers["Content-Type"]).toBe("application/json");
+      expect(def).toBeUndefined();
     });
-
-    it("returns x-api-key for Anthropic provider", () => {
-      const router = makeRouter({ providers: { anthropic: anthropicProvider } });
-      const headers = router.getAuthHeaders("anthropic");
-
-      expect(headers["x-api-key"]).toBe("sk-ant-test-456");
-      expect(headers["anthropic-version"]).toBe("2023-06-01");
-      expect(headers.Authorization).toBeUndefined();
-    });
-
-    it("returns Bearer token for OpenRouter provider", () => {
-      const router = makeRouter({ providers: { openrouter: openrouterProvider } });
-      const headers = router.getAuthHeaders("openrouter");
-
-      expect(headers.Authorization).toBe("Bearer sk-or-test-789");
-    });
-
-    it("returns empty headers for unconfigured provider", () => {
-      const router = makeRouter();
-      expect(router.getAuthHeaders("openai")).toEqual({});
-    });
-
-    it("includes custom headers from provider config", () => {
-      const router = makeRouter({
-        providers: {
-          openai: {
-            ...openaiProvider,
-            headers: { "X-Custom-Header": "custom-value" },
-          },
-        },
-      });
-      const headers = router.getAuthHeaders("openai");
-
-      expect(headers["X-Custom-Header"]).toBe("custom-value");
-    });
-  });
-});
-
-describe("createModelRouterFromEnv", () => {
-  it("creates a mock router when no env vars set", () => {
-    const router = createModelRouterFromEnv({});
-    const config = router.resolve();
-
-    expect(config.provider).toBe("mock");
-    expect(config.name).toBe("mock-model");
-  });
-
-  it("creates OpenAI provider from OPENAI_API_KEY", () => {
-    const router = createModelRouterFromEnv({
-      OPENAI_API_KEY: "sk-test",
-    });
-    const config = router.resolve("openai");
-
-    expect(config.provider).toBe("openai");
-    expect(config.apiKey).toBe("sk-test");
-    expect(config.baseUrl).toBe("https://api.openai.com/v1");
-  });
-
-  it("uses custom OpenAI base URL from env", () => {
-    const router = createModelRouterFromEnv({
-      OPENAI_API_KEY: "sk-test",
-      OPENAI_BASE_URL: "https://custom.openai.com/v1",
-    });
-    const config = router.resolve("openai");
-
-    expect(config.baseUrl).toBe("https://custom.openai.com/v1");
-  });
-
-  it("uses custom OpenAI model from env when explicitly requested", () => {
-    const router = createModelRouterFromEnv({
-      OPENAI_API_KEY: "sk-test",
-      OPENAI_MODEL: "gpt-4o",
-    });
-    const config = router.resolve("openai", "gpt-4o");
-
-    expect(config.name).toBe("gpt-4o");
-  });
-
-  it("creates OpenRouter provider from OPENROUTER_API_KEY", () => {
-    const router = createModelRouterFromEnv({
-      OPENROUTER_API_KEY: "sk-or-test",
-    });
-    const config = router.resolve("openrouter");
-
-    expect(config.provider).toBe("openrouter");
-    expect(config.apiKey).toBe("sk-or-test");
-    expect(config.baseUrl).toBe("https://openrouter.ai/api/v1");
-  });
-
-  it("creates DeepSeek provider from DEEPSEEK_API_KEY", () => {
-    const router = createModelRouterFromEnv({
-      DEEPSEEK_API_KEY: "sk-ds-test",
-    });
-    const config = router.resolve("deepseek");
-
-    expect(config.provider).toBe("deepseek");
-    expect(config.apiKey).toBe("sk-ds-test");
-    expect(config.baseUrl).toBe("https://api.deepseek.com/v1");
-  });
-
-  it("creates Anthropic provider from ANTHROPIC_API_KEY", () => {
-    const router = createModelRouterFromEnv({
-      ANTHROPIC_API_KEY: "sk-ant-test",
-    });
-    const config = router.resolve("anthropic");
-
-    expect(config.provider).toBe("anthropic");
-    expect(config.apiKey).toBe("sk-ant-test");
-    expect(config.baseUrl).toBe("https://api.anthropic.com/v1");
-  });
-
-  it("uses DEFAULT_MODEL_PROVIDER and DEFAULT_MODEL_NAME", () => {
-    const router = createModelRouterFromEnv({
-      DEFAULT_MODEL_PROVIDER: "openai",
-      DEFAULT_MODEL_NAME: "gpt-4o",
-      OPENAI_API_KEY: "sk-test",
-    });
-    const config = router.resolve();
-
-    expect(config.provider).toBe("openai");
-    expect(config.name).toBe("gpt-4o");
-  });
-
-  it("creates multiple providers simultaneously", () => {
-    const router = createModelRouterFromEnv({
-      OPENAI_API_KEY: "sk-openai",
-      ANTHROPIC_API_KEY: "sk-ant",
-      DEEPSEEK_API_KEY: "sk-ds",
-    });
-
-    expect(router.resolve("openai").apiKey).toBe("sk-openai");
-    expect(router.resolve("anthropic").apiKey).toBe("sk-ant");
-    expect(router.resolve("deepseek").apiKey).toBe("sk-ds");
   });
 });

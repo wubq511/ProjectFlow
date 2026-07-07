@@ -20,11 +20,12 @@ references:
 
 ## 工作流程
 
-1. 读取当前阶段目标和交付物
-2. 分析完成标准，识别所需工作
-3. 将工作分解为可管理的任务
-4. 为每个任务设置优先级（P0/P1/P2）和预估时间
-5. 创建 AgentProposal 供团队确认
+1. 调用 `get_workspace_state` 读取当前工作区状态（阶段目标、交付物、成员技能等）
+2. **自己生成任务拆解内容**：基于阶段目标和完成标准，推理出：
+   - `tasks`：每个任务含 id/stage_id/title/description/priority/due_date/estimated_hours/dependency_ids/acceptance_criteria/can_cut/order_index/reason
+   - `reason`：生成理由
+   - `requires_confirmation`: true
+3. 调用 `generate_task_breakdown_proposal`，将生成的任务拆解内容作为 `output` 参数传入，FastAPI 只做校验+持久化
 
 ## 输出规范
 
@@ -33,3 +34,4 @@ references:
 - 考虑任务间依赖关系
 - 可砍标记（can_cut）用于范围管理
 - 不直接修改项目状态
+- `output` 必须符合 TaskBreakdownOutput schema（tasks 必填，每个 task 含 title/description/priority/due_date）

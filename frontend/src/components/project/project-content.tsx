@@ -39,7 +39,7 @@ import { TaskStatusUpdateList } from "@/components/task/task-status-update";
 import { WorkspaceContent } from "./workspace-content";
 import { MyTasksView, TeamTasksView } from "./project-task-views";
 import { ProjectMemoryPanel } from "./project-memory-panel";
-import type { AddResourceRequest, ProjectState } from "@/lib/types";
+import type { AddResourceRequest, ProjectState, ThinkingLevel } from "@/lib/types";
 import { ACTION_LABELS, inferRecommendedAction } from "./project-actions";
 import type { AgentAction } from "./project-actions";
 import type { ProjectView } from "./project-sidebar";
@@ -103,7 +103,7 @@ interface ProjectContentProps {
   currentView?: ProjectView;
   onShowWorkspace?: (show: boolean) => void;
   onNavigateView?: (view: ProjectView) => void;
-  onRunAgent?: (action: AgentAction) => void;
+  onRunAgent?: (action: AgentAction, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => void;
   onRespondToAssignment?: (
     proposalId: string,
     userId: string,
@@ -690,7 +690,7 @@ function RetroSummaryPanel({
   tasks: ProjectState["tasks"];
   risks: ProjectState["risks"];
   pending: boolean;
-  onRunAgent?: (action: AgentAction) => void;
+  onRunAgent?: (action: AgentAction, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => void;
 }) {
   const [summary, setSummary] = useState<{
     project_summary: string;

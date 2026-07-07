@@ -56,10 +56,8 @@ import {
   type AfterToolCallContext,
   type StreamFn,
 } from "@earendil-works/pi-agent-core";
-import type { Model, Api, AssistantMessage, Message, ToolCall, Usage, TSchema } from "@earendil-works/pi-ai";
+import type { Model, Api, Provider, AssistantMessage, Message, ToolCall, Usage, TSchema } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream, Type } from "@earendil-works/pi-ai";
-import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 
 export interface RunInput {
   conversationId: string;
@@ -375,16 +373,32 @@ export async function executeRun(
       tools: piTools,
     };
 
-    // Step 4: Resolve model
-    const resolvedModel = modelRouter.resolve(runState.model.provider, runState.model.name);
+    // Step 4: Resolve model from registry
+    // The runState.model.provider/name come from the frontend's model selection.
+    // We look up the corresponding ModelConfigEntryRuntime to get the full config
+    // (including apiKeyEnvVar, baseUrl, capabilities, etc.).
+    const modelConfigEntry = modelRouter.resolve(
+      // Use provider:name as a composite id lookup, or fall back to default
+      `${runState.model.provider}:${runState.model.name}`,
+    );
 
     // Step 5: Create model instance — real provider when configured, mock fallback
-    const model = options.model ?? resolveRealModel(resolvedModel.provider, resolvedModel.name);
-    const streamFn = options.streamFn ?? (resolvedModel.provider === "mock" ? createMockStreamFn() : undefined);
+    const resolved = await resolveRealModel(
+      modelConfigEntry
+        ? { provider: modelConfigEntry.provider, name: modelConfigEntry.name, baseUrl: modelConfigEntry.resolvedBaseUrl }
+        : { provider: runState.model.provider, name: runState.model.name },
+    );
+    const model = options.model ?? resolved.model;
+    const streamFn = options.streamFn ?? ((modelConfigEntry?.provider ?? runState.model.provider) === "mock" ? createMockStreamFn() : undefined);
 
     // Step 6: Build AgentLoopConfig with hooks
+    // Map our ThinkingLevel to Pi SDK's ThinkingLevel.
+    // Pi SDK has: minimal | low | medium | high | xhigh (no "max").
+    // Our "max" maps to Pi SDK "xhigh" (DeepSeek thinkingLevelMap: xhigh → "max" budget).
+    const reasoningLevel = runState.thinkingLevel === "max" ? "xhigh" as const : runState.thinkingLevel;
     const config: AgentLoopConfig = {
       model,
+      reasoning: reasoningLevel,
       convertToLlm: (messages: AgentMessage[]): Message[] => messages as Message[],
       toolExecution: canExecuteInParallel(exposedManifests) ? "parallel" : "sequential",
       beforeToolCall: async (_ctx: BeforeToolCallContext) => {
@@ -746,53 +760,129 @@ function createMockModel(name: string): Model<Api> {
 }
 
 /**
- * Resolve a real Model object from Pi SDK providers.
- * - provider "mock" → returns mock model
- * - provider "openai" / "deepseek" / "openai-compatible" / "openrouter" → resolves from Pi SDK catalog
- * - unknown provider → throws (fail-fast, no silent degradation)
- * - model not in catalog → throws (fail-fast)
+ * Resolved model — the Pi SDK Model object plus an optional API key override.
+ *
+ * NOTE: apiKeyOverride is currently not consumed by the runtime loop.
+ * Pi SDK providers read API keys from process.env at their own expected env var names.
+ * As long as the user sets the key to the correct env var (e.g., DEEPSEEK_API_KEY),
+ * the provider will pick it up automatically. apiKeyOverride is reserved for future
+ * per-request key injection once Pi SDK supports it.
  */
-function resolveRealModel(provider: string, modelName: string): Model<Api> {
-  if (provider === "mock") {
-    return createMockModel(modelName);
-  }
-
-  const piProvider = getPiProvider(provider);
-  if (!piProvider) {
-    throw new Error(
-      `[agent-bridge] 未找到 Pi SDK provider: "${provider}"。` +
-      `支持的 provider: mock, openai, deepseek, openai-compatible, openrouter。` +
-      `请检查 DEFAULT_MODEL_PROVIDER 配置。`
-    );
-  }
-
-  const models = piProvider.getModels();
-  const found = models.find((m) => m.id === modelName || m.name === modelName);
-  if (!found) {
-    const available = models.map((m) => m.id).join(", ");
-    throw new Error(
-      `[agent-bridge] 未在 ${provider} catalog 中找到模型: "${modelName}"。` +
-      `可用模型: ${available}`
-    );
-  }
-
-  return found as Model<Api>;
+interface ResolvedModel {
+  model: Model<Api>;
+  /** Per-request API key override (reserved — not yet consumed at runtime) */
+  apiKeyOverride?: string;
 }
 
 /**
- * Get Pi SDK Provider instance by provider type.
- * - "openai-compatible" and "openrouter" use openaiProvider() with custom baseUrl
- *   (baseUrl is handled by ModelRouter/ModelConfig, not by the Pi Provider itself).
+ * Resolve a real Model object from Pi SDK providers.
+ * - provider "mock" → returns mock model
+ * - known provider → dynamic import, resolve from Pi SDK catalog
+ * - model not in catalog (e.g., custom openai-compatible) → construct Model manually
+ * - unknown provider → throws (fail-fast)
+ *
+ * This function is async because it uses dynamic import() for providers.
  */
-function getPiProvider(provider: string) {
+async function resolveRealModel(
+  input: { provider: string; name: string; baseUrl?: string; apiKeyOverride?: string },
+): Promise<ResolvedModel> {
+  const { provider, name, baseUrl, apiKeyOverride } = input;
+
+  if (provider === "mock") {
+    return { model: createMockModel(name) };
+  }
+
+  const piProvider = await getPiProvider(provider);
+  if (!piProvider) {
+    throw new Error(
+      `[agent-bridge] 未找到 Pi SDK provider: "${provider}"。` +
+      `请检查模型配置中的 provider 字段。`
+    );
+  }
+
+  // Try to find model in catalog
+  const models = piProvider.getModels();
+  const found = models.find((m) => m.id === name || m.name === name);
+
+  if (found) {
+    // Catalog model — use as-is, optionally override baseUrl
+    const model = baseUrl
+      ? { ...found, baseUrl } as Model<Api>
+      : found as Model<Api>;
+    return { model, apiKeyOverride };
+  }
+
+  // Model not in catalog — construct a custom Model object
+  // This supports openai-compatible providers with custom model names
+  if (provider === "openai-compatible" || provider === "openrouter") {
+    return {
+      model: createCustomOpenAICompatibleModel(name, provider, baseUrl ?? piProvider.baseUrl ?? ""),
+      apiKeyOverride,
+    };
+  }
+
+  // For other providers, model-not-in-catalog is an error
+  const available = models.map((m) => m.id).join(", ");
+  throw new Error(
+    `[agent-bridge] 未在 ${provider} catalog 中找到模型: "${name}"。` +
+    `可用模型: ${available}`
+  );
+}
+
+/**
+ * Construct a custom Model object for openai-compatible providers.
+ */
+function createCustomOpenAICompatibleModel(name: string, provider: string, baseUrl: string): Model<Api> {
+  return {
+    id: name,
+    name,
+    api: "openai-completions" as Api,
+    provider: provider as any,
+    baseUrl,
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128000,
+    maxTokens: 4096,
+  } as Model<Api>;
+}
+
+/**
+ * Get Pi SDK Provider instance by provider type — dynamic import.
+ * Only loads the provider module when actually needed.
+ */
+async function getPiProvider(provider: string): Promise<Provider | undefined> {
   switch (provider) {
     case "deepseek":
-      return deepseekProvider();
+      return (await import("@earendil-works/pi-ai/providers/deepseek")).deepseekProvider();
     case "openai":
+      return (await import("@earendil-works/pi-ai/providers/openai")).openaiProvider();
     case "openai-compatible":
+      return (await import("@earendil-works/pi-ai/providers/openai")).openaiProvider();
+    case "anthropic":
+      return (await import("@earendil-works/pi-ai/providers/anthropic")).anthropicProvider();
+    case "xiaomi":
+      return (await import("@earendil-works/pi-ai/providers/xiaomi")).xiaomiProvider();
+    case "xiaomi-token-plan-cn":
+      return (await import("@earendil-works/pi-ai/providers/xiaomi-token-plan-cn")).xiaomiTokenPlanCnProvider();
     case "openrouter":
-      return openaiProvider();
+      return (await import("@earendil-works/pi-ai/providers/openrouter")).openrouterProvider();
     default:
       return undefined;
   }
+}
+
+/**
+ * Get catalog models for a provider (used by /config/providers/:provider/models).
+ */
+export async function getProviderCatalogModels(provider: string): Promise<{ id: string; name: string; reasoning: boolean; input: ("text" | "image")[] }[]> {
+  if (provider === "mock") return [];
+  const piProvider = await getPiProvider(provider);
+  if (!piProvider) return [];
+  return piProvider.getModels().map((m) => ({
+    id: m.id,
+    name: m.name,
+    reasoning: m.reasoning,
+    input: m.input as ("text" | "image")[],
+  }));
 }

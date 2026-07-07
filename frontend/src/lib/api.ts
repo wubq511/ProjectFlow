@@ -31,9 +31,12 @@ import type {
   AgentArtifact,
   AgentFlowResult,
   DemoResetResult,
+  ModelConfigEntry,
+  ProviderCatalogModel,
 } from "./types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+const SIDECAR_BASE_URL = process.env.NEXT_PUBLIC_SIDECAR_BASE_URL ?? "http://localhost:3100";
 
 type BackendUser = Omit<User, "user_id"> & { id: string; user_id?: string };
 type BackendWorkspace = Omit<Workspace, "workspace_id"> & { id: string; workspace_id?: string };
@@ -676,56 +679,146 @@ export async function sendAgentConversationMessageStream(
   }
 }
 
+/**
+ * Agent skill name mapping: frontend action key → sidecar skill name.
+ * When the sidecar is available, we route through it instead of the legacy
+ * Backend /agent/* endpoints.
+ */
+const SKILL_NAME_MAP: Record<string, string> = {
+  clarify: "project-intake",
+  plan: "project-planning",
+  breakdown: "task-breakdown",
+  assign: "assignment-planning",
+  "active-push": "project-status",
+  "check-in-analysis": "risk-replan",
+  "risk-analysis": "risk-replan",
+  replan: "risk-replan",
+  negotiate: "assignment-planning",
+  retrospective: "project-status",
+};
+
 async function runAgentFlow(
   projectId: string,
   endpoint: string,
   extraBody?: Record<string, unknown>,
+  thinkingLevel?: import("./types").ThinkingLevel,
+  model?: { provider: string; name: string },
 ): Promise<AgentFlowResult> {
   const project = await getProject(projectId);
-  return request<AgentFlowResult>(`/agent/${endpoint}`, {
+
+  // T41 target architecture: Sidecar is the sole LLM caller
+  const skillName = SKILL_NAME_MAP[endpoint];
+  if (!skillName) {
+    throw new Error(`No sidecar skill mapping for agent endpoint "${endpoint}"`);
+  }
+
+  // Build user_content: include user_instruction and any extra context (e.g. stage_id)
+  const extraContext = Object.entries(extraBody ?? {})
+    .filter(([key]) => key !== "user_instruction")
+    .map(([key, val]) => `${key}=${val}`)
+    .join(", ");
+  const userContent = [
+    extraBody?.user_instruction ?? `触发 ${endpoint}`,
+    extraContext && `(${extraContext})`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const sidecarResp = await fetch(`${SIDECAR_BASE_URL}/runs`, {
     method: "POST",
-    body: JSON.stringify({ workspace_id: project.workspace_id, project_id: projectId, ...extraBody }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      conversation_id: `project-${projectId}`,
+      workspace_id: project.workspace_id,
+      project_id: projectId,
+      user_content: userContent,
+      runtime_config: {
+        skill: skillName,
+        max_steps: 10,
+        max_tool_calls: 20,
+        ...(thinkingLevel && { thinking_level: thinkingLevel }),
+        ...(model && { model }),
+      },
+    }),
   });
+
+  if (!sidecarResp.ok) {
+    throw new Error(`Sidecar run start failed: ${sidecarResp.status} ${sidecarResp.statusText}`);
+  }
+
+  const { run_id: runId } = (await sidecarResp.json()) as { run_id: string; status: string };
+
+  // Step 2: Poll until completed/failed/cancelled
+  const POLL_INTERVAL_MS = 1000;
+  const POLL_TIMEOUT_MS = 120_000;
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+
+  let runStatus: string = "running";
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    const pollResp = await fetch(`${SIDECAR_BASE_URL}/runs/${runId}`);
+    if (!pollResp.ok) continue; // transient error, keep polling
+    const pollData = (await pollResp.json()) as { status: string };
+    runStatus = pollData.status;
+    if (runStatus === "completed" || runStatus === "failed" || runStatus === "cancelled") break;
+  }
+
+  // Step 3: Return result based on final status
+  if (runStatus === "completed") {
+    return {
+      event_type: endpoint as AgentFlowResult["event_type"],
+      status: "success",
+      attempts: 1,
+      used_fallback: false,
+      output: {},
+      created_ids: [],
+    };
+  }
+
+  throw new Error(`Sidecar run ${runId} ended with status "${runStatus}"`);
 }
 
-export async function runClarification(projectId: string): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "clarify");
+type TL = import("./types").ThinkingLevel;
+type ModelRef = { provider: string; name: string };
+
+export async function runClarification(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "clarify", undefined, thinkingLevel, model);
 }
 
-export async function runPlanning(projectId: string): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "plan");
+export async function runPlanning(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "plan", undefined, thinkingLevel, model);
 }
 
-export async function runBreakdown(projectId: string): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "breakdown");
+export async function runBreakdown(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "breakdown", undefined, thinkingLevel, model);
 }
 
-export async function runAssignment(projectId: string, stageId?: string): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "assign", stageId ? { stage_id: stageId } : undefined);
+export async function runAssignment(projectId: string, stageId?: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "assign", stageId ? { stage_id: stageId } : undefined, thinkingLevel, model);
 }
 
-export async function runActivePush(projectId: string): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "active-push");
+export async function runActivePush(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "active-push", undefined, thinkingLevel, model);
 }
 
-export async function runCheckinAnalysis(projectId: string): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "check-in-analysis");
+export async function runCheckinAnalysis(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "check-in-analysis", undefined, thinkingLevel, model);
 }
 
-export async function runRiskAnalysis(projectId: string): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "risk-analysis");
+export async function runRiskAnalysis(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "risk-analysis", undefined, thinkingLevel, model);
 }
 
-export async function runReplan(projectId: string): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "replan");
+export async function runReplan(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "replan", undefined, thinkingLevel, model);
 }
 
-export async function runAgentNegotiate(projectId: string): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "negotiate");
+export async function runAgentNegotiate(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "negotiate", undefined, thinkingLevel, model);
 }
 
-export async function runRetrospective(projectId: string): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "retrospective");
+export async function runRetrospective(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "retrospective", undefined, thinkingLevel, model);
 }
 
 // --- Confirmation ---
@@ -924,4 +1017,76 @@ export async function exportReviewSummary(projectId: string): Promise<{ markdown
 // --- Demo ---
 export async function resetDemo(): Promise<DemoResetResult> {
   return request<DemoResetResult>("/demo/reset", { method: "POST" });
+}
+
+// --- Model Configuration (Sidecar) ---
+
+const BUILTIN_PROVIDERS = [
+  { id: "deepseek", displayName: "DeepSeek" },
+  { id: "openai", displayName: "OpenAI" },
+  { id: "anthropic", displayName: "Anthropic" },
+  { id: "xiaomi", displayName: "小米 (MiMo)" },
+  { id: "xiaomi-token-plan-cn", displayName: "小米 Token 计费（国内）" },
+  { id: "openrouter", displayName: "OpenRouter" },
+  { id: "openai-compatible", displayName: "自定义（OpenAI 兼容）" },
+  { id: "mock", displayName: "Mock（测试）" },
+];
+
+export { BUILTIN_PROVIDERS };
+
+export async function getModelConfigs(): Promise<ModelConfigEntry[]> {
+  const resp = await fetch(`${SIDECAR_BASE_URL}/config/models`);
+  if (!resp.ok) throw new Error(`获取模型配置失败: ${resp.status}`);
+  const data = (await resp.json()) as { models: ModelConfigEntry[] };
+  return data.models;
+}
+
+export async function addModelConfig(entry: Omit<ModelConfigEntry, "apiKeySet" | "apiKeySuffix" | "valid" | "invalidReason">): Promise<ModelConfigEntry> {
+  const resp = await fetch(`${SIDECAR_BASE_URL}/config/models`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(entry),
+  });
+  if (!resp.ok) throw new Error(`添加模型配置失败: ${resp.status}`);
+  return resp.json() as Promise<ModelConfigEntry>;
+}
+
+export async function updateModelConfig(id: string, patch: Partial<ModelConfigEntry>): Promise<ModelConfigEntry> {
+  const resp = await fetch(`${SIDECAR_BASE_URL}/config/models/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!resp.ok) throw new Error(`更新模型配置失败: ${resp.status}`);
+  return resp.json() as Promise<ModelConfigEntry>;
+}
+
+export async function deleteModelConfig(id: string): Promise<void> {
+  const resp = await fetch(`${SIDECAR_BASE_URL}/config/models/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!resp.ok) throw new Error(`删除模型配置失败: ${resp.status}`);
+}
+
+export async function setModelApiKey(id: string, apiKey: string): Promise<void> {
+  const resp = await fetch(`${SIDECAR_BASE_URL}/config/models/${encodeURIComponent(id)}/api-key`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKey }),
+  });
+  if (!resp.ok) throw new Error(`设置 API Key 失败: ${resp.status}`);
+}
+
+export async function reloadModelConfigs(): Promise<void> {
+  const resp = await fetch(`${SIDECAR_BASE_URL}/config/reload`, {
+    method: "POST",
+  });
+  if (!resp.ok) throw new Error(`重新加载配置失败: ${resp.status}`);
+}
+
+export async function getProviderCatalogModels(provider: string): Promise<ProviderCatalogModel[]> {
+  const resp = await fetch(`${SIDECAR_BASE_URL}/config/providers/${encodeURIComponent(provider)}/models`);
+  if (!resp.ok) throw new Error(`获取 provider catalog 失败: ${resp.status}`);
+  const data = (await resp.json()) as { models: ProviderCatalogModel[] };
+  return data.models;
 }

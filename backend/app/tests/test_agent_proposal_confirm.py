@@ -5,6 +5,7 @@ and task breakdown outputs. Unconfirmed outputs remain proposals and
 do not silently mutate project state.
 """
 import json
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,9 +32,118 @@ def client_fixture():
             yield session
 
     app.dependency_overrides[get_session] = override_get_session
-    with TestClient(app) as test_client:
+    with TestClient(app, headers={"Authorization": "Bearer test-internal-service-token"}) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+# ─── Shared helpers ──────────────────────────────────────────────────────────
+
+_IDEMPOTENCY_COUNTER = 0
+
+
+def _next_idempotency_key(tool_name: str) -> str:
+    global _IDEMPOTENCY_COUNTER
+    _IDEMPOTENCY_COUNTER += 1
+    return f"test-{tool_name}-{_IDEMPOTENCY_COUNTER}-{uuid.uuid4()}"
+
+
+def _tool_envelope(tool_name: str, workspace_id: str, project_id: str, arguments: dict) -> dict:
+    return {
+        "run_id": "test-run",
+        "conversation_id": "test-conv",
+        "workspace_id": workspace_id,
+        "project_id": project_id,
+        "tool_call_id": f"test-tc-{uuid.uuid4()}",
+        "tool_name": tool_name,
+        "idempotency_key": _next_idempotency_key(tool_name),
+        "arguments": arguments,
+    }
+
+
+_DIRECTION_CARD_OUTPUT = {
+    "problem": "大学生项目小队缺乏推进能力",
+    "users": "大学生项目团队",
+    "value": "AI Agent 主动推进项目",
+    "deliverables": ["MVP demo", "README"],
+    "boundaries": ["仅限 Web 浏览器"],
+    "risks": ["项目超期"],
+    "suggested_questions": ["如何确保稳定输出？"],
+    "reason": "测试方向卡",
+    "requires_confirmation": True,
+}
+
+_STAGE_PLAN_OUTPUT = {
+    "stages": [
+        {
+            "name": "核心实现",
+            "goal": "完成核心功能",
+            "start_date": "2026-07-07",
+            "end_date": "2026-07-14",
+            "deliverable": "可运行的核心闭环",
+            "done_criteria": ["核心流程跑通"],
+            "order_index": 0,
+            "reason": "优先完成核心",
+        }
+    ],
+    "reason": "测试阶段计划",
+    "requires_confirmation": True,
+}
+
+_TASK_BREAKDOWN_OUTPUT = {
+    "tasks": [
+        {
+            "id": "t1",
+            "stage_id": "placeholder",  # replaced at call time
+            "title": "前后端联调",
+            "description": "集成前后端",
+            "priority": "P1",
+            "due_date": "2026-07-10",
+            "estimated_hours": 6.0,
+            "dependency_ids": [],
+            "acceptance_criteria": ["能正常通信"],
+            "can_cut": False,
+            "order_index": 0,
+            "reason": "联调是基础",
+        }
+    ],
+    "reason": "测试任务拆解",
+    "requires_confirmation": True,
+}
+
+
+def _call_direction_card_proposal(client: TestClient, workspace_id: str, project_id: str) -> dict:
+    """Call direction-card-proposal tool and return response json."""
+    envelope = _tool_envelope(
+        "direction-card-proposal", workspace_id, project_id,
+        {"output": _DIRECTION_CARD_OUTPUT},
+    )
+    resp = client.post("/internal/agent-tools/direction-card-proposal", json=envelope)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _call_stage_plan_proposal(client: TestClient, workspace_id: str, project_id: str) -> dict:
+    """Call stage-plan-proposal tool and return response json."""
+    envelope = _tool_envelope(
+        "stage-plan-proposal", workspace_id, project_id,
+        {"output": _STAGE_PLAN_OUTPUT},
+    )
+    resp = client.post("/internal/agent-tools/stage-plan-proposal", json=envelope)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _call_task_breakdown_proposal(client: TestClient, workspace_id: str, project_id: str, stage_id: str) -> dict:
+    """Call task-breakdown-proposal tool and return response json."""
+    output = {**_TASK_BREAKDOWN_OUTPUT, "tasks": [{**_TASK_BREAKDOWN_OUTPUT["tasks"][0], "stage_id": stage_id}]}
+    envelope = _tool_envelope(
+        "task-breakdown-proposal", workspace_id, project_id,
+        {"output": output},
+    )
+    resp = client.post("/internal/agent-tools/task-breakdown-proposal", json=envelope)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
 
 
 def _create_full_fixture(client: TestClient):
@@ -119,12 +229,10 @@ def test_clarify_creates_pending_proposal_not_direction_card(client: TestClient)
     project_before = client.get(f"/api/projects/{project['id']}").json()
     assert project_before["direction_card"] is None
 
-    # Run clarification
-    response = client.post("/api/agent/clarify", json={"workspace_id": workspace["id"]})
-    assert response.status_code == 200
-    data = response.json()
-    assert data["proposal_id"] is not None
-    assert data["output"]["requires_confirmation"] is True
+    # Run clarification via internal tool
+    data = _call_direction_card_proposal(client, workspace["id"], project["id"])
+    assert data["links"]["proposal_id"] is not None
+    assert data["data"]["requires_confirmation"] is True
 
     # Direction card should STILL be None (unconfirmed)
     project_after = client.get(f"/api/projects/{project['id']}").json()
@@ -145,8 +253,8 @@ def test_confirm_clarification_updates_direction_card(client: TestClient):
     workspace, project, _, _, owner, _ = _create_full_fixture(client)
 
     # Run clarification
-    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace["id"]})
-    proposal_id = clarify_resp.json()["proposal_id"]
+    data = _call_direction_card_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
 
     # Confirm the proposal
     confirm_resp = client.post(
@@ -175,12 +283,10 @@ def test_plan_creates_pending_proposal_not_stages(client: TestClient):
     stages_before = client.get(f"/api/projects/{project['id']}/stages").json()
     count_before = len(stages_before)
 
-    # Run planning
-    response = client.post("/api/agent/plan", json={"workspace_id": workspace["id"]})
-    assert response.status_code == 200
-    data = response.json()
-    assert data["proposal_id"] is not None
-    assert data["output"]["requires_confirmation"] is True
+    # Run planning via internal tool
+    data = _call_stage_plan_proposal(client, workspace["id"], project["id"])
+    assert data["links"]["proposal_id"] is not None
+    assert data["data"]["requires_confirmation"] is True
 
     # Stage count should be UNCHANGED (unconfirmed)
     stages_after = client.get(f"/api/projects/{project['id']}/stages").json()
@@ -203,8 +309,8 @@ def test_confirm_plan_creates_stages(client: TestClient):
     count_before = len(stages_before)
 
     # Run planning
-    plan_resp = client.post("/api/agent/plan", json={"workspace_id": workspace["id"]})
-    proposal_id = plan_resp.json()["proposal_id"]
+    data = _call_stage_plan_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
 
     # Confirm the proposal
     confirm_resp = client.post(
@@ -221,8 +327,8 @@ def test_confirm_plan_creates_stages(client: TestClient):
 
 def test_confirm_plan_sets_first_new_stage_active(client: TestClient):
     workspace, project, owner = _create_project_without_stage(client)
-    plan_resp = client.post("/api/agent/plan", json={"workspace_id": workspace["id"]})
-    proposal_id = plan_resp.json()["proposal_id"]
+    data = _call_stage_plan_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
 
     confirm_resp = client.post(
         f"/api/agent-proposals/{proposal_id}/confirm",
@@ -242,10 +348,10 @@ def test_confirm_plan_does_not_duplicate_active_stage(client: TestClient):
     """Re-confirming a plan when an active stage exists should not create another active stage."""
     workspace, project, owner = _create_project_without_stage(client)
 
-    # First plan confirmation → activates the first stage
-    plan1 = client.post("/api/agent/plan", json={"workspace_id": workspace["id"]})
+    # First plan confirmation -> activates the first stage
+    data1 = _call_stage_plan_proposal(client, workspace["id"], project["id"])
     client.post(
-        f"/api/agent-proposals/{plan1.json()['proposal_id']}/confirm",
+        f"/api/agent-proposals/{data1['links']['proposal_id']}/confirm",
         json={"confirmed_by": owner["id"]},
     )
 
@@ -256,10 +362,10 @@ def test_confirm_plan_does_not_duplicate_active_stage(client: TestClient):
     stages_after_first = client.get(f"/api/projects/{project['id']}/stages").json()
     assert any(s["status"] == "active" for s in stages_after_first)
 
-    # Second plan confirmation → new stages should be pending
-    plan2 = client.post("/api/agent/plan", json={"workspace_id": workspace["id"]})
+    # Second plan confirmation -> new stages should be pending
+    data2 = _call_stage_plan_proposal(client, workspace["id"], project["id"])
     confirm2 = client.post(
-        f"/api/agent-proposals/{plan2.json()['proposal_id']}/confirm",
+        f"/api/agent-proposals/{data2['links']['proposal_id']}/confirm",
         json={"confirmed_by": owner["id"]},
     )
     assert confirm2.status_code == 200
@@ -284,12 +390,10 @@ def test_breakdown_creates_pending_proposal_not_tasks(client: TestClient):
     tasks_before = client.get(f"/api/projects/{project['id']}/tasks").json()
     count_before = len(tasks_before) if "id" in tasks_before else len(tasks_before)
 
-    # Run breakdown
-    response = client.post("/api/agent/breakdown", json={"workspace_id": workspace["id"]})
-    assert response.status_code == 200
-    data = response.json()
-    assert data["proposal_id"] is not None
-    assert data["output"]["requires_confirmation"] is True
+    # Run breakdown via internal tool
+    data = _call_task_breakdown_proposal(client, workspace["id"], project["id"], stage["id"])
+    assert data["links"]["proposal_id"] is not None
+    assert data["data"]["requires_confirmation"] is True
 
     # Task count should be UNCHANGED (unconfirmed)
     tasks_after = client.get(f"/api/projects/{project['id']}/tasks").json()
@@ -312,8 +416,8 @@ def test_confirm_breakdown_creates_tasks(client: TestClient):
     count_before = len(tasks_before) if "id" in tasks_before else len(tasks_before)
 
     # Run breakdown
-    breakdown_resp = client.post("/api/agent/breakdown", json={"workspace_id": workspace["id"]})
-    proposal_id = breakdown_resp.json()["proposal_id"]
+    data = _call_task_breakdown_proposal(client, workspace["id"], project["id"], stage["id"])
+    proposal_id = data["links"]["proposal_id"]
 
     # Confirm the proposal
     confirm_resp = client.post(
@@ -336,8 +440,8 @@ def test_reject_proposal_marks_rejected_no_state_mutation(client: TestClient):
     workspace, project, *_ = _create_full_fixture(client)
 
     # Run clarification
-    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace["id"]})
-    proposal_id = clarify_resp.json()["proposal_id"]
+    data = _call_direction_card_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
 
     # Reject the proposal
     reject_resp = client.post(
@@ -354,8 +458,8 @@ def test_reject_proposal_marks_rejected_no_state_mutation(client: TestClient):
 
 def test_reject_proposal_accepts_empty_body(client: TestClient):
     workspace, project, *_ = _create_full_fixture(client)
-    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace["id"]})
-    proposal_id = clarify_resp.json()["proposal_id"]
+    data = _call_direction_card_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
 
     reject_resp = client.post(f"/api/agent-proposals/{proposal_id}/reject")
 
@@ -369,8 +473,8 @@ def test_cannot_confirm_already_confirmed(client: TestClient):
     """Cannot confirm an already-confirmed proposal."""
     workspace, project, _, _, owner, _ = _create_full_fixture(client)
 
-    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace["id"]})
-    proposal_id = clarify_resp.json()["proposal_id"]
+    data = _call_direction_card_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
 
     # First confirm succeeds
     confirm1 = client.post(
@@ -391,8 +495,8 @@ def test_cannot_confirm_rejected_proposal(client: TestClient):
     """Cannot confirm a rejected proposal."""
     workspace, project, _, _, owner, _ = _create_full_fixture(client)
 
-    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace["id"]})
-    proposal_id = clarify_resp.json()["proposal_id"]
+    data = _call_direction_card_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
 
     # Reject first
     reject_resp = client.post(
@@ -413,8 +517,8 @@ def test_cannot_reject_already_confirmed(client: TestClient):
     """Cannot reject an already-confirmed proposal."""
     workspace, project, _, _, owner, _ = _create_full_fixture(client)
 
-    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace["id"]})
-    proposal_id = clarify_resp.json()["proposal_id"]
+    data = _call_direction_card_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
 
     # Confirm first
     confirm_resp = client.post(
@@ -435,8 +539,8 @@ def test_cannot_reject_already_rejected(client: TestClient):
     """Cannot reject an already-rejected proposal."""
     workspace, project, *_ = _create_full_fixture(client)
 
-    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace["id"]})
-    proposal_id = clarify_resp.json()["proposal_id"]
+    data = _call_direction_card_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
 
     # Reject first
     reject1 = client.post(
@@ -460,8 +564,8 @@ def test_get_proposal_by_id(client: TestClient):
     """Can retrieve a single proposal by ID."""
     workspace, project, *_ = _create_full_fixture(client)
 
-    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace["id"]})
-    proposal_id = clarify_resp.json()["proposal_id"]
+    data = _call_direction_card_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
 
     # Get by ID
     proposal = client.get(f"/api/agent-proposals/{proposal_id}").json()

@@ -46,11 +46,86 @@ def client_fixture():
             yield session
 
     app.dependency_overrides[get_session] = override_get_session
-    with TestClient(app) as test_client:
+    with TestClient(app, headers={"Authorization": "Bearer test-internal-service-token"}) as test_client:
         yield test_client
     app.dependency_overrides.clear()
     from app.core.database import engine as default_engine
     set_memory_engine(default_engine)
+
+
+# ─── Shared helpers ──────────────────────────────────────────────────────────
+
+_IDEMPOTENCY_COUNTER = 0
+
+
+def _next_idempotency_key(tool_name: str) -> str:
+    global _IDEMPOTENCY_COUNTER
+    _IDEMPOTENCY_COUNTER += 1
+    return f"test-{tool_name}-{_IDEMPOTENCY_COUNTER}-{uuid.uuid4()}"
+
+
+def _tool_envelope(tool_name: str, workspace_id: str, project_id: str, arguments: dict) -> dict:
+    return {
+        "run_id": "test-run",
+        "conversation_id": "test-conv",
+        "workspace_id": workspace_id,
+        "project_id": project_id,
+        "tool_call_id": f"test-tc-{uuid.uuid4()}",
+        "tool_name": tool_name,
+        "idempotency_key": _next_idempotency_key(tool_name),
+        "arguments": arguments,
+    }
+
+
+_REPLAN_OUTPUT = {
+    "before": {"summary": "项目超期"},
+    "after": {"summary": "调整里程碑", "deadline": "2026-07-28"},
+    "impact": "给予一周缓冲",
+    "stage_adjustments": [],
+    "task_changes": [],
+    "action_cards": [],
+    "reason": "测试重规划",
+    "requires_confirmation": True,
+}
+
+_STAGE_PLAN_OUTPUT = {
+    "stages": [
+        {
+            "name": "核心实现",
+            "goal": "完成核心功能",
+            "start_date": "2026-07-07",
+            "end_date": "2026-07-14",
+            "deliverable": "可运行的核心闭环",
+            "done_criteria": ["核心流程跑通"],
+            "order_index": 0,
+            "reason": "优先完成核心",
+        }
+    ],
+    "reason": "测试阶段计划",
+    "requires_confirmation": True,
+}
+
+
+def _call_replan_proposal(client: TestClient, workspace_id: str, project_id: str) -> dict:
+    """Call replan-proposal tool and return response json."""
+    envelope = _tool_envelope(
+        "replan-proposal", workspace_id, project_id,
+        {"output": _REPLAN_OUTPUT},
+    )
+    resp = client.post("/internal/agent-tools/replan-proposal", json=envelope)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _call_stage_plan_proposal(client: TestClient, workspace_id: str, project_id: str) -> dict:
+    """Call stage-plan-proposal tool and return response json."""
+    envelope = _tool_envelope(
+        "stage-plan-proposal", workspace_id, project_id,
+        {"output": _STAGE_PLAN_OUTPUT},
+    )
+    resp = client.post("/internal/agent-tools/stage-plan-proposal", json=envelope)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
 
 
 def _create_full_fixture(client: TestClient):
@@ -103,11 +178,10 @@ def _create_full_fixture(client: TestClient):
     return workspace, project, stage, task, owner, member
 
 
-def _run_replan_and_confirm(client: TestClient, workspace_id: str, owner_id: str) -> str:
-    """Run replan agent and confirm the proposal. Returns proposal_id."""
-    replan_resp = client.post("/api/agent/replan", json={"workspace_id": workspace_id})
-    assert replan_resp.status_code == 200
-    proposal_id = replan_resp.json()["proposal_id"]
+def _run_replan_and_confirm(client: TestClient, workspace_id: str, project_id: str, owner_id: str) -> str:
+    """Run replan tool and confirm the proposal. Returns proposal_id."""
+    result = _call_replan_proposal(client, workspace_id, project_id)
+    proposal_id = result["links"]["proposal_id"]
     confirm_resp = client.post(
         f"/api/agent-proposals/{proposal_id}/confirm",
         json={"confirmed_by": owner_id},
@@ -116,11 +190,10 @@ def _run_replan_and_confirm(client: TestClient, workspace_id: str, owner_id: str
     return proposal_id
 
 
-def _run_replan_and_reject(client: TestClient, workspace_id: str, reason: str | None) -> str:
-    """Run replan agent and reject the proposal. Returns proposal_id."""
-    replan_resp = client.post("/api/agent/replan", json={"workspace_id": workspace_id})
-    assert replan_resp.status_code == 200
-    proposal_id = replan_resp.json()["proposal_id"]
+def _run_replan_and_reject(client: TestClient, workspace_id: str, project_id: str, reason: str | None) -> str:
+    """Run replan tool and reject the proposal. Returns proposal_id."""
+    result = _call_replan_proposal(client, workspace_id, project_id)
+    proposal_id = result["links"]["proposal_id"]
     payload = {"reason": reason} if reason else {"reason": None}
     reject_resp = client.post(
         f"/api/agent-proposals/{proposal_id}/reject",
@@ -136,8 +209,7 @@ def _run_replan_and_reject(client: TestClient, workspace_id: str, reason: str | 
 def test_unconfirmed_replan_no_memory(client: TestClient):
     """未确认的 replan proposal 不触发 memory 提取。"""
     workspace, project, *_ = _create_full_fixture(client)
-    replan_resp = client.post("/api/agent/replan", json={"workspace_id": workspace["id"]})
-    assert replan_resp.status_code == 200
+    _call_replan_proposal(client, workspace["id"], project["id"])
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -150,7 +222,7 @@ def test_unconfirmed_replan_no_memory(client: TestClient):
 def test_confirmed_replan_creates_memories(client: TestClient):
     """确认 replan proposal 后创建 ProjectMemory。"""
     workspace, project, *_ = _create_full_fixture(client)
-    _run_replan_and_confirm(client, workspace["id"], project["created_by"])
+    _run_replan_and_confirm(client, workspace["id"], project["id"], project["created_by"])
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -167,7 +239,7 @@ def test_confirmed_replan_creates_memories(client: TestClient):
 def test_exactly_one_plan_memory(client: TestClient):
     """Extractor 创建恰好 1 条 plan 记忆。"""
     workspace, project, *_ = _create_full_fixture(client)
-    _run_replan_and_confirm(client, workspace["id"], project["created_by"])
+    _run_replan_and_confirm(client, workspace["id"], project["id"], project["created_by"])
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -184,7 +256,7 @@ def test_exactly_one_plan_memory(client: TestClient):
 def test_replan_reject_with_reason_creates_rejection(client: TestClient):
     """拒绝 replan 且带有理由时创建 rejection 记忆。"""
     workspace, project, *_ = _create_full_fixture(client)
-    _run_replan_and_reject(client, workspace["id"], reason="计划当前不需要调整")
+    _run_replan_and_reject(client, workspace["id"], project["id"], reason="计划当前不需要调整")
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -200,7 +272,7 @@ def test_replan_reject_with_reason_creates_rejection(client: TestClient):
 def test_replan_reject_without_reason_skips_memory(client: TestClient):
     """拒绝 replan 且无理由时不创建 ProjectMemory。"""
     workspace, project, *_ = _create_full_fixture(client)
-    _run_replan_and_reject(client, workspace["id"], reason=None)
+    _run_replan_and_reject(client, workspace["id"], project["id"], reason=None)
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -215,7 +287,7 @@ def test_replan_reject_without_reason_skips_memory(client: TestClient):
 def test_replan_reject_empty_reason_skips_memory(client: TestClient):
     """拒绝 replan 且理由为空时不创建 ProjectMemory。"""
     workspace, project, *_ = _create_full_fixture(client)
-    _run_replan_and_reject(client, workspace["id"], reason="")
+    _run_replan_and_reject(client, workspace["id"], project["id"], reason="")
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -233,7 +305,7 @@ def test_replan_reject_empty_reason_skips_memory(client: TestClient):
 def test_idempotent_replay_no_duplicates(client: TestClient):
     """同 source_hash 重放不创建重复行。"""
     workspace, project, *_ = _create_full_fixture(client)
-    _run_replan_and_confirm(client, workspace["id"], project["created_by"])
+    _run_replan_and_confirm(client, workspace["id"], project["id"], project["created_by"])
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -313,7 +385,7 @@ def test_changed_replan_source_supersedes_old(client: TestClient):
 def test_replan_memory_content_has_no_raw_ids(client: TestClient):
     """replan memory 的 content/rationale 中不出现 raw ID。"""
     workspace, project, *_ = _create_full_fixture(client)
-    _run_replan_and_confirm(client, workspace["id"], project["created_by"])
+    _run_replan_and_confirm(client, workspace["id"], project["id"], project["created_by"])
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -329,7 +401,7 @@ def test_replan_memory_content_has_no_raw_ids(client: TestClient):
 def test_replan_rejection_content_has_no_raw_ids(client: TestClient):
     """replan rejection 的 content/rationale 中不出现 raw ID。"""
     workspace, project, *_ = _create_full_fixture(client)
-    _run_replan_and_reject(client, workspace["id"], reason="测试拒绝理由")
+    _run_replan_and_reject(client, workspace["id"], project["id"], reason="测试拒绝理由")
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -598,7 +670,7 @@ def test_replan_aggregation_multiple_same_type_adjustments(client: TestClient):
 def test_replan_uses_project_scope(client: TestClient):
     """replan memory 使用 project 级 scope，不编造 related IDs。"""
     workspace, project, *_ = _create_full_fixture(client)
-    _run_replan_and_confirm(client, workspace["id"], project["created_by"])
+    _run_replan_and_confirm(client, workspace["id"], project["id"], project["created_by"])
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -618,7 +690,7 @@ def test_replan_uses_project_scope(client: TestClient):
 def test_replan_reject_idempotent(client: TestClient):
     """重复拒绝同 replan proposal 不创建重复记忆。"""
     workspace, project, *_ = _create_full_fixture(client)
-    _run_replan_and_reject(client, workspace["id"], reason="不需要调整")
+    _run_replan_and_reject(client, workspace["id"], project["id"], reason="不需要调整")
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -649,7 +721,7 @@ def test_replan_extractor_deterministic():
 def test_replan_memory_team_visibility_all_members_can_see(client: TestClient):
     """replan 的 team 可见记忆对所有 workspace 成员可见。"""
     workspace, project, *_ = _create_full_fixture(client)
-    _run_replan_and_confirm(client, workspace["id"], project["created_by"])
+    _run_replan_and_confirm(client, workspace["id"], project["id"], project["created_by"])
 
     owner_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -669,9 +741,8 @@ def test_replan_memory_extraction_failure_does_not_block_confirm(client: TestCli
     """replan memory extractor 异常不回滚业务决策。"""
     workspace, project, *_ = _create_full_fixture(client)
 
-    replan_resp = client.post("/api/agent/replan", json={"workspace_id": workspace["id"]})
-    assert replan_resp.status_code == 200
-    proposal_id = replan_resp.json()["proposal_id"]
+    result = _call_replan_proposal(client, workspace["id"], project["id"])
+    proposal_id = result["links"]["proposal_id"]
 
     confirm_resp = client.post(
         f"/api/agent-proposals/{proposal_id}/confirm",
@@ -688,9 +759,8 @@ def test_plan_confirm_no_memories_for_regular_plan(client: TestClient):
     """确认普通的 plan proposal（非 replan）不创建 replan 类型的 ProjectMemory。"""
     workspace, project, *_ = _create_full_fixture(client)
 
-    plan_resp = client.post("/api/agent/plan", json={"workspace_id": workspace["id"]})
-    assert plan_resp.status_code == 200
-    proposal_id = plan_resp.json()["proposal_id"]
+    data = _call_stage_plan_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
     client.post(
         f"/api/agent-proposals/{proposal_id}/confirm",
         json={"confirmed_by": project["created_by"]},

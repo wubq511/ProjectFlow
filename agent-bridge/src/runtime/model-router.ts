@@ -1,143 +1,54 @@
 /**
- * Model router — supports multiple providers (OpenAI-compatible, OpenRouter, DeepSeek, Anthropic, mock).
- * Provider selection from RuntimeConfig. Key resolution in sidecar internal.
+ * Model router — resolves model configuration from the registry.
+ *
+ * The registry is loaded from `model-configs.json` via ModelConfigStore.
+ * This module answers: "which model config entry?" for a given id,
+ * and provides the default model.
+ *
+ * Actual API calls (URL, auth, request format) are handled entirely by Pi SDK
+ * model objects obtained via `resolveRealModel()` in pi-runtime.ts.
  */
 
-export type ProviderType = "openai" | "openai-compatible" | "openrouter" | "deepseek" | "anthropic" | "mock";
-
-export interface ModelConfig {
-  provider: ProviderType;
-  name: string;
-  apiKey?: string;
-  baseUrl?: string;
-  maxTokens?: number;
-  temperature?: number;
-}
-
-export interface ModelRouterConfig {
-  defaultProvider: ProviderType;
-  defaultModel: string;
-  providers: Partial<Record<ProviderType, ProviderConfig>>;
-}
-
-export interface ProviderConfig {
-  baseUrl: string;
-  apiKey: string;
-  defaultModel: string;
-  headers?: Record<string, string>;
-}
+import type { ModelConfigStore } from "@/config/model-config-store.js";
+import type { ModelConfigEntryRuntime } from "@/types/model-config.js";
 
 export class ModelRouter {
-  private readonly config: ModelRouterConfig;
+  private readonly store: ModelConfigStore;
 
-  constructor(config: ModelRouterConfig) {
-    this.config = config;
+  constructor(store: ModelConfigStore) {
+    this.store = store;
   }
 
-  /** Resolve the full model configuration for a given provider/model pair. */
-  resolve(provider?: string, model?: string): ModelConfig {
-    const providerType = (provider ?? this.config.defaultProvider) as ProviderType;
-    const modelName = model ?? this.config.defaultModel;
-
-    if (providerType === "mock") {
-      return {
-        provider: "mock",
-        name: modelName,
-      };
-    }
-
-    const providerConfig = this.config.providers[providerType];
-    if (!providerConfig) {
-      throw new Error(`未配置的模型提供商: ${providerType}`);
-    }
-
-    return {
-      provider: providerType,
-      name: modelName || providerConfig.defaultModel,
-      apiKey: providerConfig.apiKey,
-      baseUrl: providerConfig.baseUrl,
-    };
-  }
-
-  /** Get the API endpoint URL for a provider. */
-  getEndpoint(provider: ProviderType): string {
-    if (provider === "mock") return "http://localhost:mock";
-
-    const providerConfig = this.config.providers[provider];
-    if (!providerConfig) {
-      throw new Error(`未配置的模型提供商: ${provider}`);
-    }
-
-    return providerConfig.baseUrl;
-  }
-
-  /** Get auth headers for a provider. */
-  getAuthHeaders(provider: ProviderType): Record<string, string> {
-    if (provider === "mock") return {};
-
-    const providerConfig = this.config.providers[provider];
-    if (!providerConfig) return {};
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...providerConfig.headers,
-    };
-
-    if (providerConfig.apiKey) {
-      if (provider === "anthropic") {
-        headers["x-api-key"] = providerConfig.apiKey;
-        headers["anthropic-version"] = "2023-06-01";
-      } else {
-        headers["Authorization"] = `Bearer ${providerConfig.apiKey}`;
+  /** Resolve a model config entry by id, falling back to the default. */
+  resolve(id?: string): ModelConfigEntryRuntime | undefined {
+    if (id) {
+      // Try exact id match first
+      const entry = this.store.getValid(id);
+      if (entry) return entry;
+      // Fallback: try provider:name composite key
+      if (id.includes(":")) {
+        const [provider, name] = id.split(":", 2);
+        const byProviderName = this.list().find(
+          (e) => e.valid && e.provider === provider && e.name === name,
+        );
+        if (byProviderName) return byProviderName;
       }
     }
-
-    return headers;
-  }
-}
-
-/** Create a model router from environment variables. */
-export function createModelRouterFromEnv(env: Record<string, string | undefined> = process.env): ModelRouter {
-  const defaultProvider = (env.DEFAULT_MODEL_PROVIDER ?? "mock") as ProviderType;
-  const defaultModel = env.DEFAULT_MODEL_NAME ?? "mock-model";
-
-  const providers: Partial<Record<ProviderType, ProviderConfig>> = {};
-
-  if (env.OPENAI_API_KEY) {
-    providers["openai"] = {
-      baseUrl: env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
-      apiKey: env.OPENAI_API_KEY,
-      defaultModel: env.OPENAI_MODEL ?? "gpt-4o-mini",
-    };
+    return this.store.getDefault();
   }
 
-  if (env.OPENROUTER_API_KEY) {
-    providers["openrouter"] = {
-      baseUrl: "https://openrouter.ai/api/v1",
-      apiKey: env.OPENROUTER_API_KEY,
-      defaultModel: env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini",
-    };
+  /** List all entries (including invalid ones for display). */
+  list(): ModelConfigEntryRuntime[] {
+    return this.store.list();
   }
 
-  if (env.DEEPSEEK_API_KEY) {
-    providers["deepseek"] = {
-      baseUrl: "https://api.deepseek.com/v1",
-      apiKey: env.DEEPSEEK_API_KEY,
-      defaultModel: env.DEEPSEEK_MODEL ?? "deepseek-chat",
-    };
+  /** Get the default entry. */
+  getDefault(): ModelConfigEntryRuntime | undefined {
+    return this.store.getDefault();
   }
 
-  if (env.ANTHROPIC_API_KEY) {
-    providers["anthropic"] = {
-      baseUrl: "https://api.anthropic.com/v1",
-      apiKey: env.ANTHROPIC_API_KEY,
-      defaultModel: env.ANTHROPIC_MODEL ?? "claude-sonnet-4-20250514",
-    };
+  /** Get the underlying store (for routes that need direct access). */
+  getStore(): ModelConfigStore {
+    return this.store;
   }
-
-  return new ModelRouter({
-    defaultProvider,
-    defaultModel,
-    providers,
-  });
 }

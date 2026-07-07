@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { ProjectSidebar } from "./project-sidebar";
 import { AgentSidebar } from "./agent-sidebar";
 import { ProjectContent } from "./project-content";
-import type { AddResourceRequest, AgentArtifact, AgentConversation, AgentSuggestion, ProjectState } from "@/lib/types";
+import type { AddResourceRequest, AgentArtifact, AgentConversation, AgentSuggestion, ProjectState, ThinkingLevel } from "@/lib/types";
 import type { AgentAction } from "./project-actions";
 
 interface ProjectLayoutProps {
@@ -21,7 +21,7 @@ interface ProjectLayoutProps {
   pendingAgentConversation?: boolean;
   actionError?: string | null;
   actionSuccess?: string | null;
-  onRunAgent?: (action: AgentAction) => void;
+  onRunAgent?: (action: AgentAction, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => void;
   onSendAgentMessage?: (content: string) => void | Promise<void>;
   onRespondToAssignment?: (
     proposalId: string,

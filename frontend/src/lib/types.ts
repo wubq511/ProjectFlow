@@ -528,3 +528,36 @@ export type AgentStreamEvent =
   | AgentStreamTokenEvent
   | AgentStreamDoneEvent
   | AgentStreamErrorEvent;
+
+/** Thinking/reasoning level for models that support it. */
+export type ThinkingLevel = "low" | "medium" | "high" | "xhigh" | "max";
+
+// --- Model Configuration ---
+
+export type ModelConfigEntry = {
+  id: string;
+  provider: string;
+  name: string;
+  displayName: string;
+  baseUrl?: string | null;
+  baseUrlEnvVar?: string | null;
+  apiKeyEnvVar: string;
+  apiKeySet: boolean;
+  apiKeySuffix?: string | null;
+  isDefault: boolean;
+  capabilities: { thinking: boolean; vision: boolean };
+  valid: boolean;
+  invalidReason?: string | null;
+};
+
+export type ProviderCatalogModel = {
+  id: string;
+  name: string;
+  reasoning: boolean;
+  input: ("text" | "image")[];
+};
+
+export type BuiltinProvider = {
+  id: string;
+  displayName: string;
+};

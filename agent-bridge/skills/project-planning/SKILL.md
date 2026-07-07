@@ -21,10 +21,13 @@ references:
 
 ## 工作流程
 
-1. 读取 workspace 状态和方向卡
-2. 根据项目截止日期和资源情况，划分合理阶段
-3. 每个阶段包含：目标、时间范围、交付物、完成标准
-4. 创建 AgentProposal 供团队确认
+1. 调用 `get_workspace_state` 读取当前工作区状态（项目方向卡、成员可用时间、截止日期等）
+2. 调用 `list_pending_proposals` 检查是否已有 pending proposal，避免重复生成
+3. **自己生成阶段计划内容**：基于方向卡、成员技能、时间约束，推理出：
+   - `stages`：每个阶段含 name/goal/start_date/end_date/deliverable/done_criteria/order_index/reason
+   - `reason`：生成理由
+   - `requires_confirmation`: true
+4. 调用 `generate_stage_plan_proposal`，将生成的阶段计划内容作为 `output` 参数传入，FastAPI 只做校验+持久化
 
 ## 输出规范
 
@@ -32,3 +35,4 @@ references:
 - 每个阶段有明确的完成标准
 - 考虑团队成员可用时间和技能
 - 不直接修改项目状态
+- `output` 必须符合 StagePlanOutput schema（stages 必填，每个 stage 含 name/goal/start_date/end_date/deliverable/done_criteria）

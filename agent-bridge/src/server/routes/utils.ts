@@ -8,6 +8,9 @@ import type { SessionStore } from "@/runtime/session-store.js";
 import type { FastapiClient } from "@/tools/fastapi-client.js";
 import type { ToolRegistry } from "@/tools/registry.js";
 import type { EventStream } from "@/events/stream.js";
+import type { ModelRouter } from "@/runtime/model-router.js";
+import type { ModelConfigStore } from "@/config/model-config-store.js";
+import type { DotEnvWriter } from "@/config/dotenv-writer.js";
 
 /** Shared context passed to all route handlers — no secrets exposed on req. */
 export interface RunContext {
@@ -16,6 +19,11 @@ export interface RunContext {
   fastapiClient: FastapiClient;
   toolRegistry: ToolRegistry;
   stream: EventStream;
+  modelRouter: ModelRouter;
+  modelConfigStore: ModelConfigStore;
+  dotenvWriter: DotEnvWriter;
+  /** Reload .env from disk into process.env, then reload model config store */
+  reloadDotEnv: () => Promise<void>;
 }
 
 export function sendJson(res: ServerResponse, status: number, data: unknown): void {

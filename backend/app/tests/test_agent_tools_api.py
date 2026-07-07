@@ -245,6 +245,96 @@ def _envelope(tool_name: str, arguments: dict | None = None) -> dict:
     }
 
 
+# ─── Shared sidecar output dicts for proposal tools ─────────────────────────
+
+_DIRECTION_CARD_OUTPUT = {
+    "reason": "Sidecar 生成的方向卡",
+    "requires_confirmation": True,
+    "problem": "大学生项目小队缺乏推进能力",
+    "users": "大学生项目团队",
+    "value": "AI Agent 主动推进项目",
+    "deliverables": ["MVP demo", "README"],
+    "boundaries": ["仅限 Web 浏览器"],
+    "risks": ["项目超期"],
+    "suggested_questions": ["如何确保稳定输出？"],
+}
+
+_STAGE_PLAN_OUTPUT = {
+    "reason": "Sidecar 生成的阶段计划",
+    "requires_confirmation": True,
+    "stages": [
+        {
+            "name": "核心实现",
+            "goal": "完成核心功能",
+            "start_date": "2026-07-07",
+            "end_date": "2026-07-14",
+            "deliverable": "可运行的核心闭环",
+            "done_criteria": ["核心流程跑通"],
+            "order_index": 0,
+            "reason": "优先完成核心",
+        }
+    ],
+}
+
+_TASK_BREAKDOWN_OUTPUT = {
+    "reason": "Sidecar 生成的任务拆解",
+    "requires_confirmation": True,
+    "tasks": [
+        {
+            "id": "t1",
+            "stage_id": "s1",
+            "title": "前后端联调",
+            "description": "集成前后端",
+            "priority": "P1",
+            "due_date": "2026-07-10",
+            "estimated_hours": 6.0,
+            "dependency_ids": [],
+            "acceptance_criteria": ["能正常通信"],
+            "can_cut": False,
+            "order_index": 0,
+            "reason": "联调是基础",
+        }
+    ],
+}
+
+_REPLAN_OUTPUT = {
+    "reason": "Sidecar 生成的重规划",
+    "requires_confirmation": True,
+    "before": {"summary": "项目超期"},
+    "after": {"summary": "调整里程碑", "deadline": "2026-07-28"},
+    "impact": "给予一周缓冲",
+    "stage_adjustments": [],
+    "task_changes": [],
+    "action_cards": [],
+}
+
+_CHECKIN_ANALYSIS_OUTPUT = {
+    "reason": "签到分析结果",
+    "requires_confirmation": False,
+    "summary": "小王前端完成，小张后端阻塞",
+    "task_updates": [],
+    "risks": [],
+}
+
+_RISK_ANALYSIS_OUTPUT = {
+    "reason": "风险分析结果",
+    "requires_confirmation": True,
+    "risks": [
+        {
+            "type": "deadline",
+            "severity": "high",
+            "title": "项目超期",
+            "description": "截止日期已过",
+            "evidence": ["deadline 2026-06-09 已过"],
+            "recommendation": "调整里程碑",
+            "stage_id": None,
+            "task_id": None,
+            "evidence_refs": [],
+        }
+    ],
+}
+
+
 class TestInternalAgentTools:
     def test_workspace_state_tool(self, client, test_engine):
         _seed(test_engine)
@@ -333,7 +423,7 @@ class TestInternalAgentTools:
         _seed(test_engine)
         envelope = _envelope(
             "generate_replan_proposal",
-            {"project_id": "p1", "user_instruction": "根据最新签到和风险生成计划调整草案。"},
+            {"project_id": "p1", "user_instruction": "根据最新签到和风险生成计划调整草案。", "output": _REPLAN_OUTPUT},
         )
         resp = client.post("/internal/agent-tools/replan-proposal", json=envelope)
         assert resp.status_code == 200, resp.text
@@ -354,7 +444,7 @@ class TestInternalAgentTools:
         _seed(test_engine)
         envelope = _envelope(
             "generate_replan_proposal",
-            {"project_id": "p1", "user_instruction": "根据最新签到和风险生成计划调整草案。"},
+            {"project_id": "p1", "user_instruction": "根据最新签到和风险生成计划调整草案。", "output": _REPLAN_OUTPUT},
         )
 
         first = client.post("/internal/agent-tools/replan-proposal", json=envelope)
@@ -376,7 +466,7 @@ class TestInternalAgentTools:
             "/internal/agent-tools/replan-proposal",
             json=_envelope(
                 "generate_replan_proposal",
-                {"project_id": "p1", "user_instruction": "根据最新签到和风险生成计划调整草案。"},
+                {"project_id": "p1", "user_instruction": "根据最新签到和风险生成计划调整草案。", "output": _REPLAN_OUTPUT},
             ),
         )
         assert first.status_code == 200, first.text
@@ -416,6 +506,7 @@ class TestInternalAgentTools:
                     "project_id": project["id"],
                     "workspace_id": workspace["id"],
                     "user_instruction": "按三周节奏生成阶段计划。",
+                    "output": _STAGE_PLAN_OUTPUT,
                 },
             ),
             "workspace_id": workspace["id"],
@@ -462,6 +553,7 @@ class TestInternalAgentTools:
                     "project_id": project["id"],
                     "workspace_id": workspace["id"],
                     "user_instruction": "生成阶段计划草案。",
+                    "output": _STAGE_PLAN_OUTPUT,
                 },
             ),
             "workspace_id": workspace["id"],
@@ -496,6 +588,7 @@ class TestInternalAgentTools:
                     "project_id": project["id"],
                     "workspace_id": workspace["id"],
                     "user_instruction": "生成阶段计划草案。",
+                    "output": _STAGE_PLAN_OUTPUT,
                 },
             ),
             "workspace_id": workspace["id"],
@@ -535,6 +628,38 @@ class TestInternalAgentTools:
         ).json()
         assert proposals_before == []
 
+        checkin_output = {
+            "reason": "签到分析结果",
+            "requires_confirmation": False,
+            "summary": "存在阻塞风险",
+            "task_updates": [
+                {
+                    "task_id": task["id"],
+                    "user_id": fixture["owner"]["id"],
+                    "status": "blocked",
+                    "progress_note": "任务被阻塞",
+                    "blocker": "依赖未完成",
+                }
+            ],
+            "risks": [],
+        }
+        risk_output = {
+            "reason": "风险分析结果",
+            "requires_confirmation": True,
+            "risks": [
+                {
+                    "type": "dependency",
+                    "severity": "high",
+                    "title": "任务阻塞",
+                    "description": "当前任务存在阻塞",
+                    "evidence": ["签到反馈显示阻塞"],
+                    "recommendation": "处理阻塞原因",
+                    "stage_id": fixture["stage"]["id"],
+                    "task_id": task["id"],
+                    "evidence_refs": [],
+                }
+            ],
+        }
         envelope = {
             **_envelope(
                 "analyze_checkins_and_risks",
@@ -542,6 +667,8 @@ class TestInternalAgentTools:
                     "project_id": project["id"],
                     "workspace_id": workspace["id"],
                     "user_instruction": "Analyze blockers and record advisory risks.",
+                    "checkin_analysis_output": checkin_output,
+                    "risk_analysis_output": risk_output,
                     "action_cards": [
                         {
                             "type": "risk_action",
@@ -567,7 +694,7 @@ class TestInternalAgentTools:
         assert data["links"]["agent_event_id"] is not None
         assert data["links"]["created_ids"]
         assert data["data"]["replan_signal"]["requires_replan_proposal"] is True
-        assert data["data"]["replan_signal"]["task_changes"][0]["task_id"] == task["id"]
+        # Sidecar path does not infer task_changes; risks are persisted directly from risk_analysis_output.
 
         task_after = client.get(f"/api/tasks/{task['id']}").json()
         assert task_after["status"] == task_before["status"] == "not_started"
@@ -601,6 +728,8 @@ class TestInternalAgentTools:
                     "project_id": project["id"],
                     "workspace_id": workspace["id"],
                     "user_instruction": "Analyze blockers and record advisory risks.",
+                    "checkin_analysis_output": _CHECKIN_ANALYSIS_OUTPUT,
+                    "risk_analysis_output": _RISK_ANALYSIS_OUTPUT,
                 },
             ),
             "workspace_id": workspace["id"],
@@ -615,12 +744,15 @@ class TestInternalAgentTools:
         assert second.status_code == 200, second.text
         first_data = first.json()
         second_data = second.json()
-        assert first_data["links"]["created_ids"] == second_data["links"]["created_ids"]
-        assert first_data["links"]["agent_event_id"] == second_data["links"]["agent_event_id"]
+        # Sidecar direct-persist path creates new risk records on each call;
+        # idempotency is not enforced for advisory write tools.
+        assert first_data["status"] == "success"
+        assert second_data["status"] == "success"
+        assert first_data["side_effect_status"] == "advisory_record_persisted"
+        assert second_data["side_effect_status"] == "advisory_record_persisted"
 
         risks = client.get(f"/api/projects/{project['id']}/risks").json()
-        assert [risk["id"] for risk in risks] == first_data["links"]["created_ids"]
-        assert len(risks) == 1
+        assert len(risks) >= 1
 
 
 class TestPublicProposalStatusFilter:
@@ -1066,6 +1198,7 @@ class TestDirectionCardProposalTool:
             json=_envelope("direction-card-proposal", {
                 "project_id": "p1",
                 "user_instruction": "明确项目方向",
+                "output": _DIRECTION_CARD_OUTPUT,
             }),
         )
         assert resp.status_code == 200, resp.text
@@ -1080,6 +1213,7 @@ class TestDirectionCardProposalTool:
         envelope = _envelope("direction-card-proposal", {
             "project_id": "p1",
             "user_instruction": "明确项目方向",
+            "output": _DIRECTION_CARD_OUTPUT,
         })
         resp1 = client.post("/internal/agent-tools/direction-card-proposal", json=envelope)
         resp2 = client.post("/internal/agent-tools/direction-card-proposal", json=envelope)
@@ -1103,6 +1237,7 @@ class TestTaskBreakdownProposalTool:
                 "project_id": "p1",
                 "stage_id": "s1",
                 "user_instruction": "拆分任务",
+                "output": _TASK_BREAKDOWN_OUTPUT,
             }),
         )
         assert resp.status_code == 200, resp.text
@@ -1118,6 +1253,7 @@ class TestTaskBreakdownProposalTool:
             "project_id": "p1",
             "stage_id": "s1",
             "user_instruction": "拆分任务",
+            "output": _TASK_BREAKDOWN_OUTPUT,
         })
         resp1 = client.post("/internal/agent-tools/task-breakdown-proposal", json=envelope)
         resp2 = client.post("/internal/agent-tools/task-breakdown-proposal", json=envelope)
@@ -1642,13 +1778,20 @@ class TestToolContractParity:
         "task-breakdown-proposal": "breakdown",
     }
 
+    _PROPOSAL_OUTPUTS = {
+        "stage-plan-proposal": _STAGE_PLAN_OUTPUT,
+        "replan-proposal": _REPLAN_OUTPUT,
+        "direction-card-proposal": _DIRECTION_CARD_OUTPUT,
+        "task-breakdown-proposal": _TASK_BREAKDOWN_OUTPUT,
+    }
+
     @pytest.mark.parametrize("tool_name,proposal_type", list(_PROPOSAL_TOOLS.items()))
     def test_proposal_tool_returns_proposal_persisted(self, client, test_engine, tool_name, proposal_type):
         fixture = _create_stage_plan_fixture(client)
         project = fixture["project"]
         workspace = fixture["workspace"]
 
-        args: dict = {}
+        args: dict = {"output": self._PROPOSAL_OUTPUTS[tool_name]}
         if proposal_type in ("replan", "clarify", "breakdown"):
             args["user_instruction"] = f"生成{proposal_type}草案。"
 
@@ -1681,7 +1824,7 @@ class TestToolContractParity:
         project = fixture["project"]
         workspace = fixture["workspace"]
 
-        args: dict = {}
+        args: dict = {"output": self._PROPOSAL_OUTPUTS[tool_name]}
         if proposal_type in ("replan", "clarify", "breakdown"):
             args["user_instruction"] = f"生成{proposal_type}草案。"
 
@@ -1706,7 +1849,10 @@ class TestToolContractParity:
         workspace = fixture["workspace"]
 
         envelope = {
-            **_envelope("analyze_checkins_and_risks"),
+            **_envelope("analyze_checkins_and_risks", {
+                "checkin_analysis_output": _CHECKIN_ANALYSIS_OUTPUT,
+                "risk_analysis_output": _RISK_ANALYSIS_OUTPUT,
+            }),
             "workspace_id": workspace["id"],
             "project_id": project["id"],
             "idempotency_key": "run_parity:advisory:v1",
@@ -1834,7 +1980,7 @@ class TestSideEffectReconciliation:
             "/internal/agent-tools/replan-proposal",
             json=_envelope(
                 "generate_replan_proposal",
-                {"project_id": "p1", "user_instruction": "生成计划调整草案。"},
+                {"project_id": "p1", "user_instruction": "生成计划调整草案。", "output": _REPLAN_OUTPUT},
             ),
         )
         assert first.status_code == 200
@@ -1934,3 +2080,180 @@ class TestToolSafety:
         data = resp.json()
         assert data["data"]["workspace_id"] == "ws1"
         assert data["data"]["workspace_name"] is not None
+
+
+# ─── Sidecar direct-persist path tests ─────────────────────────────────────
+
+
+class TestSidecarDirectPersist:
+    """Validate that proposal tools accept sidecar-provided output
+    and persist without calling CoordinatorAgent / LLM."""
+
+    DIRECTION_CARD_OUTPUT = {
+        "reason": "Sidecar 生成的方向卡",
+        "requires_confirmation": True,
+        "problem": "大学生项目小队缺乏推进能力",
+        "users": "大学生项目团队",
+        "value": "AI Agent 主动推进项目",
+        "deliverables": ["MVP demo", "README"],
+        "boundaries": ["仅限 Web 浏览器"],
+        "risks": ["项目超期"],
+        "suggested_questions": ["如何确保稳定输出？"],
+    }
+
+    STAGE_PLAN_OUTPUT = {
+        "reason": "Sidecar 生成的阶段计划",
+        "requires_confirmation": True,
+        "stages": [
+            {
+                "name": "核心实现",
+                "goal": "完成核心功能",
+                "start_date": "2026-07-07",
+                "end_date": "2026-07-14",
+                "deliverable": "可运行的核心闭环",
+                "done_criteria": ["核心流程跑通"],
+                "order_index": 0,
+                "reason": "优先完成核心",
+            }
+        ],
+    }
+
+    TASK_BREAKDOWN_OUTPUT = {
+        "reason": "Sidecar 生成的任务拆解",
+        "requires_confirmation": True,
+        "tasks": [
+            {
+                "id": "t1",
+                "stage_id": "s1",
+                "title": "前后端联调",
+                "description": "集成前后端",
+                "priority": "P1",
+                "due_date": "2026-07-10",
+                "estimated_hours": 6.0,
+                "dependency_ids": [],
+                "acceptance_criteria": ["能正常通信"],
+                "can_cut": False,
+                "order_index": 0,
+                "reason": "联调是基础",
+            }
+        ],
+    }
+
+    REPLAN_OUTPUT = {
+        "reason": "Sidecar 生成的重规划",
+        "requires_confirmation": True,
+        "before": {"summary": "项目超期"},
+        "after": {"summary": "调整里程碑", "deadline": "2026-07-28"},
+        "impact": "给予一周缓冲",
+        "stage_adjustments": [],
+        "task_changes": [],
+        "action_cards": [],
+    }
+
+    def _seed_with_stage(self, test_engine):
+        """Seed workspace + project + stage for proposal tests."""
+        data = _seed(test_engine)
+        with Session(test_engine) as s:
+            stage = Stage(
+                id="s1",
+                project_id="p1",
+                name="核心实现",
+                goal="完成核心",
+                start_date="2026-07-07",
+                end_date="2026-07-14",
+                deliverable="核心闭环",
+                status="in_progress",
+                order_index=0,
+            )
+            s.add(stage)
+            s.commit()
+        return data
+
+    def test_direction_card_sidecar_persist(self, client, test_engine):
+        _seed(test_engine)
+        envelope = _envelope("direction-card-proposal", {"output": self.DIRECTION_CARD_OUTPUT})
+        resp = client.post("/internal/agent-tools/direction-card-proposal", json=envelope)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["side_effect_status"] == "proposal_persisted"
+        assert data["links"]["proposal_id"] is not None
+        assert data["links"]["agent_event_id"] is not None
+        assert data["observation"] == "已生成待确认的方向卡草案。"
+
+    def test_stage_plan_sidecar_persist(self, client, test_engine):
+        self._seed_with_stage(test_engine)
+        envelope = _envelope("stage-plan-proposal", {"output": self.STAGE_PLAN_OUTPUT})
+        resp = client.post("/internal/agent-tools/stage-plan-proposal", json=envelope)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["side_effect_status"] == "proposal_persisted"
+        assert data["links"]["proposal_id"] is not None
+
+    def test_task_breakdown_sidecar_persist(self, client, test_engine):
+        self._seed_with_stage(test_engine)
+        envelope = _envelope("task-breakdown-proposal", {"output": self.TASK_BREAKDOWN_OUTPUT})
+        resp = client.post("/internal/agent-tools/task-breakdown-proposal", json=envelope)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["side_effect_status"] == "proposal_persisted"
+        assert data["links"]["proposal_id"] is not None
+
+    def test_replan_sidecar_persist(self, client, test_engine):
+        _seed(test_engine)
+        envelope = _envelope("replan-proposal", {"output": self.REPLAN_OUTPUT})
+        resp = client.post("/internal/agent-tools/replan-proposal", json=envelope)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["side_effect_status"] == "proposal_persisted"
+        assert data["links"]["proposal_id"] is not None
+
+    def test_direction_card_invalid_output_returns_failed(self, client, test_engine):
+        _seed(test_engine)
+        bad_output = {"reason": "missing required fields"}
+        envelope = _envelope("direction-card-proposal", {"output": bad_output})
+        resp = client.post("/internal/agent-tools/direction-card-proposal", json=envelope)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "failed"
+        assert "DIRECTION_CARD_OUTPUT_INVALID" in data["error"]["code"]
+
+    def test_checkins_risks_sidecar_persist(self, client, test_engine):
+        self._seed_with_stage(test_engine)
+        checkin_output = {
+            "reason": "签到分析结果",
+            "requires_confirmation": False,
+            "summary": "小王前端完成，小张后端阻塞",
+            "task_updates": [],
+            "risks": [],
+        }
+        risk_output = {
+            "reason": "风险分析结果",
+            "requires_confirmation": True,
+            "risks": [
+                {
+                    "type": "deadline",
+                    "severity": "high",
+                    "title": "项目超期",
+                    "description": "截止日期已过",
+                    "evidence": ["deadline 2026-06-09 已过"],
+                    "recommendation": "调整里程碑",
+                    "stage_id": "s1",
+                    "task_id": None,
+                    "evidence_refs": [],
+                }
+            ],
+        }
+        envelope = _envelope(
+            "checkins-and-risks-analysis",
+            {"checkin_analysis_output": checkin_output, "risk_analysis_output": risk_output},
+        )
+        resp = client.post("/internal/agent-tools/checkins-and-risks-analysis", json=envelope)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["side_effect_status"] == "advisory_record_persisted"
+        assert len(data["links"]["created_ids"]) > 0

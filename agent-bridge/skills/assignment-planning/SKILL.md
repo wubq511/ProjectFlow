@@ -20,12 +20,9 @@ references:
 
 ## 工作流程
 
-1. 读取 workspace 状态，获取成员技能和可用时间
-2. 分析每个任务的技能需求
-3. 匹配成员技能与任务需求
-4. 推荐 owner 和 backup owner
-5. 为每个推荐提供理由
-6. 创建 AssignmentProposal（不写 Task.owner_user_id）
+1. 调用 `get_workspace_state` 读取当前工作区状态，获取成员技能和可用时间
+2. **自己分析分工方案**：基于成员技能、可用时间、任务需求，推理出最佳分配
+3. 调用 `recommend_assignment` 创建 AssignmentProposal（不写 Task.owner_user_id）
 
 ## 输出规范
 

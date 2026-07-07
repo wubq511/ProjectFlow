@@ -20,10 +20,10 @@ references: []
 
 ## 工作流程
 
-1. 读取 workspace 状态
-2. 分析当前阶段和任务完成情况
-3. 识别待处理的提案和风险
-4. 生成状态摘要
+1. 调用 `get_workspace_state` 读取当前工作区状态
+2. 调用 `get_timeline_slice` 读取近期事件
+3. 调用 `list_pending_proposals` 检查待处理提案
+4. **自己生成状态摘要**：基于 workspace state 和 timeline，分析当前阶段、任务完成情况、风险
 5. 建议下一步行动
 
 ## 输出规范

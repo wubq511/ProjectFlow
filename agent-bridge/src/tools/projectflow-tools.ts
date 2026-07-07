@@ -271,11 +271,15 @@ const getTimelineSliceManifest: ProjectFlowToolManifest = {
 const generateStagePlanProposalManifest: ProjectFlowToolManifest = {
   ...PROPOSAL_DEFAULTS,
   name: "generate_stage_plan_proposal",
-  description: "根据当前项目状态生成待确认的阶段计划草案，不直接创建或修改 Stage/Project 主事实。",
+  description: "根据当前项目状态生成待确认的阶段计划草案，不直接创建或修改 Stage/Project 主事实。Sidecar LLM 生成 output 后传入持久化。",
   inputSchema: {
     type: "object",
     properties: {
       user_instruction: { type: "string", description: "本次阶段计划的用户意图或约束（可选）" },
+      output: {
+        type: "object",
+        description: "Sidecar LLM 生成的阶段计划内容（含 stages、reason、requires_confirmation），传入后 FastAPI 只做校验+持久化，不调 LLM",
+      },
     },
   },
   outputSchema: {
@@ -292,11 +296,15 @@ const generateStagePlanProposalManifest: ProjectFlowToolManifest = {
 const generateReplanProposalManifest: ProjectFlowToolManifest = {
   ...PROPOSAL_DEFAULTS,
   name: "generate_replan_proposal",
-  description: "根据当前项目状态、签到和风险信号生成待确认的计划调整草案，不直接修改任务、阶段或负责人。",
+  description: "根据当前项目状态、签到和风险信号生成待确认的计划调整草案，不直接修改任务、阶段或负责人。Sidecar LLM 生成 output 后传入持久化。",
   inputSchema: {
     type: "object",
     properties: {
       user_instruction: { type: "string", description: "本次重规划的用户意图或触发原因（可选）" },
+      output: {
+        type: "object",
+        description: "Sidecar LLM 生成的重规划内容（含 before/after/impact/task_changes/stage_adjustments），传入后 FastAPI 只做校验+持久化，不调 LLM",
+      },
     },
   },
   outputSchema: {
@@ -313,11 +321,15 @@ const generateReplanProposalManifest: ProjectFlowToolManifest = {
 const generateDirectionCardProposalManifest: ProjectFlowToolManifest = {
   ...PROPOSAL_DEFAULTS,
   name: "generate_direction_card_proposal",
-  description: "根据当前项目信息生成待确认的方向卡草案，不直接写入 Project。",
+  description: "根据当前项目信息生成待确认的方向卡草案，不直接写入 Project。Sidecar LLM 生成 output 后传入持久化。",
   inputSchema: {
     type: "object",
     properties: {
       user_instruction: { type: "string", description: "本次方向卡的补充意图或约束（可选）" },
+      output: {
+        type: "object",
+        description: "Sidecar LLM 生成的方向卡内容（含 problem/users/value/deliverables/reason/requires_confirmation），传入后 FastAPI 只做校验+持久化，不调 LLM",
+      },
     },
   },
   outputSchema: {
@@ -334,12 +346,16 @@ const generateDirectionCardProposalManifest: ProjectFlowToolManifest = {
 const generateTaskBreakdownProposalManifest: ProjectFlowToolManifest = {
   ...PROPOSAL_DEFAULTS,
   name: "generate_task_breakdown_proposal",
-  description: "根据当前项目和阶段信息生成待确认的任务拆解草案，不直接创建 Task。",
+  description: "根据当前项目和阶段信息生成待确认的任务拆解草案，不直接创建 Task。Sidecar LLM 生成 output 后传入持久化。",
   inputSchema: {
     type: "object",
     properties: {
       stage_id: { type: "string", description: "阶段 ID（可选，指定某个阶段的拆解）" },
       user_instruction: { type: "string", description: "本次拆解的补充意图或约束（可选）" },
+      output: {
+        type: "object",
+        description: "Sidecar LLM 生成的任务拆解内容（含 tasks、reason、requires_confirmation），传入后 FastAPI 只做校验+持久化，不调 LLM",
+      },
     },
   },
   outputSchema: {
@@ -356,11 +372,19 @@ const generateTaskBreakdownProposalManifest: ProjectFlowToolManifest = {
 const analyzeCheckinsAndRisksManifest: ProjectFlowToolManifest = {
   ...ADVISORY_WRITE_DEFAULTS,
   name: "analyze_checkins_and_risks",
-  description: "分析签到和风险信号，幂等创建 advisory Risk/ActionCard 记录；若涉及主事实调整，只返回后续 replan 信号而不直接提交。",
+  description: "分析签到和风险信号，幂等创建 advisory Risk/ActionCard 记录；若涉及主事实调整，只返回后续 replan 信号而不直接提交。Sidecar LLM 生成分析结果后传入持久化。",
   inputSchema: {
     type: "object",
     properties: {
       user_instruction: { type: "string", description: "本次分析的补充意图或约束（可选）" },
+      checkin_analysis_output: {
+        type: "object",
+        description: "Sidecar LLM 生成的签到分析结果（含 task_updates/risks/summary/reason），传入后 FastAPI 只做校验+持久化，不调 LLM",
+      },
+      risk_analysis_output: {
+        type: "object",
+        description: "Sidecar LLM 生成的风险分析结果（含 risks/reason/requires_confirmation），传入后 FastAPI 只做校验+持久化，不调 LLM",
+      },
       action_cards: {
         type: "array",
         description: "可选的 ActionCard advisory records；仅创建行动卡，不修改主事实。",

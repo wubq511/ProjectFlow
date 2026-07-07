@@ -26,8 +26,9 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { AgentArtifact, AgentConversation, AgentEvent, AgentSuggestion, ProjectState } from "@/lib/types";
+import type { AgentArtifact, AgentConversation, AgentEvent, AgentSuggestion, ProjectState, ThinkingLevel, ModelConfigEntry } from "@/lib/types";
 import {
   ChatMessage,
   StreamingText,
@@ -118,7 +119,7 @@ interface AgentSidebarProps {
   actionSuccess?: string | null;
   actionError?: string | null;
   conversationError?: string | null;
-  onRunAgent: (action: AgentAction) => void;
+  onRunAgent: (action: AgentAction, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => void;
   onSendMessage?: (content: string) => void | Promise<void>;
   streamingBuffer?: string;
   streamStatus?: AgentStreamStatus | null;
@@ -150,6 +151,36 @@ export function AgentSidebar({
 }: AgentSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("medium");
+  const [modelConfigs, setModelConfigs] = useState<ModelConfigEntry[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+
+  // Load model configs from sidecar on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getModelConfigs } = await import("@/lib/api");
+        const configs = await getModelConfigs();
+        if (cancelled) return;
+        setModelConfigs(configs);
+        // Restore from localStorage or use default
+        const saved = localStorage.getItem("pf:selected-model-id");
+        if (saved && configs.some((c) => c.id === saved && c.valid)) {
+          setSelectedModelId(saved);
+        } else {
+          const def = configs.find((c) => c.isDefault && c.valid);
+          setSelectedModelId(def?.id ?? null);
+        }
+        setModelsLoaded(true);
+      } catch {
+        // Sidecar not available — models will remain empty
+        setModelsLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [activityOpen, setActivityOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
@@ -671,6 +702,49 @@ export function AgentSidebar({
                         className="overflow-hidden"
                       >
                         <div className="mt-1 space-y-2">
+                          {/* Model selector */}
+                          {modelsLoaded && modelConfigs.length > 0 && (
+                            <div className="flex items-center gap-2 px-2">
+                              <span className="text-[10px] font-medium text-neutral-400">模型</span>
+                              <Select
+                                value={selectedModelId ?? undefined}
+                                onValueChange={(v) => {
+                                  if (v) {
+                                    setSelectedModelId(v);
+                                    localStorage.setItem("pf:selected-model-id", v);
+                                  }
+                                }}
+                              >
+                                <SelectTrigger size="sm" className="h-6 w-auto min-w-28 text-[11px]">
+                                  <SelectValue placeholder="选择模型" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {modelConfigs
+                                    .filter((c) => c.valid)
+                                    .map((model) => (
+                                      <SelectItem key={model.id} value={model.id}>
+                                        {model.displayName}
+                                      </SelectItem>
+                                    ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 px-2">
+                            <span className="text-[10px] font-medium text-neutral-400">思考强度</span>
+                            <Select value={thinkingLevel} onValueChange={(v) => setThinkingLevel(v as ThinkingLevel)}>
+                              <SelectTrigger size="sm" className="h-6 w-auto min-w-20 text-[11px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="low">low</SelectItem>
+                                <SelectItem value="medium">medium</SelectItem>
+                                <SelectItem value="high">high</SelectItem>
+                                <SelectItem value="xhigh">xhigh</SelectItem>
+                                <SelectItem value="max">max</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
                           {ACTION_CATEGORIES.map((category) => {
                             const actions = ALL_AGENT_ACTIONS.filter((a) => a.category === category);
                             return (
@@ -687,7 +761,11 @@ export function AgentSidebar({
                                         className="h-8 justify-start gap-1.5 px-2 text-xs text-neutral-600"
                                         disabled={Boolean(pendingAction)}
                                         title={action.description}
-                                        onClick={() => onRunAgent(action.id)}
+                                        onClick={() => {
+                                          const selectedModel = selectedModelId ? modelConfigs.find((c) => c.id === selectedModelId) : undefined;
+                                          const modelRef = selectedModel ? { provider: selectedModel.provider, name: selectedModel.name } : undefined;
+                                          onRunAgent(action.id, thinkingLevel, modelRef);
+                                        }}
                                       >
                                         {isPending ? (
                                           <Loader2 className="h-3.5 w-3.5 animate-spin" />

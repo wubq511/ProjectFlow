@@ -45,17 +45,18 @@ import type {
   AgentSuggestion,
   ProjectState,
   WorkspaceState,
+  ThinkingLevel,
 } from "@/lib/types";
 
-const AGENT_RUNNERS: Record<AgentAction, (projectId: string, state?: ProjectState) => Promise<unknown>> = {
-  clarify: runClarification,
-  plan: runPlanning,
-  breakdown: runBreakdown,
-  assign: (projectId, state) => runAssignment(projectId, resolveActiveStageId(state)),
-  push: runActivePush,
-  "analyze-checkins": runCheckinAnalysis,
-  "risk-analysis": runRiskAnalysis,
-  replan: runReplan,
+const AGENT_RUNNERS: Record<AgentAction, (projectId: string, state?: ProjectState, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => Promise<unknown>> = {
+  clarify: (projectId, _state, tl, m) => runClarification(projectId, tl, m),
+  plan: (projectId, _state, tl, m) => runPlanning(projectId, tl, m),
+  breakdown: (projectId, _state, tl, m) => runBreakdown(projectId, tl, m),
+  assign: (projectId, state, tl, m) => runAssignment(projectId, resolveActiveStageId(state), tl, m),
+  push: (projectId, _state, tl, m) => runActivePush(projectId, tl, m),
+  "analyze-checkins": (projectId, _state, tl, m) => runCheckinAnalysis(projectId, tl, m),
+  "risk-analysis": (projectId, _state, tl, m) => runRiskAnalysis(projectId, tl, m),
+  replan: (projectId, _state, tl, m) => runReplan(projectId, tl, m),
 };
 
 const AGENT_ACTION_LABELS: Record<AgentAction, string> = {
@@ -273,13 +274,13 @@ export default function WorkspaceDashboardPage() {
     }
   }, [selectedProjectId]);
 
-  const runAgent = async (action: AgentAction) => {
+  const runAgent = async (action: AgentAction, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => {
     if (!selectedProjectId) return;
     setPendingAction(action);
     setActionError(null);
     setActionSuccess(null);
     try {
-      const result = (await AGENT_RUNNERS[action](selectedProjectId, projectState ?? undefined)) as AgentFlowResult;
+      const result = (await AGENT_RUNNERS[action](selectedProjectId, projectState ?? undefined, thinkingLevel, model)) as AgentFlowResult;
       await reloadProject();
       if (result?.status === "fallback") {
         setActionSuccess(`${AGENT_ACTION_LABELS[action]}已完成（已使用基础建议）`);

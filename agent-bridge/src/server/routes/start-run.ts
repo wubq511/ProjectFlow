@@ -7,7 +7,6 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { parseRunStartRequest } from "@/types/wire.js";
 import { createRunState } from "@/types/run-state.js";
 import { executeRun } from "@/runtime/pi-runtime.js";
-import { createModelRouterFromEnv } from "@/runtime/model-router.js";
 import type { StreamEventType } from "@/events/stream.js";
 import type { RuntimeEvent } from "@/types/runtime-event.js";
 import type { RunContext } from "./utils.js";
@@ -64,6 +63,7 @@ export async function handleStartRun(
     maxSteps: parsed.runtime_config?.max_steps ?? ctx.config.defaults.maxSteps,
     maxToolCalls: parsed.runtime_config?.max_tool_calls ?? ctx.config.defaults.maxToolCalls,
     timeoutMs: parsed.runtime_config?.timeout_ms ?? ctx.config.defaults.timeoutMs,
+    thinkingLevel: parsed.runtime_config?.thinking_level,
   });
 
   // Store run in session store
@@ -93,8 +93,8 @@ export async function handleStartRun(
       pendingProposals: parsed.pending_proposals,
     },
     ctx.toolRegistry,
-    // Model router: resolve from environment variables (API keys, base URLs, etc.)
-    createModelRouterFromEnv(),
+    // Model router: resolve from model config registry (loaded from model-configs.json)
+    ctx.modelRouter,
     ctx.fastapiClient,
     ctx.stream,
     {

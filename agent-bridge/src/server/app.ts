@@ -1,6 +1,8 @@
 /**
  * HTTP server for the agent bridge sidecar.
  * Routes: POST /runs, GET /runs/:id, POST /runs/:id/cancel, GET /health
+ *         GET/POST/PUT/DELETE /config/models, PUT /config/models/:id/api-key,
+ *         POST /config/reload, GET /config/providers/:provider/models
  */
 
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
@@ -11,12 +13,19 @@ import { handleGetRun } from "./routes/get-run.js";
 import { handleCancelRun } from "./routes/cancel-run.js";
 import { handleListTools } from "./routes/list-tools.js";
 import { handleHealth } from "./routes/health.js";
+import { handleConfigModelsList, handleConfigModelsAdd, handleConfigModelsUpdate, handleConfigModelsDelete } from "./routes/config-models.js";
+import { handleConfigApiKey } from "./routes/config-api-key.js";
+import { handleConfigReload } from "./routes/config-reload.js";
+import { handleConfigProviderModels } from "./routes/config-providers.js";
 import { getSessionStore } from "@/runtime/session-store.js";
 import { FastapiClient } from "@/tools/fastapi-client.js";
 import { ToolRegistry } from "@/tools/registry.js";
 import { registerMockTools } from "@/tools/mock-tools.js";
 import { registerDefaultTools } from "@/tools/register-defaults.js";
 import { EventStream } from "@/events/stream.js";
+import { ModelConfigStore } from "@/config/model-config-store.js";
+import { DotEnvWriter } from "@/config/dotenv-writer.js";
+import { ModelRouter } from "@/runtime/model-router.js";
 import type { RunContext } from "./routes/utils.js";
 
 type RouteHandler = (req: IncomingMessage, res: ServerResponse, params: Record<string, string>, ctx: RunContext) => Promise<void>;
@@ -46,7 +55,14 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-export function createServer(config: SidecarConfig): Server {
+export interface ServerContext {
+  modelConfigStore: ModelConfigStore;
+  dotenvWriter: DotEnvWriter;
+  modelRouter: ModelRouter;
+  reloadDotEnv: () => Promise<void>;
+}
+
+export function createServer(config: SidecarConfig, serverCtx?: Partial<ServerContext>): Server {
   // Build shared context — no secrets exposed on req
   const sessionStore = getSessionStore();
   const fastapiClient = new FastapiClient({
@@ -60,26 +76,55 @@ export function createServer(config: SidecarConfig): Server {
   registerDefaultTools(toolRegistry, fastapiClient);
   const stream = new EventStream();
 
+  // Model config infrastructure
+  const modelConfigStore = serverCtx?.modelConfigStore ?? new ModelConfigStore({
+    filePath: config.modelConfigsPath,
+  });
+  const dotenvWriter = serverCtx?.dotenvWriter ?? new DotEnvWriter({
+    filePath: config.dotenvPath,
+  });
+  const modelRouter = serverCtx?.modelRouter ?? new ModelRouter(modelConfigStore);
+
   const ctx: RunContext = {
     config,
     sessionStore,
     fastapiClient,
     toolRegistry,
     stream,
+    modelRouter,
+    modelConfigStore,
+    dotenvWriter,
+    reloadDotEnv: serverCtx?.reloadDotEnv ?? (async () => { await modelConfigStore.load(); }),
   };
 
   const routes: Route[] = [
+    // Run management
     compileRoute("POST", "/runs", handleStartRun),
     compileRoute("GET", "/runs/:runId", handleGetRun),
     compileRoute("POST", "/runs/:runId/cancel", handleCancelRun),
     compileRoute("GET", "/tools/list", handleListTools),
     compileRoute("GET", "/health", handleHealth),
+
+    // Model configuration
+    compileRoute("GET", "/config/models", handleConfigModelsList),
+    compileRoute("POST", "/config/models", handleConfigModelsAdd),
+    compileRoute("PUT", "/config/models/:id", handleConfigModelsUpdate),
+    compileRoute("DELETE", "/config/models/:id", handleConfigModelsDelete),
+
+    // API key management
+    compileRoute("PUT", "/config/models/:id/api-key", handleConfigApiKey),
+
+    // Config reload
+    compileRoute("POST", "/config/reload", handleConfigReload),
+
+    // Provider catalog
+    compileRoute("GET", "/config/providers/:provider/models", handleConfigProviderModels),
   ];
 
   const server = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
     // CORS headers for local dev
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
     if (req.method === "OPTIONS") {
@@ -101,8 +146,8 @@ export function createServer(config: SidecarConfig): Server {
       }
 
       try {
-        // Attach body reader for POST requests
-        if (req.method === "POST") {
+        // Attach body reader for POST/PUT requests
+        if (req.method === "POST" || req.method === "PUT") {
           (req as IncomingMessage & { bodyText?: string }).bodyText = await readBody(req);
         }
         await route.handler(req, res, params, ctx);

@@ -17,6 +17,7 @@ Covers all 13 acceptance criteria:
 """
 
 import json
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -47,12 +48,88 @@ def client_fixture():
             yield session
 
     app.dependency_overrides[get_session] = override_get_session
-    with TestClient(app) as test_client:
+    with TestClient(app, headers={"Authorization": "Bearer test-internal-service-token"}) as test_client:
         yield test_client
     app.dependency_overrides.clear()
     # Restore default engine
     from app.core.database import engine as default_engine
     set_memory_engine(default_engine)
+
+
+# ─── Shared helpers ──────────────────────────────────────────────────────────
+
+_IDEMPOTENCY_COUNTER = 0
+
+
+def _next_idempotency_key(tool_name: str) -> str:
+    global _IDEMPOTENCY_COUNTER
+    _IDEMPOTENCY_COUNTER += 1
+    return f"test-{tool_name}-{_IDEMPOTENCY_COUNTER}-{uuid.uuid4()}"
+
+
+def _tool_envelope(tool_name: str, workspace_id: str, project_id: str, arguments: dict) -> dict:
+    return {
+        "run_id": "test-run",
+        "conversation_id": "test-conv",
+        "workspace_id": workspace_id,
+        "project_id": project_id,
+        "tool_call_id": f"test-tc-{uuid.uuid4()}",
+        "tool_name": tool_name,
+        "idempotency_key": _next_idempotency_key(tool_name),
+        "arguments": arguments,
+    }
+
+
+_DIRECTION_CARD_OUTPUT = {
+    "problem": "大学生项目小队缺乏推进能力",
+    "users": "大学生项目团队",
+    "value": "AI Agent 主动推进项目",
+    "deliverables": ["MVP demo", "README"],
+    "boundaries": ["仅限 Web 浏览器"],
+    "risks": ["项目超期"],
+    "suggested_questions": ["如何确保稳定输出？"],
+    "reason": "测试方向卡",
+    "requires_confirmation": True,
+}
+
+_STAGE_PLAN_OUTPUT = {
+    "stages": [
+        {
+            "name": "核心实现",
+            "goal": "完成核心功能",
+            "start_date": "2026-07-07",
+            "end_date": "2026-07-14",
+            "deliverable": "可运行的核心闭环",
+            "done_criteria": ["核心流程跑通"],
+            "order_index": 0,
+            "reason": "优先完成核心",
+        }
+    ],
+    "reason": "测试阶段计划",
+    "requires_confirmation": True,
+}
+
+
+def _call_direction_card_proposal(client: TestClient, workspace_id: str, project_id: str) -> dict:
+    """Call direction-card-proposal tool and return response json."""
+    envelope = _tool_envelope(
+        "direction-card-proposal", workspace_id, project_id,
+        {"output": _DIRECTION_CARD_OUTPUT},
+    )
+    resp = client.post("/internal/agent-tools/direction-card-proposal", json=envelope)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _call_stage_plan_proposal(client: TestClient, workspace_id: str, project_id: str) -> dict:
+    """Call stage-plan-proposal tool and return response json."""
+    envelope = _tool_envelope(
+        "stage-plan-proposal", workspace_id, project_id,
+        {"output": _STAGE_PLAN_OUTPUT},
+    )
+    resp = client.post("/internal/agent-tools/stage-plan-proposal", json=envelope)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
 
 
 def _create_full_fixture(client: TestClient):
@@ -83,11 +160,10 @@ def _create_full_fixture(client: TestClient):
     return workspace, project, owner, member, outsider
 
 
-def _confirm_clarify(client: TestClient, workspace_id: str, owner_id: str) -> str:
+def _confirm_clarify(client: TestClient, workspace_id: str, project_id: str, owner_id: str) -> str:
     """Run clarify and confirm the proposal. Returns proposal_id."""
-    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace_id})
-    assert clarify_resp.status_code == 200
-    proposal_id = clarify_resp.json()["proposal_id"]
+    data = _call_direction_card_proposal(client, workspace_id, project_id)
+    proposal_id = data["links"]["proposal_id"]
     confirm_resp = client.post(
         f"/api/agent-proposals/{proposal_id}/confirm",
         json={"confirmed_by": owner_id},
@@ -102,8 +178,7 @@ def _confirm_clarify(client: TestClient, workspace_id: str, owner_id: str) -> st
 def test_unconfirmed_proposal_no_memory(client: TestClient):
     """未确认的 clarify proposal 不触发 memory 提取。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace["id"]})
-    assert clarify_resp.status_code == 200
+    _call_direction_card_proposal(client, workspace["id"], project["id"])
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -116,7 +191,7 @@ def test_unconfirmed_proposal_no_memory(client: TestClient):
 def test_confirmed_proposal_creates_memories(client: TestClient):
     """确认 clarify proposal 后创建 ProjectMemory。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _confirm_clarify(client, workspace["id"], owner["id"])
+    _confirm_clarify(client, workspace["id"], project["id"], owner["id"])
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -135,7 +210,7 @@ def test_confirmed_proposal_creates_memories(client: TestClient):
 def test_exactly_one_direction_memory(client: TestClient):
     """Extractor 创建恰好 1 条 direction 记忆。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _confirm_clarify(client, workspace["id"], owner["id"])
+    _confirm_clarify(client, workspace["id"], project["id"], owner["id"])
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -152,7 +227,7 @@ def test_exactly_one_direction_memory(client: TestClient):
 def test_at_most_one_boundary_memory(client: TestClient):
     """Extractor 创建最多 1 条 boundary 记忆。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _confirm_clarify(client, workspace["id"], owner["id"])
+    _confirm_clarify(client, workspace["id"], project["id"], owner["id"])
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -169,7 +244,7 @@ def test_at_most_one_boundary_memory(client: TestClient):
 def test_idempotent_replay_no_duplicates(client: TestClient):
     """同 source_hash 重放不创建重复行。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _confirm_clarify(client, workspace["id"], owner["id"])
+    _confirm_clarify(client, workspace["id"], project["id"], owner["id"])
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -271,7 +346,7 @@ def test_changed_source_supersedes_old(client: TestClient):
 def test_content_has_no_raw_ids(client: TestClient):
     """content/rationale 中不出现 raw user_id/project_id。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _confirm_clarify(client, workspace["id"], owner["id"])
+    _confirm_clarify(client, workspace["id"], project["id"], owner["id"])
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -289,7 +364,7 @@ def test_content_has_no_raw_ids(client: TestClient):
 def test_markdown_has_no_raw_ids(client: TestClient):
     """Markdown 导出中不出现 raw user_id/project_id。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _confirm_clarify(client, workspace["id"], owner["id"])
+    _confirm_clarify(client, workspace["id"], project["id"], owner["id"])
 
     md_resp = client.get(
         f"/api/projects/{project['id']}/memories.md",
@@ -327,7 +402,7 @@ def test_malformed_viewer_user_id_returns_400(client: TestClient):
 def test_viewer_outside_workspace_returns_404(client: TestClient):
     """非 workspace 成员返回 404，不是 fallback owner 数据。"""
     workspace, project, owner, member, outsider = _create_full_fixture(client)
-    _confirm_clarify(client, workspace["id"], owner["id"])
+    _confirm_clarify(client, workspace["id"], project["id"], owner["id"])
 
     resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -342,7 +417,7 @@ def test_viewer_outside_workspace_returns_404(client: TestClient):
 def test_json_and_markdown_same_visible_set(client: TestClient):
     """JSON 列表和 Markdown 导出对同一 viewer 返回相同记忆集合。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _confirm_clarify(client, workspace["id"], owner["id"])
+    _confirm_clarify(client, workspace["id"], project["id"], owner["id"])
 
     json_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -413,7 +488,7 @@ def test_extractor_different_payload_different_hash():
 def test_team_visibility_all_members_can_see(client: TestClient):
     """team 可见记忆对所有 workspace 成员可见。"""
     workspace, project, owner, member, *_ = _create_full_fixture(client)
-    _confirm_clarify(client, workspace["id"], owner["id"])
+    _confirm_clarify(client, workspace["id"], project["id"], owner["id"])
 
     # Owner can see
     owner_resp = client.get(
@@ -438,7 +513,7 @@ def test_team_visibility_all_members_can_see(client: TestClient):
 def test_markdown_export_format(client: TestClient):
     """Markdown 导出格式正确，包含项目名和记忆内容。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _confirm_clarify(client, workspace["id"], owner["id"])
+    _confirm_clarify(client, workspace["id"], project["id"], owner["id"])
 
     md_resp = client.get(
         f"/api/projects/{project['id']}/memories.md",
@@ -459,7 +534,7 @@ def test_memory_extraction_failure_does_not_block_confirm(client: TestClient):
     # We verify by confirming a proposal and checking direction_card is set,
     # even if memory extraction might have failed.
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _confirm_clarify(client, workspace["id"], owner["id"])
+    _confirm_clarify(client, workspace["id"], project["id"], owner["id"])
 
     # Business decision (direction_card) should be persisted regardless
     project_resp = client.get(f"/api/projects/{project['id']}")
@@ -470,9 +545,8 @@ def test_memory_extraction_failure_does_not_block_confirm(client: TestClient):
 def test_plan_confirm_no_memories(client: TestClient):
     """确认 plan proposal 不创建 ProjectMemory。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    plan_resp = client.post("/api/agent/plan", json={"workspace_id": workspace["id"]})
-    assert plan_resp.status_code == 200
-    proposal_id = plan_resp.json()["proposal_id"]
+    data = _call_stage_plan_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
     client.post(
         f"/api/agent-proposals/{proposal_id}/confirm",
         json={"confirmed_by": owner["id"]},
@@ -496,7 +570,7 @@ def test_memories_md_missing_viewer_returns_400(client: TestClient):
 def test_memories_md_non_member_returns_404(client: TestClient):
     """Markdown 端点非成员返回 404。"""
     workspace, project, owner, member, outsider = _create_full_fixture(client)
-    _confirm_clarify(client, workspace["id"], owner["id"])
+    _confirm_clarify(client, workspace["id"], project["id"], owner["id"])
 
     resp = client.get(
         f"/api/projects/{project['id']}/memories.md",

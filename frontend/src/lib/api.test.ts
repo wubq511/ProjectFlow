@@ -172,7 +172,7 @@ describe("frontend API layer", () => {
     expect(proposal.status).toBe("rejected");
   });
 
-  it("runs agent flows through the implemented workspace-scoped backend route", async () => {
+  it("runs agent flows through the sidecar (T41 architecture)", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/projects/project-1")) {
@@ -191,20 +191,17 @@ describe("frontend API layer", () => {
           updated_at: "2026-05-29T00:00:00Z",
         });
       }
-      if (url.endsWith("/agent/assign")) {
-        expect(init?.method).toBe("POST");
-        expect(JSON.parse(String(init?.body))).toEqual({
-          workspace_id: "workspace-1",
-          project_id: "project-1",
-        });
-        return jsonResponse({
-          event_type: "assign",
-          status: "fallback",
-          attempts: 2,
-          used_fallback: true,
-          output: {},
-          created_ids: ["proposal-1"],
-        });
+      // Sidecar POST /runs — start run
+      if (url.endsWith("/runs") && init?.method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        expect(body.workspace_id).toBe("workspace-1");
+        expect(body.project_id).toBe("project-1");
+        expect(body.runtime_config.skill).toBe("assignment-planning");
+        return jsonResponse({ run_id: "run-1", status: "running" });
+      }
+      // Sidecar GET /runs/:id — poll status
+      if (url.includes("/runs/run-1")) {
+        return jsonResponse({ run_id: "run-1", status: "completed" });
       }
       throw new Error(`Unexpected request ${url}`);
     });
@@ -212,10 +209,11 @@ describe("frontend API layer", () => {
 
     await runAssignment("project-1");
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // getProject + POST /runs + GET /runs/:id
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("calls agent negotiate endpoint with workspace_id in body", async () => {
+  it("calls sidecar negotiate skill with workspace_id in body", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/projects/project-1")) {
@@ -234,20 +232,15 @@ describe("frontend API layer", () => {
           updated_at: "2026-05-29T00:00:00Z",
         });
       }
-      if (url.endsWith("/agent/negotiate")) {
-        expect(init?.method).toBe("POST");
-        expect(JSON.parse(String(init?.body))).toEqual({
-          workspace_id: "workspace-1",
-          project_id: "project-1",
-        });
-        return jsonResponse({
-          event_type: "negotiate",
-          status: "success",
-          attempts: 1,
-          used_fallback: false,
-          output: { message: "协商建议" },
-          created_ids: [],
-        });
+      if (url.endsWith("/runs") && init?.method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        expect(body.workspace_id).toBe("workspace-1");
+        expect(body.project_id).toBe("project-1");
+        expect(body.runtime_config.skill).toBe("assignment-planning");
+        return jsonResponse({ run_id: "run-neg", status: "running" });
+      }
+      if (url.includes("/runs/run-neg")) {
+        return jsonResponse({ run_id: "run-neg", status: "completed" });
       }
       throw new Error(`Unexpected request ${url}`);
     });
@@ -256,10 +249,10 @@ describe("frontend API layer", () => {
     const result = await runAgentNegotiate("project-1");
 
     expect(result.event_type).toBe("negotiate");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("passes stage_id in assignment request body when provided", async () => {
+  it("passes stage_id in assignment sidecar request when provided", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/projects/project-1")) {
@@ -278,21 +271,17 @@ describe("frontend API layer", () => {
           updated_at: "2026-05-29T00:00:00Z",
         });
       }
-      if (url.endsWith("/agent/assign")) {
-        expect(init?.method).toBe("POST");
-        expect(JSON.parse(String(init?.body))).toEqual({
-          workspace_id: "workspace-1",
-          project_id: "project-1",
-          stage_id: "stage-pending",
-        });
-        return jsonResponse({
-          event_type: "assign",
-          status: "fallback",
-          attempts: 2,
-          used_fallback: true,
-          output: {},
-          created_ids: ["proposal-1"],
-        });
+      if (url.endsWith("/runs") && init?.method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        expect(body.workspace_id).toBe("workspace-1");
+        expect(body.project_id).toBe("project-1");
+        expect(body.runtime_config.skill).toBe("assignment-planning");
+        // stage_id should be included in user_content for LLM context
+        expect(body.user_content).toContain("stage_id=stage-pending");
+        return jsonResponse({ run_id: "run-stage", status: "running" });
+      }
+      if (url.includes("/runs/run-stage")) {
+        return jsonResponse({ run_id: "run-stage", status: "completed" });
       }
       throw new Error(`Unexpected request ${url}`);
     });
@@ -300,7 +289,7 @@ describe("frontend API layer", () => {
 
     await runAssignment("project-1", "stage-pending");
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("starts assignment negotiation through the proposal-scoped backend route", async () => {

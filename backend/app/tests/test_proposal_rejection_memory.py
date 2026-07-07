@@ -14,6 +14,7 @@ Covers all acceptance criteria:
 """
 
 import json
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -44,12 +45,60 @@ def client_fixture():
             yield session
 
     app.dependency_overrides[get_session] = override_get_session
-    with TestClient(app) as test_client:
+    with TestClient(app, headers={"Authorization": "Bearer test-internal-service-token"}) as test_client:
         yield test_client
     app.dependency_overrides.clear()
     # Restore default engine
     from app.core.database import engine as default_engine
     set_memory_engine(default_engine)
+
+
+# ─── Shared helpers ──────────────────────────────────────────────────────────
+
+_IDEMPOTENCY_COUNTER = 0
+
+
+def _next_idempotency_key(tool_name: str) -> str:
+    global _IDEMPOTENCY_COUNTER
+    _IDEMPOTENCY_COUNTER += 1
+    return f"test-{tool_name}-{_IDEMPOTENCY_COUNTER}-{uuid.uuid4()}"
+
+
+def _tool_envelope(tool_name: str, workspace_id: str, project_id: str, arguments: dict) -> dict:
+    return {
+        "run_id": "test-run",
+        "conversation_id": "test-conv",
+        "workspace_id": workspace_id,
+        "project_id": project_id,
+        "tool_call_id": f"test-tc-{uuid.uuid4()}",
+        "tool_name": tool_name,
+        "idempotency_key": _next_idempotency_key(tool_name),
+        "arguments": arguments,
+    }
+
+
+_DIRECTION_CARD_OUTPUT = {
+    "problem": "大学生项目小队缺乏推进能力",
+    "users": "大学生项目团队",
+    "value": "AI Agent 主动推进项目",
+    "deliverables": ["MVP demo", "README"],
+    "boundaries": ["仅限 Web 浏览器"],
+    "risks": ["项目超期"],
+    "suggested_questions": ["如何确保稳定输出？"],
+    "reason": "测试方向卡",
+    "requires_confirmation": True,
+}
+
+
+def _call_direction_card_proposal(client: TestClient, workspace_id: str, project_id: str) -> dict:
+    """Call direction-card-proposal tool and return response json."""
+    envelope = _tool_envelope(
+        "direction-card-proposal", workspace_id, project_id,
+        {"output": _DIRECTION_CARD_OUTPUT},
+    )
+    resp = client.post("/internal/agent-tools/direction-card-proposal", json=envelope)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
 
 
 def _create_full_fixture(client: TestClient):
@@ -83,14 +132,14 @@ def _create_full_fixture(client: TestClient):
 def _create_and_reject_proposal(
     client: TestClient,
     workspace_id: str,
+    project_id: str,
     reason: str | None,
 ) -> str:
     """Create a clarify proposal and reject it with the given reason.
     Returns the proposal_id.
     """
-    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace_id})
-    assert clarify_resp.status_code == 200
-    proposal_id = clarify_resp.json()["proposal_id"]
+    data = _call_direction_card_proposal(client, workspace_id, project_id)
+    proposal_id = data["links"]["proposal_id"]
 
     reject_body = {} if reason is None else {"reason": reason}
     reject_resp = client.post(
@@ -107,7 +156,7 @@ def _create_and_reject_proposal(
 def test_empty_reason_no_memory(client: TestClient):
     """空 reason 拒绝不创建 ProjectMemory。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _create_and_reject_proposal(client, workspace["id"], reason=None)
+    _create_and_reject_proposal(client, workspace["id"], project["id"], reason=None)
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -120,7 +169,7 @@ def test_empty_reason_no_memory(client: TestClient):
 def test_blank_reason_no_memory(client: TestClient):
     """空白字符串 reason 拒绝不创建 ProjectMemory。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _create_and_reject_proposal(client, workspace["id"], reason="   ")
+    _create_and_reject_proposal(client, workspace["id"], project["id"], reason="   ")
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -136,7 +185,7 @@ def test_blank_reason_no_memory(client: TestClient):
 def test_nonempty_reason_creates_rejection_memory(client: TestClient):
     """非空 reason 拒绝创建恰好 1 条 rejection 记忆。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _create_and_reject_proposal(client, workspace["id"], reason="方案不符合团队时间约束")
+    _create_and_reject_proposal(client, workspace["id"], project["id"], reason="方案不符合团队时间约束")
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -162,8 +211,8 @@ def test_rejection_does_not_create_agent_event(client: TestClient):
     workspace, project, owner, *_ = _create_full_fixture(client)
 
     # Create the clarify proposal first (this creates 1 AgentEvent)
-    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace["id"]})
-    proposal_id = clarify_resp.json()["proposal_id"]
+    data = _call_direction_card_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
 
     # Get timeline after clarify, before rejection
     timeline_before_reject = client.get(
@@ -191,7 +240,7 @@ def test_rejection_does_not_create_agent_event(client: TestClient):
 def test_content_states_what_was_not_adopted(client: TestClient):
     """content 说明方案未被采纳。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _create_and_reject_proposal(client, workspace["id"], reason="团队资源不足")
+    _create_and_reject_proposal(client, workspace["id"], project["id"], reason="团队资源不足")
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -210,7 +259,7 @@ def test_rationale_cites_only_explicit_reason(client: TestClient):
     """rationale 只引用显式拒绝理由，不推断隐藏因果。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
     explicit_reason = "方向与团队核心能力不匹配"
-    _create_and_reject_proposal(client, workspace["id"], reason=explicit_reason)
+    _create_and_reject_proposal(client, workspace["id"], project["id"], reason=explicit_reason)
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -231,7 +280,7 @@ def test_rationale_cites_only_explicit_reason(client: TestClient):
 def test_rejection_memory_team_visible(client: TestClient):
     """rejection 记忆是 team 可见，所有 workspace 成员可看到。"""
     workspace, project, owner, member, *_ = _create_full_fixture(client)
-    _create_and_reject_proposal(client, workspace["id"], reason="时间不够")
+    _create_and_reject_proposal(client, workspace["id"], project["id"], reason="时间不够")
 
     # Owner can see
     owner_resp = client.get(
@@ -255,7 +304,7 @@ def test_rejection_memory_team_visible(client: TestClient):
 def test_rejection_memory_markdown_visible(client: TestClient):
     """rejection 记忆参与 Markdown 导出。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _create_and_reject_proposal(client, workspace["id"], reason="优先级不对")
+    _create_and_reject_proposal(client, workspace["id"], project["id"], reason="优先级不对")
 
     md_resp = client.get(
         f"/api/projects/{project['id']}/memories.md",
@@ -274,7 +323,7 @@ def test_rejection_memory_markdown_visible(client: TestClient):
 def test_idempotent_replay_no_duplicates(client: TestClient):
     """同 source_hash 重放不创建重复 rejection 记忆。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _create_and_reject_proposal(client, workspace["id"], reason="理由相同")
+    _create_and_reject_proposal(client, workspace["id"], project["id"], reason="理由相同")
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -367,7 +416,7 @@ def test_changed_reason_supersedes_old(client: TestClient):
 def test_content_no_raw_ids(client: TestClient):
     """content/rationale 中不出现 raw user_id/project_id。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _create_and_reject_proposal(client, workspace["id"], reason="测试理由")
+    _create_and_reject_proposal(client, workspace["id"], project["id"], reason="测试理由")
 
     memories_resp = client.get(
         f"/api/projects/{project['id']}/memories",
@@ -384,7 +433,7 @@ def test_content_no_raw_ids(client: TestClient):
 def test_markdown_no_raw_ids(client: TestClient):
     """Markdown 导出中不出现 raw user_id/project_id。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    _create_and_reject_proposal(client, workspace["id"], reason="测试理由")
+    _create_and_reject_proposal(client, workspace["id"], project["id"], reason="测试理由")
 
     md_resp = client.get(
         f"/api/projects/{project['id']}/memories.md",
@@ -473,8 +522,8 @@ def test_extractor_none_reason_returns_empty():
 def test_reject_without_body_still_works(client: TestClient):
     """不传 body 的拒绝请求仍然兼容（legacy）。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
-    clarify_resp = client.post("/api/agent/clarify", json={"workspace_id": workspace["id"]})
-    proposal_id = clarify_resp.json()["proposal_id"]
+    data = _call_direction_card_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
 
     # Reject without body
     reject_resp = client.post(f"/api/agent-proposals/{proposal_id}/reject")
@@ -494,7 +543,7 @@ def test_rejection_memory_source_id_is_proposal_id(client: TestClient):
     """rejection 记忆的 source_id 指向被拒绝的 AgentProposal.id。"""
     workspace, project, owner, *_ = _create_full_fixture(client)
     proposal_id = _create_and_reject_proposal(
-        client, workspace["id"], reason="验证 source_id"
+        client, workspace["id"], project["id"], reason="验证 source_id"
     )
 
     memories_resp = client.get(
