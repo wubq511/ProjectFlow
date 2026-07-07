@@ -39,9 +39,20 @@ class AgentRuntimeService:
     _VALID_TRANSITIONS: dict[AgentRunStatus, set[AgentRunStatus]] = {
         AgentRunStatus.created: {AgentRunStatus.context_building, AgentRunStatus.cancelling, AgentRunStatus.failed},
         AgentRunStatus.context_building: {AgentRunStatus.model_streaming, AgentRunStatus.cancelling, AgentRunStatus.failed},
-        AgentRunStatus.model_streaming: {AgentRunStatus.tool_preparing, AgentRunStatus.completed, AgentRunStatus.cancelling, AgentRunStatus.failed},
-        AgentRunStatus.tool_preparing: {AgentRunStatus.tool_running, AgentRunStatus.cancelling, AgentRunStatus.failed},
-        AgentRunStatus.tool_running: {AgentRunStatus.persisting_tool_result, AgentRunStatus.cancelling, AgentRunStatus.failed},
+        AgentRunStatus.model_streaming: {
+            AgentRunStatus.tool_preparing, AgentRunStatus.tool_running,
+            AgentRunStatus.persisting_tool_result, AgentRunStatus.completed,
+            AgentRunStatus.cancelling, AgentRunStatus.failed,
+        },
+        AgentRunStatus.tool_preparing: {
+            AgentRunStatus.tool_running, AgentRunStatus.persisting_tool_result,
+            AgentRunStatus.model_streaming, AgentRunStatus.completed,
+            AgentRunStatus.cancelling, AgentRunStatus.failed,
+        },
+        AgentRunStatus.tool_running: {
+            AgentRunStatus.persisting_tool_result, AgentRunStatus.model_streaming,
+            AgentRunStatus.completed, AgentRunStatus.cancelling, AgentRunStatus.failed,
+        },
         AgentRunStatus.persisting_tool_result: {AgentRunStatus.model_streaming, AgentRunStatus.cancelling, AgentRunStatus.failed},
         AgentRunStatus.completed: set(),
         AgentRunStatus.cancelling: {AgentRunStatus.cancelled, AgentRunStatus.failed},
@@ -280,13 +291,16 @@ class AgentRuntimeService:
         """Apply state patch to run with validation."""
         if "status" in patch:
             new_status = AgentRunStatus(patch["status"])
-            allowed = self._VALID_TRANSITIONS.get(run.status, set())
-            if new_status not in allowed:
-                raise ValueError(
-                    f"非法状态转换: {run.status.value} → {new_status.value}，"
-                    f"允许的目标状态: {[s.value for s in allowed]}"
-                )
-            run.status = new_status
+            if new_status == run.status:
+                pass  # idempotent — same status, no transition needed
+            else:
+                allowed = self._VALID_TRANSITIONS.get(run.status, set())
+                if new_status not in allowed:
+                    raise ValueError(
+                        f"非法状态转换: {run.status.value} → {new_status.value}，"
+                        f"允许的目标状态: {[s.value for s in allowed]}"
+                    )
+                run.status = new_status
         if "current_turn" in patch:
             run.current_turn = int(patch["current_turn"])
         if "current_step" in patch:
@@ -300,7 +314,8 @@ class AgentRuntimeService:
         if "pending_tool_name" in patch:
             run.pending_tool_name = patch["pending_tool_name"]
         if "pending_tool_version" in patch:
-            run.pending_tool_version = int(patch["pending_tool_version"])
+            val = patch["pending_tool_version"]
+            run.pending_tool_version = int(val) if val is not None else None
         if "pending_idempotency_key" in patch:
             run.pending_idempotency_key = patch["pending_idempotency_key"]
         if "last_event_seq" in patch:

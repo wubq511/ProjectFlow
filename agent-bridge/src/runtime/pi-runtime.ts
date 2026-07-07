@@ -58,6 +58,8 @@ import {
 } from "@earendil-works/pi-agent-core";
 import type { Model, Api, AssistantMessage, Message, ToolCall, Usage, TSchema } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream, Type } from "@earendil-works/pi-ai";
+import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
+import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 
 export interface RunInput {
   conversationId: string;
@@ -264,7 +266,7 @@ function applyPiEventToRunState(event: AgentEvent, runState: AgentRunState): voi
       break;
     }
     case "tool_execution_start": {
-      runState.status = "tool_running";
+      runState.status = "tool_preparing";
       runState.currentStep++;
       runState.pendingToolCall = {
         toolCallId: event.toolCallId,
@@ -376,8 +378,8 @@ export async function executeRun(
     // Step 4: Resolve model
     const resolvedModel = modelRouter.resolve(runState.model.provider, runState.model.name);
 
-    // Step 5: Create model instance (mock for now, real provider when configured)
-    const model = options.model ?? createMockModel(resolvedModel.name);
+    // Step 5: Create model instance — real provider when configured, mock fallback
+    const model = options.model ?? resolveRealModel(resolvedModel.provider, resolvedModel.name);
     const streamFn = options.streamFn ?? (resolvedModel.provider === "mock" ? createMockStreamFn() : undefined);
 
     // Step 6: Build AgentLoopConfig with hooks
@@ -741,4 +743,50 @@ function createMockModel(name: string): Model<Api> {
     contextWindow: 128000,
     maxTokens: 4096,
   } as Model<Api>;
+}
+
+/**
+ * Resolve a real Model object from Pi SDK providers.
+ * Falls back to createMockModel if provider is "mock" or model not found in catalog.
+ */
+function resolveRealModel(provider: string, modelName: string): Model<Api> {
+  if (provider === "mock") {
+    return createMockModel(modelName);
+  }
+
+  try {
+    const piProvider = getPiProvider(provider);
+    if (!piProvider) {
+      console.warn(`[agent-bridge] 未找到 Pi SDK provider: ${provider}，回退到 mock`);
+      return createMockModel(modelName);
+    }
+
+    const models = piProvider.getModels();
+    const found = models.find((m) => m.id === modelName || m.name === modelName);
+    if (!found) {
+      console.warn(`[agent-bridge] 未在 ${provider} catalog 中找到模型: ${modelName}，回退到 mock`);
+      return createMockModel(modelName);
+    }
+
+    return found as Model<Api>;
+  } catch (err) {
+    console.error(`[agent-bridge] 解析真实模型失败:`, err);
+    return createMockModel(modelName);
+  }
+}
+
+/**
+ * Get Pi SDK Provider instance by provider type.
+ * Only supports providers that are statically imported.
+ */
+function getPiProvider(provider: string) {
+  switch (provider) {
+    case "deepseek":
+      return deepseekProvider();
+    case "openai":
+      return openaiProvider();
+    // openai-compatible / openrouter use openai provider with custom baseUrl — not yet supported
+    default:
+      return undefined;
+  }
 }

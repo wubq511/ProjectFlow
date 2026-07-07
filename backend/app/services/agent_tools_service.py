@@ -98,11 +98,13 @@ def execute_agent_tool(
     """Dispatch a ProjectFlow tool call and return a unified ProjectFlowToolResult."""
     tool_name = dispatch_tool_name or request.tool_name
     args = request.arguments or {}
-    workspace_id = args.get("workspace_id") or request.workspace_id
-    project_id = args.get("project_id") or request.project_id
+    # workspace_id and project_id come from the request envelope (set by sidecar
+    # from run context), never from LLM-generated arguments.
+    workspace_id = request.workspace_id
+    project_id = request.project_id
 
     if tool_name == "workspace-state":
-        state = get_workspace_state(session, workspace_id, project_id=args.get("project_id"))
+        state = get_workspace_state(session, workspace_id, project_id=project_id)
         if state is None:
             return ProjectFlowToolResult(
                 status=ToolResultStatus.failed,
@@ -999,8 +1001,8 @@ def execute_assignment_recommendation(session: Session, request: ToolExecutionRe
     Final owner is only written by finalize_assignment_proposal (human-triggered).
     """
     args = request.arguments or {}
-    project_id = args.get("project_id") or request.project_id
-    workspace_id = args.get("workspace_id") or request.workspace_id
+    project_id = request.project_id
+    workspace_id = request.workspace_id
 
     # Validate required fields
     required = ["stage_id", "task_id", "recommended_owner_user_id", "reason"]
@@ -1125,7 +1127,7 @@ def execute_create_risk(session: Session, request: ToolExecutionRequest) -> Proj
     Idempotent: same idempotency_key returns cached result.
     """
     args = request.arguments or {}
-    project_id = args.get("project_id") or request.project_id
+    project_id = request.project_id
 
     # Idempotency check: look for existing event with same idempotency key
     import json as json_check
@@ -1257,7 +1259,7 @@ def execute_create_checkin(session: Session, request: ToolExecutionRequest) -> P
     Idempotent: same idempotency_key returns cached result.
     """
     args = request.arguments or {}
-    project_id = args.get("project_id") or request.project_id
+    project_id = request.project_id
 
     # Idempotency check: look for existing event with same idempotency key
     import json as json_check2

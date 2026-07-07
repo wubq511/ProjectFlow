@@ -1746,9 +1746,13 @@ class TestToolContractParity:
 
     def test_failed_result_contract(self, client, test_engine):
         _seed(test_engine)
+        # workspace_id is now taken from the request envelope, not arguments.
+        # Pass a nonexistent workspace_id in the envelope to trigger failed.
+        envelope = _envelope("workspace-state")
+        envelope["workspace_id"] = "nonexistent"
         resp = client.post(
             "/internal/agent-tools/workspace-state",
-            json=_envelope("workspace-state", {"workspace_id": "nonexistent"}),
+            json=envelope,
         )
         assert resp.status_code == 200, resp.text
         data = resp.json()

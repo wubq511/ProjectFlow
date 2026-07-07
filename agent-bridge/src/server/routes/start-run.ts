@@ -7,7 +7,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { parseRunStartRequest } from "@/types/wire.js";
 import { createRunState } from "@/types/run-state.js";
 import { executeRun } from "@/runtime/pi-runtime.js";
-import { ModelRouter } from "@/runtime/model-router.js";
+import { createModelRouterFromEnv } from "@/runtime/model-router.js";
 import type { StreamEventType } from "@/events/stream.js";
 import type { RuntimeEvent } from "@/types/runtime-event.js";
 import type { RunContext } from "./utils.js";
@@ -24,7 +24,34 @@ export async function handleStartRun(
   const parsed = readJsonBody(res, bodyText, parseRunStartRequest);
   if (!parsed) return;
 
-  // Create initial run state
+  // Step 1: Create run record in FastAPI (persists AgentRunV2 to DB)
+  // FastAPI's RuntimeConfig.model is a string, but sidecar wire format uses { provider, name }.
+  // Convert before sending to FastAPI.
+  const modelName = parsed.runtime_config?.model
+    ? `${parsed.runtime_config.model.provider}:${parsed.runtime_config.model.name}`
+    : `${ctx.config.defaultModelProvider}:${ctx.config.defaultModelName}`;
+  const fastapiRequestBody: Record<string, unknown> = {
+    conversation_id: parsed.conversation_id,
+    workspace_id: parsed.workspace_id,
+    project_id: parsed.project_id,
+    user_message_id: parsed.user_message_id,
+    user_content: parsed.user_content,
+    viewer_user_id: parsed.viewer_user_id,
+    workspace_state: parsed.workspace_state,
+    recent_messages: parsed.recent_messages,
+    pending_proposals: parsed.pending_proposals,
+    runtime_config: {
+      model: modelName,
+      max_steps: parsed.runtime_config?.max_steps ?? ctx.config.defaults.maxSteps,
+      max_tool_calls: parsed.runtime_config?.max_tool_calls ?? ctx.config.defaults.maxToolCalls,
+      timeout_ms: parsed.runtime_config?.timeout_ms ?? ctx.config.defaults.timeoutMs,
+      trace_include_sensitive_data: parsed.runtime_config?.trace_include_sensitive_data ?? ctx.config.traceIncludeSensitiveData,
+    },
+  };
+  const fastapiRunResp = await ctx.fastapiClient.startRun(fastapiRequestBody as any);
+  const fastapiRunId = fastapiRunResp.run_id;
+
+  // Step 2: Create local run state using FastAPI-assigned run_id
   const runState = createRunState({
     conversationId: parsed.conversation_id,
     workspaceId: parsed.workspace_id,
@@ -37,6 +64,8 @@ export async function handleStartRun(
     maxToolCalls: parsed.runtime_config?.max_tool_calls ?? ctx.config.defaults.maxToolCalls,
     timeoutMs: parsed.runtime_config?.timeout_ms ?? ctx.config.defaults.timeoutMs,
   });
+  // Override local run_id with the one persisted in FastAPI
+  (runState as any).runId = fastapiRunId;
 
   // Store run in session store
   ctx.sessionStore.set(runState.runId, runState);
@@ -65,12 +94,8 @@ export async function handleStartRun(
       pendingProposals: parsed.pending_proposals,
     },
     ctx.toolRegistry,
-    // Model router: resolve from sidecar config
-    new ModelRouter({
-      defaultProvider: ctx.config.defaultModelProvider as "mock" | "openai" | "openai-compatible" | "openrouter" | "deepseek" | "anthropic",
-      defaultModel: ctx.config.defaultModelName,
-      providers: {},
-    }),
+    // Model router: resolve from environment variables (API keys, base URLs, etc.)
+    createModelRouterFromEnv(),
     ctx.fastapiClient,
     ctx.stream,
     {

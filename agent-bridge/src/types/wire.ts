@@ -56,6 +56,7 @@ export interface WireRunStartRequest {
   project_id: string;
   user_message_id?: string;
   user_content?: string;
+  viewer_user_id?: string;
   workspace_state?: unknown;
   recent_messages?: unknown[];
   pending_proposals?: unknown[];
