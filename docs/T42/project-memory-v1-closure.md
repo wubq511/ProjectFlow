@@ -110,13 +110,4 @@ Before closing T42 V1:
 
 ## Worktree Cleanup Candidates
 
-The following worktrees are registered locally and appear to be historical implementation or validation worktrees:
-
-- `D:\ProjectFlow\.claude\worktrees\t42-direction-card-tracer`
-- `D:\ProjectFlow\.claude\worktrees\t42-memory-retrieval`
-- `D:\ProjectFlow\.claude\worktrees\t72-proposal-rejection-memory`
-- `D:\ProjectFlow-acceptance-t42`
-- `D:\ProjectFlow-t42-planning-docs`
-- `D:\ProjectFlow-t42-project-memory-docs`
-
-Do not delete them without explicit user confirmation. Recommended cleanup command after confirmation is `git worktree remove <path>` for each worktree, followed by `git worktree prune`.
+All historical T42 worktrees have been cleaned up (2026-07-07). No registered worktrees remain.
