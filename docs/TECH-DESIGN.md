@@ -1,7 +1,7 @@
 <!--
   Ownership: T41 Agent Runtime Team
   Stability boundary: 各节 append-only；修改现有节内容需先创建 ADR（见 docs/adr/）
-  Verification: cd backend && .venv/bin/python -m pytest app/tests/ -q && cd ../agent-bridge && ../scripts/npm run test && cd ../frontend && ../scripts/npm run test
+  Verification: cd backend && .venv/bin/python -m pytest app/tests/ -q && cd ../agent-bridge && npm run test && cd ../frontend && npm run test
 -->
 
 # Technical Design Document: ProjectFlow MVP
@@ -2274,8 +2274,8 @@ Frontend:
 
 ```bash
 cd frontend
-../scripts/npm install
-../scripts/npm run dev
+npm install
+npm run dev
 ```
 
 Open:

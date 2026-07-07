@@ -145,11 +145,11 @@ Base: `0.25rem` (4px)
 
 | Variant | Style |
 |---------|-------|
-| Primary | `bg-moss text-white hover:bg-primary-strong` |
-| Secondary | `bg-neutral-100 text-ink hover:bg-neutral-200` |
+| Primary | `bg-primary text-white hover:bg-primary-strong` |
+| Secondary | `bg-neutral-100 text-neutral-800 hover:bg-neutral-200` |
 | Outline | `border border-neutral-200 bg-transparent hover:bg-neutral-50` |
 | Ghost | `bg-transparent hover:bg-neutral-50` |
-| Destructive | `bg-coral text-white hover:bg-red-600` |
+| Destructive | `bg-destructive text-white hover:bg-red-600` |
 
 ### Card
 
@@ -161,18 +161,18 @@ Base: `0.25rem` (4px)
 ### Input / Form
 
 - 边框：`var(--border)`
-- Focus：`ring-2 ring-moss/30`
+- Focus：`ring-2 ring-primary/30`
 - 标签：始终可见，不依赖 placeholder
-- 错误状态：边框变 coral，下方显示错误文字
+- 错误状态：边框变 destructive，下方显示错误文字
 
 ### Badge
 
 | Variant | Style |
 |---------|-------|
-| Default | `bg-moss/10 text-moss` |
-| Accent | `bg-citron/25 text-yellow-700` |
+| Default | `bg-primary/10 text-primary` |
+| Accent | `bg-accent/25 text-yellow-700` |
 | Success | `bg-emerald-100 text-emerald-600` |
-| Warning | `bg-coral/10 text-coral` |
+| Warning | `bg-destructive/10 text-destructive` |
 
 ## Motion
 

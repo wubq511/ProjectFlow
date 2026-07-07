@@ -2,7 +2,7 @@
 
 All notable changes to ProjectFlow are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.2.0] - 2026-07-07
 
 ### T42 ProjectMemory V1
 

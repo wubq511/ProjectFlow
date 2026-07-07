@@ -13,20 +13,20 @@ test-backend:
 
 test-agent-bridge:
 	@echo "▶ Agent-bridge tests"
-	cd agent-bridge && ../scripts/npm run test
+	cd agent-bridge && npm run test
 
 test-frontend:
 	@echo "▶ Frontend tests"
-	cd frontend && ../scripts/npm run test
+	cd frontend && npm run test
 
 build-frontend:
 	@echo "▶ Frontend build"
-	cd frontend && ../scripts/npm run build
+	cd frontend && npm run build
 
 typecheck:
 	@echo "▶ Agent-bridge typecheck"
-	cd agent-bridge && ../scripts/npm run typecheck
+	cd agent-bridge && npm run typecheck
 
 lint:
 	@echo "▶ Frontend lint"
-	cd frontend && ../scripts/npm run lint
+	cd frontend && npm run lint
