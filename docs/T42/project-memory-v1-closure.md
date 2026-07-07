@@ -20,7 +20,7 @@ The completed implementation covers the ProjectMemory V1 backend/runtime and fro
 
 ## Verification Evidence
 
-Latest local verification on `main` after the issue #80 frontend commit:
+Latest local verification on `main` after the issue #80 privacy fix commit (`e77b099`):
 
 ```bash
 cd backend
@@ -43,7 +43,7 @@ npm audit --omit=dev
 
 Result:
 
-- Frontend tests: 55 passed across 10 files.
+- Frontend tests: 56 passed across 10 files.
 - Frontend lint: passed with 2 existing React hook warnings.
 - Frontend production build: passed.
 - Frontend production dependency audit: 0 vulnerabilities.
