@@ -4,9 +4,9 @@ Status: acceptance as of 2026-07-07.
 
 ## Summary
 
-GitHub issues #71-#77 are closed and merged to `main`. The latest stabilization commit is `03e7bda` (`fix(t42): stabilize project memory acceptance`).
+GitHub issues #71-#80 are closed and merged to `main`. The latest stabilization commit adds the frontend read-only memory list and Markdown export UI for issue #80.
 
-The completed implementation covers the ProjectMemory V1 backend/runtime path:
+The completed implementation covers the ProjectMemory V1 backend/runtime and frontend path:
 
 - Governed `ProjectMemory` and `ProjectMemorySync` persistence.
 - Deterministic extractor with no LLM calls.
@@ -16,10 +16,11 @@ The completed implementation covers the ProjectMemory V1 backend/runtime path:
 - Default FTS5+jieba retrieval with SQLite field fallback and `none` fallback.
 - Agent context injection through FastAPI-built context only; T41 sidecar remains database-free.
 - Retrieval evaluation harness and optional `memory-vector` extra with default-install guardrails.
+- Frontend `ProjectMemoryPanel` with topic-grouped read-only list, loading/error/empty states, and Markdown export/copy/download using the current viewer identity.
 
 ## Verification Evidence
 
-Latest local verification on `main` after commit `03e7bda`:
+Latest local verification on `main` after the issue #80 frontend commit:
 
 ```bash
 cd backend
@@ -42,7 +43,7 @@ npm audit --omit=dev
 
 Result:
 
-- Frontend tests: 46 passed across 9 files.
+- Frontend tests: 55 passed across 10 files.
 - Frontend lint: passed with 2 existing React hook warnings.
 - Frontend production build: passed.
 - Frontend production dependency audit: 0 vulnerabilities.
@@ -70,6 +71,7 @@ Result:
 | #75 | Closed | Default retrieval and Agent context injection |
 | #76 | Closed | Retrieval evaluation harness |
 | #77 | Closed | Optional vector extra and dependency guardrails |
+| #80 | Closed | Frontend read-only memory list and Markdown export UI |
 
 ## PRD Coverage
 
@@ -79,10 +81,11 @@ Implemented:
 - Deterministic extraction, source-level idempotency, visibility, read/export consistency, retrieval, Agent injection, evaluation harness, and optional vector guardrails are implemented.
 - Proposal rejection requires a non-empty reason to become memory.
 - Ordinary chat and Agent intermediate reasoning do not become ProjectMemory.
+- Frontend read-only memory list and Markdown export UI (issue #80) is implemented using the existing backend endpoints and current viewer identity.
 
 Remaining V1 closure gap:
 
-- The PRD calls for a project-page read-only ProjectMemory list and Markdown export flow for the current viewer. Backend endpoints exist, but `frontend/src` has no memory API wrapper, memory component, or visible project-page entry point yet. This is tracked as GitHub issue #80.
+- None.
 
 Accepted V1 limitation:
 
@@ -90,20 +93,7 @@ Accepted V1 limitation:
 
 ## Recommended Next Issue
 
-Implement GitHub issue #80:
-
-**T42 ProjectMemory V1: Frontend read-only memory list and Markdown export UI**
-
-Acceptance outline:
-
-- Add typed frontend API helpers for `GET /projects/{project_id}/memories` and `GET /projects/{project_id}/memories.md`.
-- Reuse current viewer identity from the existing user switcher/localStorage path.
-- Add a project-page read-only memory view or panel that shows visible memories grouped by the existing five Markdown/API topics.
-- Add a Markdown export/download or copy flow using the existing backend endpoint.
-- Surface missing viewer identity, invalid viewer, empty memory set, loading, and error states.
-- Add frontend tests for owner/member visibility happy path, empty state, export action, and error handling.
-
-After that issue passes, run the product smoke checklist below and then mark this PRD complete.
+No remaining implementation issues. Run the product smoke checklist below and mark this PRD complete.
 
 ## Product Smoke Checklist
 

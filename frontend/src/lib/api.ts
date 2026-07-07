@@ -23,6 +23,7 @@ import type {
   CheckInResponse,
   Risk,
   ActionCard,
+  ProjectMemory,
   AgentEvent,
   AgentConversation,
   AgentConversationTurn,
@@ -183,6 +184,43 @@ async function request<T>(path: string, options?: RequestInit & { timeout?: numb
 
 export async function apiGet<T>(path: string): Promise<T> {
   return request<T>(path);
+}
+
+async function requestText(path: string, options?: RequestInit & { timeout?: number }): Promise<string> {
+  const timeoutMs = options?.timeout ?? 120_000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`请求失败：${response.status} ${body}`);
+    }
+
+    return response.text();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// --- Project Memories ---
+export async function listProjectMemories(projectId: string, viewerUserId: string): Promise<ProjectMemory[]> {
+  return request<ProjectMemory[]>(
+    `/projects/${encodeURIComponent(projectId)}/memories?viewer_user_id=${encodeURIComponent(viewerUserId)}`,
+    { timeout: 30_000 },
+  );
+}
+
+export async function exportProjectMemoriesMarkdown(projectId: string, viewerUserId: string): Promise<string> {
+  return requestText(
+    `/projects/${encodeURIComponent(projectId)}/memories.md?viewer_user_id=${encodeURIComponent(viewerUserId)}`,
+    { timeout: 30_000 },
+  );
 }
 
 // --- Users ---

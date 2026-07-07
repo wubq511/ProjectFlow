@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  exportProjectMemoriesMarkdown,
   getAgentConversation,
   getProjectState,
+  listProjectMemories,
   rejectAgentProposal,
   runAgentNegotiate,
   runAssignment,
@@ -770,5 +772,79 @@ describe("frontend API layer", () => {
       "事实": "Mia 报告 SQLite 外键约束报错",
     });
     expect(JSON.stringify(state.risks[0].evidence[0])).not.toContain("task_id");
+  });
+
+  it("lists project memories for the current viewer", async () => {
+    const memory = {
+      id: "memory-1",
+      project_id: "project-1",
+      workspace_id: "workspace-1",
+      memory_type: "direction",
+      scope: "project",
+      content: "项目方向是简化 MVP",
+      rationale: "方向卡确认时团队达成一致",
+      source_type: "direction_card_confirmed",
+      source_id: "proposal-1",
+      status: "active",
+      visibility: "team",
+      valid_until: null,
+      related_stage_id: null,
+      related_task_id: null,
+      related_risk_id: null,
+      created_at: "2026-06-06T00:00:00Z",
+      updated_at: "2026-06-06T00:00:00Z",
+    };
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/projects/project-1/memories?viewer_user_id=user-1")) {
+        return jsonResponse([memory]);
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await listProjectMemories("project-1", "user-1");
+
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toBe("项目方向是简化 MVP");
+    expect(result[0].visibility).toBe("team");
+  });
+
+  it("exports project memories as Markdown for the current viewer", async () => {
+    const markdown = "# 项目「Demo」的记忆\n\n## 方向与边界\n\n### 项目方向是简化 MVP\n";
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/projects/project-1/memories.md?viewer_user_id=user-1")) {
+        return new Response(markdown, {
+          status: 200,
+          headers: { "Content-Type": "text/markdown; charset=utf-8" },
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await exportProjectMemoriesMarkdown("project-1", "user-1");
+
+    expect(result).toContain("# 项目「Demo」的记忆");
+    expect(result).toContain("## 方向与边界");
+  });
+
+  it("surfaces memory API errors to callers", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/projects/project-1/memories?")) {
+        return new Response(JSON.stringify({ detail: "viewer_user_id 不能为空" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listProjectMemories("project-1", "")).rejects.toThrow("viewer_user_id 不能为空");
   });
 });

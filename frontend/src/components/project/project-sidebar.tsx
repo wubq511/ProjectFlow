@@ -23,6 +23,7 @@ import {
   Plus,
   Settings,
   Crown,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ProjectState } from "@/lib/types";
@@ -45,6 +46,7 @@ export type ProjectView =
   | "team-tasks"
   | "checkin"
   | "risks"
+  | "memory"
   | "retro";
 
 const MENU_ITEMS: {
@@ -79,6 +81,7 @@ const MENU_ITEMS: {
     icon: AlertTriangle,
     badge: (state) => (state.risks ?? []).filter((r) => r.status === "open").length,
   },
+  { id: "memory", label: "项目记忆", icon: BookOpen },
   { id: "retro", label: "项目复盘", icon: BarChart3 },
 ];
 
@@ -88,6 +91,7 @@ const EXECUTION_GROUP: ProjectView[] = [
   "team-tasks",
   "checkin",
   "risks",
+  "memory",
 ];
 
 interface ProjectSidebarProps {

@@ -295,6 +295,27 @@ export type ActionCard = {
   created_at: string;
 };
 
+// --- Project Memory ---
+export type ProjectMemory = {
+  id: string;
+  project_id: string;
+  workspace_id: string;
+  memory_type: string;
+  scope: string;
+  content: string;
+  rationale: string;
+  source_type: string;
+  source_id: string;
+  status: "active" | "superseded" | "archived";
+  visibility: "team" | "subject_and_owner";
+  valid_until: string | null;
+  related_stage_id: string | null;
+  related_task_id: string | null;
+  related_risk_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 // --- Agent Event ---
 export type AgentEvent = {
   id: string;

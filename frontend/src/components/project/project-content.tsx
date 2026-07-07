@@ -17,6 +17,7 @@ import {
   BarChart3,
   Loader2,
   Lightbulb,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +38,7 @@ import { TaskBreakdownBoard } from "@/components/task/task-breakdown-board";
 import { TaskStatusUpdateList } from "@/components/task/task-status-update";
 import { WorkspaceContent } from "./workspace-content";
 import { MyTasksView, TeamTasksView } from "./project-task-views";
+import { ProjectMemoryPanel } from "./project-memory-panel";
 import type { AddResourceRequest, ProjectState } from "@/lib/types";
 import { ACTION_LABELS, inferRecommendedAction } from "./project-actions";
 import type { AgentAction } from "./project-actions";
@@ -80,6 +82,11 @@ const VIEW_META: Record<
     title: "风险预警",
     icon: AlertTriangle,
     description: "风险识别和应对措施",
+  },
+  memory: {
+    title: "项目记忆",
+    icon: BookOpen,
+    description: "当前身份可见的项目决策记忆和 Markdown 导出",
   },
   retro: {
     title: "项目复盘",
@@ -634,6 +641,17 @@ function ViewRenderer({
            onRejectReplan={onRejectProposal}
            pending={Boolean(pendingAction)}
          />
+        </div>
+      );
+
+    case "memory":
+      return (
+        <div className="space-y-6">
+          <ProjectMemoryPanel
+            projectId={project.id}
+            projectName={project.name}
+            currentUserId={currentUserId}
+          />
         </div>
       );
 
