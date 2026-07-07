@@ -73,6 +73,8 @@ export interface CreateRunStateInput {
   maxSteps: number;
   maxToolCalls: number;
   timeoutMs: number;
+  /** External run ID (e.g. from FastAPI). If omitted, a local ID is generated. */
+  runId?: string;
 }
 
 let runCounter = 0;
@@ -81,7 +83,7 @@ export function createRunState(input: CreateRunStateInput): AgentRunState {
   runCounter++;
   const now = new Date().toISOString();
   return {
-    runId: `run_${Date.now()}_${runCounter}`,
+    runId: input.runId ?? `run_${Date.now()}_${runCounter}`,
     conversationId: input.conversationId,
     workspaceId: input.workspaceId,
     projectId: input.projectId,
@@ -105,15 +107,23 @@ export function createRunState(input: CreateRunStateInput): AgentRunState {
   };
 }
 
-/** Valid state transitions. Returns true if transition is allowed. */
+/**
+ * Valid state transitions. Returns true if transition is allowed.
+ *
+ * NOTE: This table represents the "happy path" transitions. The Python-side
+ * `_VALID_TRANSITIONS` in `agent_runtime_service.py` is intentionally more
+ * permissive to handle edge cases from the Pi SDK event stream (e.g. skip-ahead
+ * transitions like tool_running → model_streaming). The TS table is used in
+ * tests only; runtime enforcement happens on the Python side.
+ */
 export function isValidTransition(from: RunStatus, to: RunStatus): boolean {
   const validTransitions: Record<RunStatus, RunStatus[]> = {
     created: ["context_building", "cancelling", "failed"],
     context_building: ["model_streaming", "cancelling", "failed"],
-    model_streaming: ["tool_preparing", "completed", "cancelling", "failed"],
-    tool_preparing: ["tool_running", "cancelling", "failed"],
-    tool_running: ["persisting_tool_result", "cancelling", "failed"],
-    persisting_tool_result: ["model_streaming", "cancelling", "failed"],
+    model_streaming: ["tool_preparing", "tool_running", "persisting_tool_result", "completed", "cancelling", "failed"],
+    tool_preparing: ["tool_running", "persisting_tool_result", "model_streaming", "completed", "cancelling", "failed"],
+    tool_running: ["persisting_tool_result", "model_streaming", "completed", "cancelling", "failed"],
+    persisting_tool_result: ["model_streaming", "completed", "cancelling", "cancelled", "failed"],
     completed: [],
     cancelling: ["cancelled", "failed"],
     cancelled: [],

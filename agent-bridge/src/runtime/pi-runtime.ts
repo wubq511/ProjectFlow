@@ -747,45 +747,51 @@ function createMockModel(name: string): Model<Api> {
 
 /**
  * Resolve a real Model object from Pi SDK providers.
- * Falls back to createMockModel if provider is "mock" or model not found in catalog.
+ * - provider "mock" → returns mock model
+ * - provider "openai" / "deepseek" / "openai-compatible" / "openrouter" → resolves from Pi SDK catalog
+ * - unknown provider → throws (fail-fast, no silent degradation)
+ * - model not in catalog → throws (fail-fast)
  */
 function resolveRealModel(provider: string, modelName: string): Model<Api> {
   if (provider === "mock") {
     return createMockModel(modelName);
   }
 
-  try {
-    const piProvider = getPiProvider(provider);
-    if (!piProvider) {
-      console.warn(`[agent-bridge] 未找到 Pi SDK provider: ${provider}，回退到 mock`);
-      return createMockModel(modelName);
-    }
-
-    const models = piProvider.getModels();
-    const found = models.find((m) => m.id === modelName || m.name === modelName);
-    if (!found) {
-      console.warn(`[agent-bridge] 未在 ${provider} catalog 中找到模型: ${modelName}，回退到 mock`);
-      return createMockModel(modelName);
-    }
-
-    return found as Model<Api>;
-  } catch (err) {
-    console.error(`[agent-bridge] 解析真实模型失败:`, err);
-    return createMockModel(modelName);
+  const piProvider = getPiProvider(provider);
+  if (!piProvider) {
+    throw new Error(
+      `[agent-bridge] 未找到 Pi SDK provider: "${provider}"。` +
+      `支持的 provider: mock, openai, deepseek, openai-compatible, openrouter。` +
+      `请检查 DEFAULT_MODEL_PROVIDER 配置。`
+    );
   }
+
+  const models = piProvider.getModels();
+  const found = models.find((m) => m.id === modelName || m.name === modelName);
+  if (!found) {
+    const available = models.map((m) => m.id).join(", ");
+    throw new Error(
+      `[agent-bridge] 未在 ${provider} catalog 中找到模型: "${modelName}"。` +
+      `可用模型: ${available}`
+    );
+  }
+
+  return found as Model<Api>;
 }
 
 /**
  * Get Pi SDK Provider instance by provider type.
- * Only supports providers that are statically imported.
+ * - "openai-compatible" and "openrouter" use openaiProvider() with custom baseUrl
+ *   (baseUrl is handled by ModelRouter/ModelConfig, not by the Pi Provider itself).
  */
 function getPiProvider(provider: string) {
   switch (provider) {
     case "deepseek":
       return deepseekProvider();
     case "openai":
+    case "openai-compatible":
+    case "openrouter":
       return openaiProvider();
-    // openai-compatible / openrouter use openai provider with custom baseUrl — not yet supported
     default:
       return undefined;
   }

@@ -53,7 +53,10 @@ class AgentRuntimeService:
             AgentRunStatus.persisting_tool_result, AgentRunStatus.model_streaming,
             AgentRunStatus.completed, AgentRunStatus.cancelling, AgentRunStatus.failed,
         },
-        AgentRunStatus.persisting_tool_result: {AgentRunStatus.model_streaming, AgentRunStatus.cancelling, AgentRunStatus.failed},
+        AgentRunStatus.persisting_tool_result: {
+            AgentRunStatus.model_streaming, AgentRunStatus.completed,
+            AgentRunStatus.cancelling, AgentRunStatus.cancelled, AgentRunStatus.failed,
+        },
         AgentRunStatus.completed: set(),
         AgentRunStatus.cancelling: {AgentRunStatus.cancelled, AgentRunStatus.failed},
         AgentRunStatus.cancelled: set(),
