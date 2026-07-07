@@ -5,6 +5,24 @@
  * Communicates with FastAPI over HTTP/SSE — zero DB credentials.
  */
 
+// Load .env file into process.env (minimal dotenv — no external dependency)
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+const envPath = resolve(import.meta.dirname ?? process.cwd(), "../.env");
+if (existsSync(envPath)) {
+  for (const line of readFileSync(envPath, "utf-8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const val = trimmed.slice(eqIdx + 1).trim();
+    if (key && !(key in process.env)) {
+      process.env[key] = val;
+    }
+  }
+}
+
 import { createServer } from "./server/app.js";
 import { loadConfig } from "./server/config.js";
 

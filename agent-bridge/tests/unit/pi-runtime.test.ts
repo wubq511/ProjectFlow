@@ -138,7 +138,7 @@ describe("pi-runtime", () => {
     expect(calls.some((call) => call.events?.some((event) => event.type === "tool.started"))).toBe(true);
     expect(calls.some((call) => call.events?.some((event) => event.type === "tool.completed"))).toBe(true);
     expect(calls.some((call) => call.state_patch?.status === "context_building")).toBe(true);
-    expect(calls.some((call) => call.state_patch?.status === "tool_running")).toBe(true);
+    expect(calls.some((call) => call.state_patch?.status === "tool_preparing")).toBe(true);
     expect(streamed.some((item) => item.startsWith("agent.started:0"))).toBe(false);
     expect(streamed.some((item) => item.startsWith("tool.started:0"))).toBe(false);
   });

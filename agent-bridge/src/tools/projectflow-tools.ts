@@ -182,11 +182,7 @@ const getWorkspaceStateManifest: ProjectFlowToolManifest = {
   description: "读取当前工作区的完整状态，包括成员、项目、阶段、任务、分工、签到和资源信息。",
   inputSchema: {
     type: "object",
-    properties: {
-      workspace_id: { type: "string", description: "工作区 ID" },
-      project_id: { type: "string", description: "项目 ID（可选，默认取最近创建的项目）" },
-    },
-    required: ["workspace_id"],
+    properties: {},
   },
   outputSchema: {
     type: "object",
@@ -207,10 +203,7 @@ const getAgentConversationManifest: ProjectFlowToolManifest = {
   description: "读取当前项目的 Agent 对话历史，包括近期消息和 linked artifacts。",
   inputSchema: {
     type: "object",
-    properties: {
-      project_id: { type: "string", description: "项目 ID" },
-    },
-    required: ["project_id"],
+    properties: {},
   },
   outputSchema: {
     type: "object",
@@ -231,10 +224,7 @@ const listPendingProposalsManifest: ProjectFlowToolManifest = {
   description: "查询当前项目中未处理的 Agent Proposal，避免重复生成冲突方案。",
   inputSchema: {
     type: "object",
-    properties: {
-      project_id: { type: "string", description: "项目 ID" },
-    },
-    required: ["project_id"],
+    properties: {},
   },
   outputSchema: {
     type: "array",
@@ -256,7 +246,6 @@ const getTimelineSliceManifest: ProjectFlowToolManifest = {
   inputSchema: {
     type: "object",
     properties: {
-      project_id: { type: "string", description: "项目 ID" },
       limit: { type: "number", description: "返回条数上限（默认 20）" },
       since: { type: "string", description: "只返回此时间之后的事件（ISO 8601 格式，如 2026-07-01T00:00:00Z）" },
       event_types: {
@@ -265,7 +254,6 @@ const getTimelineSliceManifest: ProjectFlowToolManifest = {
         description: "只返回指定类型的事件（如 agent.started, tool.completed）",
       },
     },
-    required: ["project_id"],
   },
   outputSchema: {
     type: "array",
@@ -287,11 +275,8 @@ const generateStagePlanProposalManifest: ProjectFlowToolManifest = {
   inputSchema: {
     type: "object",
     properties: {
-      project_id: { type: "string", description: "项目 ID" },
-      workspace_id: { type: "string", description: "工作区 ID（可选，默认取当前 run 的 workspace）" },
       user_instruction: { type: "string", description: "本次阶段计划的用户意图或约束（可选）" },
     },
-    required: ["project_id"],
   },
   outputSchema: {
     type: "object",
@@ -311,10 +296,8 @@ const generateReplanProposalManifest: ProjectFlowToolManifest = {
   inputSchema: {
     type: "object",
     properties: {
-      project_id: { type: "string", description: "项目 ID" },
       user_instruction: { type: "string", description: "本次重规划的用户意图或触发原因（可选）" },
     },
-    required: ["project_id"],
   },
   outputSchema: {
     type: "object",
@@ -334,11 +317,8 @@ const generateDirectionCardProposalManifest: ProjectFlowToolManifest = {
   inputSchema: {
     type: "object",
     properties: {
-      project_id: { type: "string", description: "项目 ID" },
-      workspace_id: { type: "string", description: "工作区 ID（可选，默认取当前 run 的 workspace）" },
       user_instruction: { type: "string", description: "本次方向卡的补充意图或约束（可选）" },
     },
-    required: ["project_id"],
   },
   outputSchema: {
     type: "object",
@@ -358,12 +338,9 @@ const generateTaskBreakdownProposalManifest: ProjectFlowToolManifest = {
   inputSchema: {
     type: "object",
     properties: {
-      project_id: { type: "string", description: "项目 ID" },
-      workspace_id: { type: "string", description: "工作区 ID（可选，默认取当前 run 的 workspace）" },
       stage_id: { type: "string", description: "阶段 ID（可选，指定某个阶段的拆解）" },
       user_instruction: { type: "string", description: "本次拆解的补充意图或约束（可选）" },
     },
-    required: ["project_id"],
   },
   outputSchema: {
     type: "object",
@@ -383,8 +360,6 @@ const analyzeCheckinsAndRisksManifest: ProjectFlowToolManifest = {
   inputSchema: {
     type: "object",
     properties: {
-      project_id: { type: "string", description: "项目 ID" },
-      workspace_id: { type: "string", description: "工作区 ID（可选，默认取当前 run 的 workspace）" },
       user_instruction: { type: "string", description: "本次分析的补充意图或约束（可选）" },
       action_cards: {
         type: "array",
@@ -408,7 +383,6 @@ const analyzeCheckinsAndRisksManifest: ProjectFlowToolManifest = {
         },
       },
     },
-    required: ["project_id"],
   },
   outputSchema: {
     type: "object",
