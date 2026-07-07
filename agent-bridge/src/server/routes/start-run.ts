@@ -53,6 +53,7 @@ export async function handleStartRun(
 
   // Step 2: Create local run state using FastAPI-assigned run_id
   const runState = createRunState({
+    runId: fastapiRunId,
     conversationId: parsed.conversation_id,
     workspaceId: parsed.workspace_id,
     projectId: parsed.project_id,
@@ -64,8 +65,6 @@ export async function handleStartRun(
     maxToolCalls: parsed.runtime_config?.max_tool_calls ?? ctx.config.defaults.maxToolCalls,
     timeoutMs: parsed.runtime_config?.timeout_ms ?? ctx.config.defaults.timeoutMs,
   });
-  // Override local run_id with the one persisted in FastAPI
-  (runState as any).runId = fastapiRunId;
 
   // Store run in session store
   ctx.sessionStore.set(runState.runId, runState);

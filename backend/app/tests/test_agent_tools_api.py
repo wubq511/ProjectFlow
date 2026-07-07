@@ -1648,7 +1648,7 @@ class TestToolContractParity:
         project = fixture["project"]
         workspace = fixture["workspace"]
 
-        args: dict = {"project_id": project["id"], "workspace_id": workspace["id"]}
+        args: dict = {}
         if proposal_type in ("replan", "clarify", "breakdown"):
             args["user_instruction"] = f"生成{proposal_type}草案。"
 
@@ -1681,7 +1681,7 @@ class TestToolContractParity:
         project = fixture["project"]
         workspace = fixture["workspace"]
 
-        args: dict = {"project_id": project["id"], "workspace_id": workspace["id"]}
+        args: dict = {}
         if proposal_type in ("replan", "clarify", "breakdown"):
             args["user_instruction"] = f"生成{proposal_type}草案。"
 
@@ -1706,10 +1706,7 @@ class TestToolContractParity:
         workspace = fixture["workspace"]
 
         envelope = {
-            **_envelope(
-                "analyze_checkins_and_risks",
-                {"project_id": project["id"], "workspace_id": workspace["id"]},
-            ),
+            **_envelope("analyze_checkins_and_risks"),
             "workspace_id": workspace["id"],
             "project_id": project["id"],
             "idempotency_key": "run_parity:advisory:v1",

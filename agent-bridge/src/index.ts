@@ -16,7 +16,20 @@ if (existsSync(envPath)) {
     const eqIdx = trimmed.indexOf("=");
     if (eqIdx === -1) continue;
     const key = trimmed.slice(0, eqIdx).trim();
-    const val = trimmed.slice(eqIdx + 1).trim();
+    let val = trimmed.slice(eqIdx + 1).trim();
+    // Strip inline comments (# ...) unless inside quotes
+    const commentIdx = val.indexOf(" #");
+    if (commentIdx !== -1) {
+      const before = val.slice(0, commentIdx).trim();
+      // Only strip if the # is not inside a quoted string
+      if (!(before.startsWith('"') && !before.endsWith('"')) && !(before.startsWith("'") && !before.endsWith("'"))) {
+        val = before;
+      }
+    }
+    // Strip matching surrounding quotes
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
     if (key && !(key in process.env)) {
       process.env[key] = val;
     }
