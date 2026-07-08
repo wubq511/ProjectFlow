@@ -528,6 +528,68 @@ Response (never includes API key):
 
 Security: API key values are never returned in the response, logged, or stored in timeline snapshots.
 
+## Sidecar Model Configuration Endpoints
+
+These endpoints are served by the agent-bridge sidecar (default `http://localhost:3100`), not the FastAPI backend.
+
+### GET /config/models
+
+List all model configurations (wire format, no API key values).
+
+Response:
+```json
+{
+  "models": [
+    {
+      "id": "deepseek-v4-flash",
+      "provider": "deepseek",
+      "name": "deepseek-v4-flash",
+      "displayName": "DeepSeek V4 Flash",
+      "apiKeyEnvVar": "DEEPSEEK_API_KEY",
+      "apiKeySet": true,
+      "apiKeySuffix": "abcd",
+      "isDefault": true,
+      "capabilities": { "thinking": true, "vision": false },
+      "valid": true,
+      "invalidReason": null
+    }
+  ]
+}
+```
+
+`apiKeySuffix` shows last 4 chars only; short keys show `****`. `valid` is `false` when API key is missing or provider is unknown.
+
+### POST /config/models
+
+Add a new model configuration. Body is a `ModelConfigEntry` (id, provider, name, displayName, apiKeyEnvVar, isDefault, capabilities, optional baseUrl/baseUrlEnvVar).
+
+### PUT /config/models/:id
+
+Update an existing model configuration. Body is a partial `ModelConfigEntry` — only specified fields are updated. Unknown fields are silently ignored.
+
+### DELETE /config/models/:id
+
+Delete a model configuration by id.
+
+### PUT /config/models/:id/api-key
+
+Set the API key for a model. The key is written to `.env` under the entry's `apiKeyEnvVar` name and never stored in `model-configs.json`.
+
+Request:
+```json
+{ "apiKey": "sk-..." }
+```
+
+Constraints: max 512 chars; newlines rejected; protected system env vars (PATH, HOME, etc.) rejected.
+
+### POST /config/reload
+
+Reload `model-configs.json` and `.env` from disk, then re-validate all entries. Use after manually editing config files.
+
+### GET /config/providers/:provider/models
+
+List Pi SDK catalog models for a known provider (e.g., `deepseek`, `xiaomi`, `openai`). Returns model IDs with reasoning/vision capability flags. Used by the frontend "add model" form to populate the model dropdown.
+
 ## Planned MVP Endpoints
 
 None remaining — all planned MVP endpoints are now implemented.

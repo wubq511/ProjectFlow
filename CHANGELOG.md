@@ -2,6 +2,30 @@
 
 All notable changes to ProjectFlow are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] - 2026-07-08
+
+### Multi-Model Multi-Provider Config & Switching
+
+- ModelConfigStore: JSON file registry with validation, enrichment, CRUD, atomic persist
+- DotEnvWriter: serial write queue for .env with key/value validation and atomic write
+- FileWatcher: fs.watch with debounce, handles change and rename events, async onChange
+- ModelRouter: registry-based resolution with provider:name fallback lookup
+- Pi-runtime: dynamic provider imports, custom model support for openai-compatible
+- Sidecar config API: GET/POST/PUT/DELETE /config/models, PUT .../api-key, POST /config/reload, GET /config/providers/:provider/models
+- Frontend settings dialog with model config tab (add/edit/delete models, set API keys)
+- Frontend agent sidebar model selector with localStorage persistence
+- onRunAgent signature extended with model param through full prop chain
+- Shared loadDotEnv function, reloadDotEnv callback for consistent .env reload
+- API key safety: 512-char limit, protected env var guard, newline rejection, suffix masking
+- Settings accessible from all views including project dashboard
+- Default model configs: DeepSeek V4 Flash/Pro, MiMo V2.5, MiMo V2.5 CN
+
+### Backend Cleanup
+
+- Removed legacy `routes_agent.py` and `test_agent_endpoints.py`
+- Refactored `agent_tools_service.py`
+- Updated related tests
+
 ## [0.2.0] - 2026-07-07
 
 ### T42 ProjectMemory V1

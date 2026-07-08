@@ -1,8 +1,34 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-07.
+Status: current as of 2026-07-08.
 
 ## Latest Architecture Handoff
+
+### Multi-Model Multi-Provider Config & Switching (2026-07-08)
+
+Implemented multi-model, multi-provider configuration and runtime switching for the Agent Bridge Sidecar.
+
+**What was built:**
+
+- **ModelConfigStore**: JSON file registry (`model-configs.json`) with validation, enrichment (apiKeySet/apiKeySuffix/valid/invalidReason), CRUD operations, and atomic persist (write temp → rename).
+- **DotEnvWriter**: Serial Promise queue for `.env` writes. Validates key names (rejects protected system vars), rejects newlines in values, enforces 512-char max on API keys. Atomic write (same-directory temp + rename to avoid EXDEV).
+- **FileWatcher**: `fs.watch` with 500ms debounce. Handles both `'change'` and `'rename'` events (atomic-save editors). Async onChange with proper await and error handling.
+- **ModelRouter**: Refactored from `{defaultProvider, defaultModel}` to registry-based `ModelConfigStore` lookup. `resolve(id?)` tries exact id match, then `provider:name` composite key, then default.
+- **Pi-runtime changes**: Dynamic `import()` for Pi SDK providers (deepseek, openai, anthropic, xiaomi, xiaomi-token-plan-cn, openrouter). `resolveRealModel()` now async, supports custom models not in catalog via `createCustomOpenAICompatibleModel()`. `apiKeyOverride` on ResolvedModel is reserved for future per-request key injection (Pi SDK does not yet support this channel).
+- **Sidecar config API routes**: `GET/POST /config/models`, `PUT/DELETE /config/models/:id`, `PUT /config/models/:id/api-key`, `POST /config/reload`, `GET /config/providers/:provider/models`. All with input validation, field whitelisting on update, and proper error codes.
+- **Frontend settings dialog**: `SettingsDialog` with "模型配置" tab — list/add/edit/delete model configs, set API keys, reload. Accessible from all views (navbar gear on non-dashboard, floating gear on project dashboard).
+- **Frontend model selector**: In Agent sidebar, a `Select` dropdown above the thinking level selector. Selection persists in localStorage (`pf:selected-model-id`). Selected model's `{provider, name}` passed through `onRunAgent` → `runAgentFlow` → sidecar `runtime_config.model`.
+- **Shared `loadDotEnv()`**: Extracted from `index.ts` to eliminate code duplication between startup and FileWatcher onChange. `reloadDotEnv` callback passed through ServerContext → RunContext for `POST /config/reload`.
+- **Default model configs**: 4 presets in `model-configs.json` — DeepSeek V4 Flash (default), DeepSeek V4 Pro, MiMo V2.5, MiMo V2.5 CN (国内 Token 计费).
+
+**Verification (2026-07-08):**
+- agent-bridge: `tsc --noEmit` pass, 540 vitest tests pass (18 files)
+- frontend: `npm run build` pass, `api.test.ts` 15 tests pass
+- backend: 519 pytest tests pass, 4 skipped
+
+**Design doc:** `docs/T41/multi-model-config-design.md`
+
+**Key files:** `agent-bridge/model-configs.json`, `agent-bridge/src/types/model-config.ts`, `agent-bridge/src/config/model-config-store.ts`, `agent-bridge/src/config/dotenv-writer.ts`, `agent-bridge/src/config/file-watcher.ts`, `agent-bridge/src/runtime/model-router.ts`, `agent-bridge/src/runtime/pi-runtime.ts`, `agent-bridge/src/server/routes/config-models.ts`, `agent-bridge/src/server/routes/config-api-key.ts`, `agent-bridge/src/server/routes/config-reload.ts`, `agent-bridge/src/server/routes/config-providers.ts`, `agent-bridge/src/server/app.ts`, `agent-bridge/src/index.ts`, `frontend/src/components/settings/settings-dialog.tsx`, `frontend/src/components/settings/model-config-tab.tsx`, `frontend/src/components/project/agent-sidebar.tsx`, `frontend/src/lib/api.ts`, `frontend/src/lib/types.ts`
 
 ### T42 — ProjectMemory V1 Closure Review (2026-07-07)
 

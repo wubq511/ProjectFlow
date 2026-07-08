@@ -140,10 +140,10 @@ npm run build
 npm audit --omit=dev
 ```
 
-Expected baseline as of 2026-07-07:
+Expected baseline as of 2026-07-08:
 
-- Backend tests pass: 514 passed, 4 skipped (MVP API/model smoke plus CORS, agent schema/module/provider/fallback, timeline logging, assignment, action-card, check-in, risk, replan, seed/reset/export, demo reset, LLM diagnostic, agent proposal confirmation, T41 internal tool/runtime contract, service-token auth, idempotency, side-effect reconciliation, runtime event bridge tests, and T42 ProjectMemory tests).
-- Agent bridge tests pass: 559 tests across 18 unit files; `npm run typecheck` and `npm run build` pass in `agent-bridge/`.
+- Backend tests pass: 519 passed, 4 skipped (MVP API/model smoke plus CORS, agent schema/module/provider/fallback, timeline logging, assignment, action-card, check-in, risk, replan, seed/reset/export, demo reset, LLM diagnostic, agent proposal confirmation, T41 internal tool/runtime contract, service-token auth, idempotency, side-effect reconciliation, runtime event bridge tests, and T42 ProjectMemory tests).
+- Agent bridge tests pass: 540 tests across 18 unit files; `npm run typecheck` and `npm run build` pass in `agent-bridge/`.
 - Frontend tests pass: 46 tests across 9 files (API layer, project dashboard, home page, app shell, action cards, task status update, error boundaries, assignment flow panel, agent proposal panel with generation-status badge coverage).
 - Frontend lint passes.
 - Frontend production build passes.
@@ -239,6 +239,39 @@ ALTER TABLE assignment_proposals ADD COLUMN constraint_respected TEXT;
 | `INTERNAL_SERVICE_TOKEN` | backend + agent bridge | yes for T41 sidecar/internal endpoints | Backend requires it for `/internal/agent-tools/*` and `/internal/agent-runs/*`; sidecar sends the same value as `Authorization: Bearer ...`. |
 | `SERVICE_TOKEN` | agent bridge | no | Backward-compatible sidecar alias; ignored when `INTERNAL_SERVICE_TOKEN` is set. |
 | `NEXT_PUBLIC_API_BASE_URL` | frontend | no | Defaults to `http://localhost:8000/api`. |
+| `MODEL_CONFIGS_PATH` | agent bridge | no | Path to `model-configs.json`. Defaults to `../../model-configs.json` relative to dist. |
+| `DOTENV_PATH` | agent bridge | no | Path to `.env` file for API key writes. Defaults to `../../.env` relative to dist. |
+| `DEEPSEEK_API_KEY` | agent bridge (DeepSeek) | for DeepSeek models | API key for DeepSeek provider. |
+| `XIAOMI_API_KEY` | agent bridge (Xiaomi) | for MiMo models | API key for Xiaomi provider. |
+| `XIAOMI_TOKEN_PLAN_CN_API_KEY` | agent bridge (Xiaomi CN) | for MiMo CN token-plan | API key for Xiaomi token-plan-cn provider. |
+
+## Sidecar Model Configuration
+
+The agent-bridge sidecar supports multiple LLM providers and models via `model-configs.json` (default 4 presets: DeepSeek V4 Flash/Pro, MiMo V2.5, MiMo V2.5 CN). API keys are stored only in `.env`, referenced by env var name in the config file — never in the JSON or exposed to the frontend.
+
+### Configure via frontend
+
+Click the gear icon in the navbar (or the floating gear on the project dashboard) → "模型配置" tab. Add/edit/delete model configs, set API keys, and reload configs from disk.
+
+### Configure via file
+
+Edit `agent-bridge/model-configs.json` directly. The sidecar auto-reloads within 500ms via FileWatcher. To also pick up `.env` changes, use the reload button or `POST /config/reload`.
+
+### Switch models at runtime
+
+In the Agent sidebar, use the "模型" dropdown (above the thinking level selector) to pick a model for the next agent run. Selection persists in localStorage until changed.
+
+### API key safety
+
+- API keys are written to `.env` via a serial write queue (no concurrent corruption)
+- Protected system env vars (PATH, HOME, NODE_OPTIONS, etc.) cannot be overwritten
+- Key values with newlines are rejected
+- Max key length: 512 chars
+- Frontend only sees `apiKeySet` (boolean) and `apiKeySuffix` (last 4 chars or `****`)
+
+### Add a custom OpenAI-compatible provider
+
+In the settings dialog, select provider "openai-compatible", provide a base URL, model name, and API key env var name. The sidecar will construct Pi SDK Model objects at runtime for models not in the provider's catalog.
 
 ## Demo Seed Data and Reset
 
