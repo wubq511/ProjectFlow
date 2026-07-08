@@ -26,7 +26,7 @@ import {
   BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ProjectState } from "@/lib/types";
+import type { ProjectState, Workspace } from "@/lib/types";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -36,7 +36,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MemberManagementDialog } from "@/components/member/member-management-dialog";
 import { NewWorkspaceDialog } from "@/components/workspace/new-workspace-dialog";
-import { setCurrentUserId } from "@/components/app-shell";
+import { setCurrentUserId, clearLastWorkspaceId } from "@/components/app-shell";
+import { listWorkspaces } from "@/lib/api";
 
 export type ProjectView =
   | "overview"
@@ -129,6 +130,9 @@ export function ProjectSidebar({
   const [memberMgmtOpen, setMemberMgmtOpen] = useState(false);
   const [workspaceExpanded, setWorkspaceExpanded] = useState(true);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+  const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>(() =>
+    state.workspace ? [state.workspace] : []
+  );
 
   const handleNavigate = useCallback(
     (view: ProjectView) => {
@@ -158,6 +162,19 @@ export function ProjectSidebar({
   const otherProjects = state.projects?.filter((p) => p.id !== projectId) ?? [];
   const currentMembership = state.memberships?.find((m) => m.user_id === currentUserId);
   const isOwner = currentMembership?.role === "owner";
+
+  // Fetch all workspaces for the switcher
+  useEffect(() => {
+    let ignore = false;
+    listWorkspaces()
+      .then((workspaces) => {
+        if (!ignore) setAllWorkspaces(workspaces);
+      })
+      .catch((err) => {
+        console.error("Failed to load workspace list:", err);
+      });
+    return () => { ignore = true; };
+  }, [workspace.workspace_id]);
 
   const badgeCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -195,12 +212,16 @@ export function ProjectSidebar({
 
       {/* Header: Workspace selector / Home */}
       <div className="flex h-14 items-center gap-2 border-b border-neutral-100 px-3">
-        <Link
-          href="/"
+        <button
+          type="button"
+          onClick={() => {
+            clearLastWorkspaceId();
+            router.push("/");
+          }}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-moss text-white"
         >
           <Home className="h-4 w-4" />
-        </Link>
+        </button>
         <AnimatePresence>
           {isExpanded && (
             <motion.div
@@ -226,6 +247,29 @@ export function ProjectSidebar({
                     <LayoutDashboard className="h-4 w-4" />
                     工作台首页
                   </DropdownMenuItem>
+
+                  {/* Workspace switcher */}
+                  {allWorkspaces.filter((ws) => ws.workspace_id !== workspace.workspace_id).length > 0 && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <span className="block px-2 py-1 text-xs font-medium text-neutral-400">
+                        切换工作区
+                      </span>
+                      {allWorkspaces
+                        .filter((ws) => ws.workspace_id !== workspace.workspace_id)
+                        .map((ws) => (
+                          <DropdownMenuItem
+                            key={ws.workspace_id}
+                            onClick={() => router.push(`/workspaces/${ws.workspace_id}`)}
+                            className="cursor-pointer gap-2"
+                          >
+                            <Building2 className="h-4 w-4 text-neutral-400" />
+                            <span className="truncate">{ws.name}</span>
+                          </DropdownMenuItem>
+                        ))}
+                    </>
+                  )}
+
                   <DropdownMenuItem
                     onClick={() => setMemberMgmtOpen(true)}
                     className="cursor-pointer gap-2"
@@ -331,20 +375,31 @@ export function ProjectSidebar({
                 className="overflow-hidden"
               >
                 <div className="ml-4 space-y-0.5 py-1">
-                  {/* Current workspace */}
-                  <button
-                    type="button"
-                    onClick={() => onShowWorkspace(true)}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
-                      showWorkspace
-                        ? "bg-moss/10 text-moss font-medium"
-                        : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-800"
-                    )}
-                  >
-                    <Building2 className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{workspace.name}</span>
-                  </button>
+                  {/* All workspaces — switch by clicking */}
+                  {allWorkspaces.map((ws) => (
+                    <button
+                      key={ws.workspace_id}
+                      type="button"
+                      onClick={() => {
+                        if (ws.workspace_id !== workspace.workspace_id) {
+                          router.push(`/workspaces/${ws.workspace_id}`);
+                        } else {
+                          onShowWorkspace(true);
+                        }
+                      }}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+                        ws.workspace_id === workspace.workspace_id && showWorkspace
+                          ? "bg-moss/10 text-moss font-medium"
+                          : ws.workspace_id === workspace.workspace_id
+                            ? "text-neutral-700 font-medium"
+                            : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-800"
+                      )}
+                    >
+                      <Building2 className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{ws.name}</span>
+                    </button>
+                  ))}
 
                   {/* New workspace button */}
                   <button

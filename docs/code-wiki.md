@@ -724,11 +724,11 @@ Base URL: `http://localhost:8000/api`
 - vitest + @testing-library/react
 - 覆盖：api.ts、app-shell、projectflow-home、action-card、agent-proposal-panel、project-dashboard、task-status-update、error-boundaries
 
-### 验证基线（2026-07-06）
+### 验证基线（2026-07-08）
 
-- 后端 pytest：385 passing
+- 后端 pytest：519 passing, 4 skipped
 - agent-bridge：540 tests passing, typecheck passing, build passing
-- 前端：46 tests passing, lint passing, build passing
+- 前端：55 tests passing, lint passing, build passing
 
 ---
 
@@ -782,6 +782,15 @@ npm audit --omit=dev                # 安全审计
 | `INTERNAL_SERVICE_TOKEN` | — | FastAPI internal agent-tools / agent-runs Bearer token |
 | `SERVICE_TOKEN` | — | agent-bridge 旧别名；`INTERNAL_SERVICE_TOKEN` 优先 |
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000/api` | 前端 API 地址 |
+| `NEXT_PUBLIC_SIDECAR_BASE_URL` | `http://localhost:4000` | Sidecar 模型配置 API 地址 |
+| `DEEPSEEK_API_KEY` | — | DeepSeek provider API key |
+| `XIAOMI_API_KEY` | — | Xiaomi provider API key |
+| `XIAOMI_TOKEN_PLAN_CN_API_KEY` | — | Xiaomi 国内 Token 计费 API key |
+| `MODEL_CONFIGS_PATH` | `../../model-configs.json` | 模型配置 JSON 路径 |
+| `DOTENV_PATH` | `../../.env` | API key 写入 .env 路径 |
+| `AGENT_BRIDGE_PORT` | `4000` | Sidecar 监听端口 |
+| `MEMORY_VECTOR_ENABLED` | `false` | 向量检索开关 |
+| `MEMORY_VECTOR_MODEL` | `shibing624/text2vec-base-chinese` | Embedding 模型 |
 
 ---
 

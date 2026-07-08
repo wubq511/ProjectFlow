@@ -1876,9 +1876,10 @@ LLM_AGENT_TIMEOUT_SECONDS=120.0
 DEMO_ADMIN_TOKEN=optional-admin-token
 INTERNAL_SERVICE_TOKEN=change-me-internal-token
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
+NEXT_PUBLIC_SIDECAR_BASE_URL=http://localhost:4000
 ```
 
-`APP_ENV`、`DATABASE_URL`、`LLM_PROVIDER`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_TIMEOUT_SECONDS`、`LLM_AGENT_TIMEOUT_SECONDS`、`DEMO_ADMIN_TOKEN`、`INTERNAL_SERVICE_TOKEN` 已由后端配置读取。`LLM_PROVIDER` 默认 `mock`；真实 LLM 接入时设置为 `openai` 或 `openai-compatible`，并把 `LLM_API_KEY` 放在 `.env`。`LLM_TIMEOUT_SECONDS` 默认 `30.0`（诊断用），`LLM_AGENT_TIMEOUT_SECONDS` 默认 `120.0`（Agent 生成用）。`DEMO_ADMIN_TOKEN` 仅在非 `development` 环境保护 seed/reset/demo reset 端点。`INTERNAL_SERVICE_TOKEN` 保护 `/internal/agent-tools/*` 和 `/internal/agent-runs/*`，sidecar 必须发送同值 Bearer token。`NEXT_PUBLIC_API_BASE_URL` 是前端可选变量，不配置时默认 `http://localhost:8000/api`。
+`APP_ENV`、`DATABASE_URL`、`LLM_PROVIDER`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_TIMEOUT_SECONDS`、`LLM_AGENT_TIMEOUT_SECONDS`、`DEMO_ADMIN_TOKEN`、`INTERNAL_SERVICE_TOKEN` 已由后端配置读取。`LLM_PROVIDER` 默认 `mock`；真实 LLM 接入时设置为 `openai` 或 `openai-compatible`，并把 `LLM_API_KEY` 放在 `.env`。`LLM_TIMEOUT_SECONDS` 默认 `30.0`（诊断用），`LLM_AGENT_TIMEOUT_SECONDS` 默认 `120.0`（Agent 生成用）。`DEMO_ADMIN_TOKEN` 仅在非 `development` 环境保护 seed/reset/demo reset 端点。`INTERNAL_SERVICE_TOKEN` 保护 `/internal/agent-tools/*` 和 `/internal/agent-runs/*`，sidecar 必须发送同值 Bearer token。`NEXT_PUBLIC_API_BASE_URL` 是前端可选变量，不配置时默认 `http://localhost:8000/api`。`NEXT_PUBLIC_SIDECAR_BASE_URL` 是前端可选变量，不配置时默认 `http://localhost:4000`（Sidecar 模型配置 API）。
 
 ## 14.4 Git Ignore Rules
 

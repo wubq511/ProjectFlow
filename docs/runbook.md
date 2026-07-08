@@ -239,6 +239,7 @@ ALTER TABLE assignment_proposals ADD COLUMN constraint_respected TEXT;
 | `INTERNAL_SERVICE_TOKEN` | backend + agent bridge | yes for T41 sidecar/internal endpoints | Backend requires it for `/internal/agent-tools/*` and `/internal/agent-runs/*`; sidecar sends the same value as `Authorization: Bearer ...`. |
 | `SERVICE_TOKEN` | agent bridge | no | Backward-compatible sidecar alias; ignored when `INTERNAL_SERVICE_TOKEN` is set. |
 | `NEXT_PUBLIC_API_BASE_URL` | frontend | no | Defaults to `http://localhost:8000/api`. |
+| `NEXT_PUBLIC_SIDECAR_BASE_URL` | frontend | no | Sidecar base URL for model config API. Defaults to `http://localhost:4000`. |
 | `MODEL_CONFIGS_PATH` | agent bridge | no | Path to `model-configs.json`. Defaults to `../../model-configs.json` relative to dist. |
 | `DOTENV_PATH` | agent bridge | no | Path to `.env` file for API key writes. Defaults to `../../.env` relative to dist. |
 | `DEEPSEEK_API_KEY` | agent bridge (DeepSeek) | for DeepSeek models | API key for DeepSeek provider. |
