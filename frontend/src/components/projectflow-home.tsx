@@ -453,24 +453,48 @@ export function ProjectFlowHome() {
     validatedRef.current = storedId;
     setIsValidating(true);
     const controller = new AbortController();
-    checkWorkspaceExists(storedId, controller.signal)
-      .then((exists) => {
+
+    async function resolve() {
+      try {
+        // Step 1: validate stored workspace still exists
+        const exists = await checkWorkspaceExists(storedId!, controller.signal);
         if (controller.signal.aborted) return;
-        if (exists) {
+
+        if (!exists) {
+          localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+          window.dispatchEvent(new StorageEvent("storage", { key: WORKSPACE_STORAGE_KEY }));
+          return;
+        }
+
+        // Step 2: fetch total workspace count
+        const countResp = await fetch(`${API_BASE_URL}/workspaces`, { signal: controller.signal });
+        if (controller.signal.aborted) return;
+
+        let totalCount = 0;
+        if (countResp.ok) {
+          const data = await countResp.json();
+          totalCount = Array.isArray(data) ? data.length : 0;
+        }
+
+        if (totalCount <= 1) {
+          // Single workspace user — auto-redirect to it
           router.replace(`/workspaces/${storedId}`);
         } else {
+          // Multiple workspaces — stay on home page, clear single-workspace pointer
           localStorage.removeItem(WORKSPACE_STORAGE_KEY);
           window.dispatchEvent(new StorageEvent("storage", { key: WORKSPACE_STORAGE_KEY }));
         }
-      })
-      .catch(() => {
+      } catch {
         if (controller.signal.aborted) return;
+        // On network failure, clear stored key so user isn't stuck
         localStorage.removeItem(WORKSPACE_STORAGE_KEY);
         window.dispatchEvent(new StorageEvent("storage", { key: WORKSPACE_STORAGE_KEY }));
-      })
-      .finally(() => {
+      } finally {
         setIsValidating(false);
-      });
+      }
+    }
+
+    resolve();
 
     return () => {
       controller.abort();

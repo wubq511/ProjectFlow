@@ -44,9 +44,8 @@ Implemented: FastAPI backend (public MVP APIs plus service-token-protected inter
 
 - Frontend: Next.js, React, TypeScript, Tailwind CSS, shadcn/ui, Framer Motion
 - Backend: FastAPI, SQLModel, Pydantic
+- Agent Bridge: TypeScript (Node.js), Pi component runtime, typed ProjectFlow tools
 - Database: SQLite for local demo data
-- Agent today: legacy single Coordinator Agent with structured output validation
-- Agent target: T41 TypeScript Agent Bridge Sidecar + Pi component runtime + typed ProjectFlow tools
 
 ## Backend
 
@@ -81,6 +80,22 @@ Backend tests:
 ```bash
 cd backend
 .venv\Scripts\python -m pytest app/tests/ -v
+```
+
+## Agent Bridge Sidecar
+
+```bash
+cd agent-bridge
+npm install
+npx tsx src/index.ts
+```
+
+test：
+
+```bash
+cd agent-bridge
+npx vitest run
+npx tsc --noEmit
 ```
 
 ## Frontend
@@ -135,6 +150,7 @@ npm audit --omit=dev
 Keep secrets and local data out of git:
 
 - `.env`
+- `model-configs.json`
 - `backend/data/`
 - SQLite files
 - `.venv/`

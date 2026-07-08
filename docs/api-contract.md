@@ -530,7 +530,7 @@ Security: API key values are never returned in the response, logged, or stored i
 
 ## Sidecar Model Configuration Endpoints
 
-These endpoints are served by the agent-bridge sidecar (default `http://localhost:3100`), not the FastAPI backend.
+These endpoints are served by the agent-bridge sidecar (default `http://localhost:4000`), not the FastAPI backend.
 
 ### GET /config/models
 

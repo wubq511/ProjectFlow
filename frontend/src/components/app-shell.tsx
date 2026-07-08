@@ -87,6 +87,15 @@ export function setLastWorkspaceId(id: string) {
   }
 }
 
+export function clearLastWorkspaceId() {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: WORKSPACE_STORAGE_KEY }),
+    );
+  }
+}
+
 export function useCurrentUserId() {
   return useSyncExternalStore(
     subscribeToStorage,

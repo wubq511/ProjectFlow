@@ -36,7 +36,7 @@ import type {
 } from "./types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
-const SIDECAR_BASE_URL = process.env.NEXT_PUBLIC_SIDECAR_BASE_URL ?? "http://localhost:3100";
+const SIDECAR_BASE_URL = process.env.NEXT_PUBLIC_SIDECAR_BASE_URL ?? "http://localhost:4000";
 
 type BackendUser = Omit<User, "user_id"> & { id: string; user_id?: string };
 type BackendWorkspace = Omit<Workspace, "workspace_id"> & { id: string; workspace_id?: string };
@@ -259,6 +259,11 @@ export async function createWorkspace(data: CreateWorkspaceRequest): Promise<Wor
     }
   );
   return normalizeWorkspace(workspace);
+}
+
+export async function listWorkspaces(): Promise<Workspace[]> {
+  const workspaces = await request<BackendWorkspace[]>("/workspaces", { timeout: 10_000 });
+  return workspaces.map(normalizeWorkspace);
 }
 
 export async function getWorkspaceState(workspaceId: string): Promise<WorkspaceState> {

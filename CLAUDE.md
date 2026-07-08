@@ -257,6 +257,7 @@ LLM_TIMEOUT_SECONDS=30.0          # 诊断超时
 LLM_AGENT_TIMEOUT_SECONDS=120.0   # Agent 生成超时
 INTERNAL_SERVICE_TOKEN=change-me  # sidecar 调 FastAPI internal endpoints 的 Bearer token
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
+NEXT_PUBLIC_SIDECAR_BASE_URL=http://localhost:4000  # sidecar 模型配置 API 地址
 MEMORY_VECTOR_ENABLED=false   # 是否优先使用向量检索（需要 memory-vector extra）
 MEMORY_VECTOR_MODEL=shibing624/text2vec-base-chinese  # 中文 embedding 模型
 MEMORY_VECTOR_MODEL_DIR=      # 空=自动 data/memory-models/
