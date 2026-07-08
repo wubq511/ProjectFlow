@@ -7,7 +7,10 @@
       "displayName": "DeepSeek V4 Flash",
       "apiKeyEnvVar": "DEEPSEEK_API_KEY",
       "isDefault": true,
-      "capabilities": { "thinking": true, "vision": false }
+      "capabilities": {
+        "thinking": true,
+        "vision": false
+      }
     },
     {
       "id": "deepseek-v4-pro",
@@ -15,8 +18,11 @@
       "name": "deepseek-v4-pro",
       "displayName": "DeepSeek V4 Pro",
       "apiKeyEnvVar": "DEEPSEEK_API_KEY",
-      "isDefault": false,
-      "capabilities": { "thinking": true, "vision": false }
+      "isDefault": true,
+      "capabilities": {
+        "thinking": true,
+        "vision": false
+      }
     },
     {
       "id": "mimo-v2.5",
@@ -25,7 +31,10 @@
       "displayName": "MiMo V2.5",
       "apiKeyEnvVar": "XIAOMI_API_KEY",
       "isDefault": false,
-      "capabilities": { "thinking": true, "vision": true }
+      "capabilities": {
+        "thinking": true,
+        "vision": true
+      }
     },
     {
       "id": "mimo-v2.5-cn",
@@ -34,7 +43,10 @@
       "displayName": "MiMo V2.5（国内 Token 计费）",
       "apiKeyEnvVar": "XIAOMI_TOKEN_PLAN_CN_API_KEY",
       "isDefault": false,
-      "capabilities": { "thinking": true, "vision": true }
+      "capabilities": {
+        "thinking": true,
+        "vision": true
+      }
     }
   ]
 }

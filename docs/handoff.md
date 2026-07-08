@@ -38,7 +38,7 @@ Issues #71-#80 are closed and merged to `main`. The ProjectMemory V1 backend/run
 
 - Backend/runtime V1 path is implemented: governed persistence, deterministic extractor, source hooks, idempotency/supersede, visibility, JSON list, Markdown export API, default FTS5+jieba retrieval, Agent context injection, retrieval evaluation, and optional vector guardrails.
 - Frontend V1 path is implemented: `ProjectMemoryPanel` with topic-grouped read-only list, loading/error/empty states, and Markdown export/copy/download using the current viewer identity (issue #80, commit `0a25690`).
-- Verification after #80: backend `ruff check app` passed; backend tests `514 passed, 4 skipped`; frontend tests `55 passed`; frontend lint passed with 2 existing React hook warnings; frontend production build passed; frontend production dependency audit reported 0 vulnerabilities; agent-bridge tests/typecheck/build passed.
+- Verification after #80: backend `ruff check app` passed; backend tests `519 passed, 4 skipped; frontend tests `55 passed`; frontend lint passed with 2 existing React hook warnings; frontend production build passed; frontend production dependency audit reported 0 vulnerabilities; agent-bridge tests/typecheck/build passed.
 - GitHub issues #71, #72, #73, #74, #75, #76, #77, and #80 are closed.
 - Accepted V1 limitation: alternate `/api/replans/confirm` path still does not produce ProjectMemory; current frontend does not use this endpoint.
 
@@ -992,8 +992,8 @@ npm audit --omit=dev
 
 Results:
 
-- Backend: 514 tests passed, 4 skipped.
-- Agent-bridge: 559 tests passed across 18 files.
+- Backend: 519 tests passed, 4 skipped.
+- Agent-bridge: 540 tests passed across 18 files.
 - Frontend tests: 55 passed across 10 files (API layer, project dashboard, home page, app shell, action card, task status update, error boundaries, assignment flow panel, agent sidebar, project memory panel).
 - Frontend lint passed with 2 existing React hook warnings.
 - Frontend build passed.

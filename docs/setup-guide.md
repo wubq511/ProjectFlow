@@ -132,7 +132,7 @@ cd backend
 .venv\Scripts\python -m ruff check app
 ```
 
-预期：后端测试全部通过，ruff 无问题。当前测试基线为 `367 passed`。
+预期：后端测试全部通过，ruff 无问题。当前测试基线为 `519 passed, 4 skipped`。
 
 ### 前端验证
 
@@ -145,7 +145,84 @@ npm run build
 
 预期：55 个前端测试通过，lint 无错误（有 2 个既有 React hook warnings），build 成功。`npm run test` / `npm run lint` / `npm run build` 会先或后归一 `next-env.d.ts`，避免 Next.js dev/build 类型路径切换污染 git diff。
 
-## 第五步：加载演示数据
+### Agent Bridge 测试
+
+```bash
+cd agent-bridge
+npx vitest run
+npx tsc --noEmit
+```
+
+预期：540 个 agent-bridge 测试通过（18 文件），typecheck 通过。
+
+## 第五步：启动 Agent Bridge Sidecar
+
+### 5.1 安装依赖
+
+```bash
+cd agent-bridge
+npm install
+```
+
+### 5.2 配置模型（可选）
+
+Sidecar 使用 `agent-bridge/model-configs.json` 管理多模型配置。默认 4 条预设：
+
+| 配置 ID | 供应商 | 模型 | 默认 |
+|---------|--------|------|------|
+| deepseek-v4-flash | DeepSeek | deepseek-v4-flash | ✅ |
+| deepseek-v4-pro | DeepSeek | deepseek-v4-pro | |
+| mimo-v2.5 | Xiaomi | mimo-v2.5 | |
+| mimo-v2.5-cn | Xiaomi (国内 Token 计费) | mimo-v2.5 | |
+
+API Key 通过 `.env` 文件配置（与 backend 共享同一 `.env`），不在 JSON 中存储：
+
+```bash
+DEEPSEEK_API_KEY=sk-你的key
+XIAOMI_API_KEY=你的key
+XIAOMI_TOKEN_PLAN_CN_API_KEY=你的key
+```
+
+也可以在前端设置对话框中管理模型配置（点击导航栏齿轮按钮）。
+
+### 5.3 启动 Sidecar
+
+```bash
+cd agent-bridge
+npx tsx src/index.ts
+```
+
+默认监听 `127.0.0.1:4000`。预期输出：
+
+```
+[agent-bridge] 模型配置已加载: 2/4 有效
+[agent-bridge] 文件监听已启动: ...
+[agent-bridge] listening on 127.0.0.1:4000
+[agent-bridge] fastapi target: http://localhost:8000
+[agent-bridge] default model: DeepSeek V4 Flash (deepseek:deepseek-v4-flash)
+```
+
+"2/4 有效"表示 2 个模型配置了 API Key，2 个未配置（Xiaomi）——这是正常的。
+
+### 5.4 验证 Sidecar
+
+```bash
+curl http://localhost:4000/health
+```
+
+预期返回：
+
+```json
+{"status":"ok"}
+```
+
+查看模型配置：
+
+```bash
+curl http://localhost:4000/config/models
+```
+
+## 第六步：加载演示数据
 
 后端运行状态下：
 
@@ -157,11 +234,11 @@ curl -X POST http://localhost:8000/api/seed/demo
 
 然后在浏览器打开 http://localhost:3000 ，首页会显示"加载演示数据"按钮，点击即可跳转到演示项目。
 
-## 第六步：全功能人工测试流程
+## 第七步：全功能人工测试流程
 
 以下按状态机顺序，覆盖所有 Agent 功能。
 
-### 6.1 账号与 Workspace
+### 7.1 账号与 Workspace
 
 1. 打开 http://localhost:3000
 2. 点击"开始使用"，进入 onboarding
@@ -170,7 +247,7 @@ curl -X POST http://localhost:8000/api/seed/demo
 5. 完成负责人 3 步成员档案向导（基本信息 / 技能与经验 / 可用时间）
 6. 回到工作台，通过成员管理添加团队成员并填写资料
 
-### 6.2 项目录入
+### 7.2 项目录入
 
 1. 点击"新建项目"
 2. 选择项目类型（课程作业/竞赛/创业/研究）
@@ -179,7 +256,7 @@ curl -X POST http://localhost:8000/api/seed/demo
 5. 添加资源（文本输入）
 6. 提交，进入项目仪表盘
 
-### 6.3 Agent：澄清方向
+### 7.3 Agent：澄清方向
 
 1. 仪表盘"规划"阶段高亮
 2. 点击"澄清方向"按钮
@@ -188,21 +265,21 @@ curl -X POST http://localhost:8000/api/seed/demo
 5. 确认 proposal → 方向卡写入项目状态
 6. 拒绝 proposal → 方向卡不写入
 
-### 6.4 Agent：阶段规划
+### 7.4 Agent：阶段规划
 
 1. 点击"生成阶段计划"
 2. Agent 返回 `proposal_id`
 3. 阶段计划板显示提议的阶段（目标、日期、交付物）
 4. 确认 proposal → 阶段持久化
 
-### 6.5 Agent：任务分解
+### 7.5 Agent：任务分解
 
 1. 点击"分解任务"
 2. Agent 返回 `proposal_id`
 3. 任务分解板显示任务（优先级、依赖、验收标准）
 4. 确认 proposal → 任务持久化
 
-### 6.6 Agent：分工推荐
+### 7.6 Agent：分工推荐
 
 1. 仪表盘进入"分工"阶段
 2. 点击"推荐分工"
@@ -213,7 +290,7 @@ curl -X POST http://localhost:8000/api/seed/demo
 7. 协调面板显示交换建议
 8. 最终确认分工 → task owner 锁定
 
-### 6.7 Agent：主动推进
+### 7.7 Agent：主动推进
 
 1. 仪表盘进入"执行"阶段
 2. 点击"主动推进"
@@ -221,20 +298,20 @@ curl -X POST http://localhost:8000/api/seed/demo
 4. 个人行动卡区显示当前用户的卡片
 5. 关闭/完成行动卡
 
-### 6.8 签到
+### 7.8 签到
 
 1. 进入"签到与状态"标签
 2. 提交签到（做了什么、可选卡点、可用时间、信心）
 3. 更新任务状态（not_started/in_progress/done/blocked + 进度说明）
 
-### 6.9 Agent：风险分析
+### 7.9 Agent：风险分析
 
 1. 进入"风险与调整"标签
 2. 点击"风险分析"
 3. 风险卡出现：类型、结构化证据（含 detail）、状态
 4. 接受/忽略/解决风险
 
-### 6.10 Agent：调整计划
+### 7.10 Agent：调整计划
 
 1. 点击"调整计划"
 2. 重排差异显示 before/after 对比、影响、理由
@@ -242,23 +319,59 @@ curl -X POST http://localhost:8000/api/seed/demo
 4. 确认重排 → 变更生效
 5. 尝试修改已确认分工的 owner → 被拒绝
 
-### 6.11 时间线与导出
+### 7.11 时间线与导出
 
 1. 进入"时间线与导出"标签
 2. Agent 时间线显示事件（success/fallback/repaired/failed 状态）
 3. 点击导出 → 生成评审摘要 Markdown
 
-### 6.12 演示重置
+### 7.12 演示重置
 
 1. 仪表盘点击"重置演示"按钮
 2. 数据重置并重新播种
 3. 或使用 `curl -X POST http://localhost:8000/api/demo/reset`
 
-## 第七步：配置真实 LLM（可选）
+## 第八步：配置真实 LLM（可选）
 
 Mock 模式下 Agent 返回确定性 fallback 数据，适合 UI 测试和演示。要体验真实 AI 输出，需要配置 LLM API。
 
-### 7.1 获取 API Key
+现在有两种配置方式：
+
+1. **Sidecar 多模型配置（推荐）**：通过前端设置对话框或 `model-configs.json` + `.env` 配置，支持多供应商、多模型切换
+2. **Backend 单模型配置（旧方式）**：通过 `backend/.env` 的 `LLM_PROVIDER`/`LLM_API_KEY` 配置，仅支持单一模型
+
+### 8.1 方式一：Sidecar 多模型配置
+
+#### 获取 API Key
+
+支持以下供应商（Pi SDK 内置 provider）：
+
+- DeepSeek（deepseek-v4-flash, deepseek-v4-pro 等）
+- Xiaomi / MiMo（mimo-v2.5 等）
+- OpenAI（gpt-4o-mini, gpt-4o 等）
+- Anthropic（claude-sonnet 等）
+- OpenRouter（聚合多模型）
+- 自定义 OpenAI 兼容端点
+
+#### 在前端设置
+
+1. 点击导航栏齿轮按钮 → "模型配置" tab
+2. 查看已配置的模型列表（默认 4 条预设）
+3. 点"设置 Key"为需要的模型配置 API Key
+4. 在 Agent sidebar 的"模型"下拉选择要使用的模型
+
+#### 手动编辑配置
+
+编辑 `agent-bridge/model-configs.json` 添加/修改模型，编辑 `.env` 添加 API Key。Sidecar 会在 500ms 内自动重载。
+
+#### 添加自定义 OpenAI 兼容端点
+
+1. 在设置对话框点"添加模型"
+2. 供应商选"openai-compatible"
+3. 填写 Base URL、模型名称、API Key 环境变量名
+4. 设置 API Key
+
+### 8.2 方式二：Backend 单模型配置（旧方式）
 
 支持任何 OpenAI 兼容的 chat-completions API：
 
@@ -268,7 +381,7 @@ Mock 模式下 Agent 返回确定性 fallback 数据，适合 UI 测试和演示
 - 本地代理（如 Ollama + 兼容接口）
 - 大模型 API 聚合平台
 
-### 7.2 修改 `.env`
+#### 修改 `.env`
 
 编辑 `backend/.env`：
 
@@ -296,7 +409,7 @@ LLM_AGENT_TIMEOUT_SECONDS=120.0
 INTERNAL_SERVICE_TOKEN=dev-internal-service-token
 ```
 
-### 7.3 重启后端
+#### 重启后端
 
 Ctrl+C 停止后端，重新运行：
 
@@ -310,7 +423,7 @@ Windows PowerShell 可直接使用项目虚拟环境解释器：
 D:\ProjectFlow\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
 ```
 
-### 7.4 验证 LLM 连通性
+#### 验证 LLM 连通性
 
 ```bash
 curl http://localhost:8000/api/llm/diagnostic
@@ -324,14 +437,14 @@ curl http://localhost:8000/api/llm/diagnostic
 
 如果返回 `"status":"error"`，检查 API Key、Base URL 和网络连通性。
 
-### 7.5 真实 LLM 模式下的测试要点
+### 8.3 真实 LLM 模式下的测试要点
 
 - Agent 响应中 `"status": "success"` 表示 LLM 调用成功
 - `"status": "fallback"` 或 `"used_fallback": true` 表示 LLM 调用失败后降级
 - 高影响输出（澄清/规划/分解）仍需人工确认后才持久化
 - 如果 LLM 超时或返回无效 JSON，系统会自动重试 2 次后降级为 fallback
 
-### 7.6 切回 Mock 模式
+### 8.4 切回 Mock 模式
 
 测试完毕后，编辑 `backend/.env`：
 

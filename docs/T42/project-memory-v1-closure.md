@@ -31,7 +31,7 @@ cd backend
 Result:
 
 - `ruff check app`: passed.
-- Backend tests: 514 passed, 4 skipped.
+- Backend tests: 519 passed, 4 skipped.
 
 ```bash
 cd frontend
@@ -57,7 +57,7 @@ npm run build
 
 Result:
 
-- Agent bridge tests: 559 passed across 18 files.
+- Agent bridge tests: 540 passed across 18 files.
 - Agent bridge typecheck/build: passed.
 
 ## GitHub Issue Status
