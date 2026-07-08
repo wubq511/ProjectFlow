@@ -37,6 +37,7 @@ import {
 import { MemberManagementDialog } from "@/components/member/member-management-dialog";
 import { NewWorkspaceDialog } from "@/components/workspace/new-workspace-dialog";
 import { setCurrentUserId, clearLastWorkspaceId } from "@/components/app-shell";
+import { listWorkspaces } from "@/lib/api";
 
 export type ProjectView =
   | "overview"
@@ -129,7 +130,9 @@ export function ProjectSidebar({
   const [memberMgmtOpen, setMemberMgmtOpen] = useState(false);
   const [workspaceExpanded, setWorkspaceExpanded] = useState(true);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
-  const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>([]);
+  const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>(() =>
+    state.workspace ? [state.workspace] : []
+  );
 
   const handleNavigate = useCallback(
     (view: ProjectView) => {
@@ -163,11 +166,13 @@ export function ProjectSidebar({
   // Fetch all workspaces for the switcher
   useEffect(() => {
     let ignore = false;
-    import("@/lib/api").then(({ listWorkspaces }) => {
-      listWorkspaces().then((workspaces) => {
+    listWorkspaces()
+      .then((workspaces) => {
         if (!ignore) setAllWorkspaces(workspaces);
-      }).catch(() => {});
-    });
+      })
+      .catch((err) => {
+        console.error("Failed to load workspace list:", err);
+      });
     return () => { ignore = true; };
   }, [workspace.workspace_id]);
 

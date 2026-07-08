@@ -466,15 +466,12 @@ export function ProjectFlowHome() {
           return;
         }
 
-        // Step 2: fetch total workspace count
-        const countResp = await fetch(`${API_BASE_URL}/workspaces`, { signal: controller.signal });
+        // Step 2: fetch total workspace count via api.ts
+        const { listWorkspaces } = await import("@/lib/api");
         if (controller.signal.aborted) return;
-
-        let totalCount = 0;
-        if (countResp.ok) {
-          const data = await countResp.json();
-          totalCount = Array.isArray(data) ? data.length : 0;
-        }
+        const allWorkspaces = await listWorkspaces();
+        if (controller.signal.aborted) return;
+        const totalCount = allWorkspaces.length;
 
         if (totalCount <= 1) {
           // Single workspace user — auto-redirect to it
