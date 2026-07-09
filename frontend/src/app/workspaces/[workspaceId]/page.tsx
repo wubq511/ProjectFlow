@@ -134,6 +134,11 @@ export default function WorkspaceDashboardPage() {
   const [pendingAgentConversation, setPendingAgentConversation] = useState(false);
   const [streamingBuffer, setStreamingBuffer] = useState("");
   const [streamStatus, setStreamStatus] = useState<{ phase: AgentStreamPhase; module?: string; message: string } | null>(null);
+  const [lastThinkingContent, setLastThinkingContent] = useState<string>("");
+  const streamingBufferRef = useRef("");
+  const turnCountRef = useRef(0);
+  const thinkingBufferRef = useRef("");
+  const hasToolCallRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -215,6 +220,7 @@ export default function WorkspaceDashboardPage() {
       setAgentConversationArtifacts([]);
       setPendingAgentInstruction(null);
       setAgentConversationError(null);
+      setLastThinkingContent("");
     } catch {
       setActionError("加载项目数据失败");
     } finally {
@@ -232,6 +238,7 @@ export default function WorkspaceDashboardPage() {
       setAgentConversationArtifacts([]);
       setPendingAgentInstruction(null);
       setAgentConversationError(null);
+      setLastThinkingContent("");
       // Clear project param from URL
       const params = new URLSearchParams(searchParams.toString());
       params.delete("project");
@@ -334,13 +341,41 @@ export default function WorkspaceDashboardPage() {
         agentConversation.id,
         content,
         {
-          onStatus: (status) => setStreamStatus(status as { phase: AgentStreamPhase; module?: string; message: string }),
-          onToken: (token) => setStreamingBuffer((prev) => prev + token),
+          onStatus: (status) => {
+            setStreamStatus(status as { phase: AgentStreamPhase; module?: string; message: string });
+            // Track turn boundaries for thinking/answer separation
+            if ((status as { phase?: string }).phase === "turn_start") {
+              turnCountRef.current += 1;
+            }
+            // Track tool calls to distinguish thinking from single-turn answers
+            if ((status as { phase?: string }).phase === "executing") {
+              hasToolCallRef.current = true;
+            }
+          },
+          onToken: (token) => {
+            streamingBufferRef.current += token;
+            // First turn with tool calls = thinking process; later turns = final answer
+            const isThinking = turnCountRef.current <= 1 && hasToolCallRef.current;
+            if (isThinking) {
+              thinkingBufferRef.current += token;
+              // Don't update streamingBuffer — thinking tokens are hidden during streaming
+            } else {
+              // Answer tokens: show in streaming UI
+              setStreamingBuffer((prev) => prev + token);
+            }
+          },
           onDone: (turn) => {
             setAgentConversation(turn.conversation);
             setAgentConversationSuggestions(turn.suggestions ?? []);
             setAgentConversationArtifacts(turn.artifacts ?? []);
             setPendingAgentInstruction(null);
+            // Thinking content from the accumulated thinking buffer
+            setLastThinkingContent(thinkingBufferRef.current.trim());
+            // Reset all streaming refs
+            thinkingBufferRef.current = "";
+            streamingBufferRef.current = "";
+            turnCountRef.current = 0;
+            hasToolCallRef.current = false;
             setStreamingBuffer("");
             setStreamStatus(null);
             reloadProject();
@@ -352,6 +387,10 @@ export default function WorkspaceDashboardPage() {
             }
           },
           onError: (msg) => {
+            thinkingBufferRef.current = "";
+            streamingBufferRef.current = "";
+            turnCountRef.current = 0;
+            hasToolCallRef.current = false;
             setStreamingBuffer("");
             setStreamStatus(null);
             setAgentConversationError(msg || "这次没有生成可用结果，我保留了你的请求。");
@@ -374,6 +413,12 @@ export default function WorkspaceDashboardPage() {
 
   const handleStopStreaming = () => {
     abortRef.current?.abort();
+    thinkingBufferRef.current = "";
+    streamingBufferRef.current = "";
+    turnCountRef.current = 0;
+    hasToolCallRef.current = false;
+    setStreamingBuffer("");
+    setStreamStatus(null);
   };
 
   const handleAssignmentResponse = async (
@@ -626,6 +671,7 @@ export default function WorkspaceDashboardPage() {
       pendingAgentInstruction={pendingAgentInstruction}
       agentConversationError={agentConversationError}
       pendingAgentConversation={pendingAgentConversation}
+      thinkingContent={lastThinkingContent}
       streamingBuffer={streamingBuffer}
       streamStatus={streamStatus}
       onStopStreaming={handleStopStreaming}

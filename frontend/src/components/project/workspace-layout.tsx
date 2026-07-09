@@ -23,6 +23,7 @@ interface WorkspaceLayoutProps {
   pendingAgentInstruction?: string | null;
   agentConversationError?: string | null;
   pendingAgentConversation?: boolean;
+  thinkingContent?: string;
   streamingBuffer?: string;
   streamStatus?: { phase: AgentStreamPhase; module?: string; message: string } | null;
   onStopStreaming?: () => void;
@@ -92,6 +93,7 @@ export function WorkspaceLayout({
   pendingAgentInstruction,
   agentConversationError,
   pendingAgentConversation,
+  thinkingContent,
   streamingBuffer = "",
   streamStatus = null,
   onStopStreaming,
@@ -228,6 +230,7 @@ export function WorkspaceLayout({
         onStopStreaming={onStopStreaming}
         onConfirmArtifact={onConfirmAgentArtifact}
         onResetDemo={onResetDemo}
+        thinkingContent={thinkingContent}
       />
     </div>
   );
