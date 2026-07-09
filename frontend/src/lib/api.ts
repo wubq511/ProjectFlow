@@ -704,6 +704,19 @@ const SKILL_NAME_MAP: Record<string, string> = {
   retrospective: "project-status",
 };
 
+const ENDPOINT_EVENT_TYPE_MAP: Record<string, string> = {
+  clarify: "clarify",
+  plan: "plan",
+  breakdown: "breakdown",
+  assign: "assign",
+  "active-push": "push",
+  "check-in-analysis": "checkin",
+  "risk-analysis": "risk",
+  replan: "replan",
+  negotiate: "assign",
+  retrospective: "retro",
+};
+
 async function runAgentFlow(
   projectId: string,
   endpoint: string,
@@ -799,9 +812,10 @@ async function runAgentFlow(
       console.error("Failed to verify timeline event:", e);
     }
     // Sidecar 完成但未找到对应 timeline 事件 — 降级返回成功结果而非报错
-    console.warn("Agent run completed but no matching timeline event found within time window");
+    const fallbackEventType = ENDPOINT_EVENT_TYPE_MAP[endpoint] ?? "clarify";
+    console.warn("Agent run completed but no matching timeline event found within time window, fallback event_type=%s", fallbackEventType);
     return {
-      event_type: "clarify" as AgentFlowResult["event_type"],
+      event_type: fallbackEventType as AgentFlowResult["event_type"],
       status: "success",
       attempts: 1,
       used_fallback: false,
