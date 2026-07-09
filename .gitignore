@@ -39,3 +39,4 @@ vendor_imports/research/**/npm/
 
 # Worktrees
 .worktrees/
+.next/
