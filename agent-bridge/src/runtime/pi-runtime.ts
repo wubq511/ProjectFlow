@@ -68,6 +68,8 @@ export interface RunInput {
   recentMessages?: unknown[];
   pendingProposals?: unknown[];
   skillContext?: SkillContext;
+  /** Viewer identity for visibility/auth enforcement in tool execution. */
+  viewerUserId?: string;
 }
 
 export interface RunCallbacks {
@@ -89,6 +91,7 @@ function toPiTool(
   budget: BudgetManager,
   traceIncludeSensitiveData: boolean,
   debugPayloadStore: DebugPayloadStore,
+  viewerUserId?: string,
 ): AgentTool<any> | null {
   const registered = registry.get(toolName);
   if (!registered) return null;
@@ -117,6 +120,7 @@ function toPiTool(
         toolVersion: manifest.version,
         manifestVersion: manifest.resume.manifestVersion,
         idempotencyKey,
+        viewerUserId,
       };
 
       const toolTrace = createToolTrace(runState.runId, toolCallId, toolName, traceIncludeSensitiveData);
@@ -361,7 +365,7 @@ export async function executeRun(
     const piTools: AgentTool<any>[] = [];
     for (const name of toolNames) {
       const piTool = toPiTool(
-        name, toolRegistry, runState, fastapiClient, stream, budget, traceIncludeSensitiveData, debugPayloadStore,
+        name, toolRegistry, runState, fastapiClient, stream, budget, traceIncludeSensitiveData, debugPayloadStore, input.viewerUserId,
       );
       if (piTool) piTools.push(piTool);
     }

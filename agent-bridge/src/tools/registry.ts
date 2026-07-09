@@ -22,6 +22,8 @@ export interface ToolExecutionContext {
   toolVersion: number;
   manifestVersion: number;
   idempotencyKey: string;
+  /** Viewer identity for visibility/auth enforcement in tool execution. */
+  viewerUserId?: string;
 }
 
 export class ToolRegistry {
@@ -74,6 +76,7 @@ export function createFastapiToolExecutor(fastapiClient: FastapiClient, toolName
       tool_version: context.toolVersion,
       manifest_version: context.manifestVersion,
       idempotency_key: context.idempotencyKey,
+      viewer_user_id: context.viewerUserId,
       arguments: args,
       client_event_id: `${context.runId}:${context.toolCallId}:request`,
       ordering_hint: 0,

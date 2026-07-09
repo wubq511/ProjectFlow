@@ -48,27 +48,15 @@ def _require_viewer(session: Session, project_id: str, viewer_user_id: str | Non
 @router.post(
     "/agent/conversations/{conversation_id}/messages",
     response_model=AgentConversationTurnRead,
+    deprecated=True,
 )
 def api_send_agent_conversation_message(
     conversation_id: str,
     data: AgentConversationMessageCreate,
     session: Session = Depends(get_session),
 ):
-    from app.models.agent_conversation import AgentConversation
-
-    conversation = session.get(AgentConversation, conversation_id)
-    if conversation is None:
-        raise HTTPException(status_code=404, detail="对话不存在")
-    viewer_user_id = _require_viewer(session, conversation.project_id, data.viewer_user_id)
-    try:
-        return process_conversation_message(
-            session,
-            conversation_id,
-            data.content,
-            viewer_user_id=viewer_user_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    """Deprecated — use the stream endpoint instead."""
+    raise HTTPException(status_code=410, detail="非流式对话端点已废弃，请使用流式端点。")
 
 
 @router.post("/agent/conversations/{conversation_id}/messages/stream")

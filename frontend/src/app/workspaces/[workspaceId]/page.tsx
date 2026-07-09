@@ -358,6 +358,7 @@ export default function WorkspaceDashboardPage() {
           },
         },
         abortRef.current.signal,
+        currentUserId,
       );
     } catch {
       if (!abortRef.current?.signal.aborted) {

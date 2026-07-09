@@ -524,8 +524,8 @@ def test_start_run_outsider_viewer_returns_404(client: TestClient):
     assert response.status_code == 404
 
 
-def test_conversation_message_missing_viewer_returns_400(client: TestClient):
-    """Legacy conversation message without viewer_user_id returns 400."""
+def test_conversation_message_missing_viewer_returns_410(client: TestClient):
+    """Non-stream conversation endpoint is deprecated (410 Gone)."""
     workspace, project, owner, *_ = _create_fixture(client)
     conversation = client.get(
         f"/api/projects/{project['id']}/agent-conversation"
@@ -535,11 +535,11 @@ def test_conversation_message_missing_viewer_returns_400(client: TestClient):
         f"/api/agent/conversations/{conversation['id']}/messages",
         json={"content": "hello"},
     )
-    assert response.status_code == 400
+    assert response.status_code == 410
 
 
-def test_conversation_message_outsider_returns_404(client: TestClient):
-    """Legacy conversation message with outsider viewer returns 404."""
+def test_conversation_message_outsider_returns_410(client: TestClient):
+    """Non-stream conversation endpoint is deprecated (410 Gone)."""
     workspace, project, owner, _member, outsider = _create_fixture(client)
     conversation = client.get(
         f"/api/projects/{project['id']}/agent-conversation"
@@ -549,7 +549,7 @@ def test_conversation_message_outsider_returns_404(client: TestClient):
         f"/api/agent/conversations/{conversation['id']}/messages",
         json={"content": "hello", "viewer_user_id": outsider["id"]},
     )
-    assert response.status_code == 404
+    assert response.status_code == 410
 
 
 # ─── Sidecar database-free architecture test ─────────────────────────────────

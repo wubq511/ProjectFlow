@@ -602,10 +602,11 @@ function normalizeAgentConversationTurn(turn: BackendAgentConversationTurn): Age
 export async function sendAgentConversationMessage(
   conversationId: string,
   content: string,
+  viewerUserId?: string,
 ): Promise<AgentConversationTurn> {
   const turn = await request<BackendAgentConversationTurn>(`/agent/conversations/${conversationId}/messages`, {
     method: "POST",
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, viewer_user_id: viewerUserId }),
   });
   return normalizeAgentConversationTurn(turn);
 }
@@ -622,11 +623,12 @@ export async function sendAgentConversationMessageStream(
   content: string,
   callbacks: AgentStreamCallbacks,
   signal?: AbortSignal,
+  viewerUserId?: string,
 ): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/agent/conversations/${conversationId}/messages/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, viewer_user_id: viewerUserId }),
     signal,
   });
 
@@ -640,6 +642,7 @@ export async function sendAgentConversationMessageStream(
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let currentEvent = "";
 
   try {
     while (true) {
@@ -650,7 +653,6 @@ export async function sendAgentConversationMessageStream(
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
 
-      let currentEvent = "";
       for (const line of lines) {
         if (line.startsWith("event: ")) {
           currentEvent = line.slice(7).trim();

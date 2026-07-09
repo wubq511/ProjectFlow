@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     llm_agent_timeout_seconds: PositiveFloat = 120.0
     demo_admin_token: SecretStr | None = None
     internal_service_token: SecretStr | None = None
+    sidecar_base_url: str = "http://localhost:4000"
 
     # ── T41 Per-Tool Feature Flags ──────────────────────────────────
     # Disable a flag to immediately stop the corresponding tool endpoint

@@ -9,6 +9,7 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import type { SidecarConfig } from "./config.js";
 import { sendJson } from "./routes/utils.js";
 import { handleStartRun } from "./routes/start-run.js";
+import { handleStartRunStream } from "./routes/start-run-stream.js";
 import { handleGetRun } from "./routes/get-run.js";
 import { handleCancelRun } from "./routes/cancel-run.js";
 import { handleListTools } from "./routes/list-tools.js";
@@ -100,6 +101,7 @@ export function createServer(config: SidecarConfig, serverCtx?: Partial<ServerCo
   const routes: Route[] = [
     // Run management
     compileRoute("POST", "/runs", handleStartRun),
+    compileRoute("POST", "/runs/stream", handleStartRunStream),
     compileRoute("GET", "/runs/:runId", handleGetRun),
     compileRoute("POST", "/runs/:runId/cancel", handleCancelRun),
     compileRoute("GET", "/tools/list", handleListTools),

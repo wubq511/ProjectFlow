@@ -119,7 +119,7 @@ function buildUserMessage(input: ContextBuildInput): string {
 
   // Workspace state summary (compressed, not full DB dump)
   if (input.workspaceState) {
-    const summary = compressWorkspaceState(input.workspaceState);
+    const summary = selectWorkspaceStateFields(input.workspaceState);
     parts.push(`<workspace_state>\n${escapeXmlText(summary)}\n</workspace_state>`);
   }
 
@@ -153,35 +153,91 @@ function buildToolDefinitions(manifests: ProjectFlowToolManifest[], skillContext
 
 /** WorkspaceState fields relevant to the agent. */
 interface WorkspaceStateSummary {
-  project_name?: string;
-  current_stage?: string;
-  project_status?: string;
+  workspace_name?: string;
   members?: unknown[];
-  tasks?: unknown[];
-  deadline?: string;
+  project?: {
+    id?: string;
+    name?: string;
+    idea?: string;
+    status?: string;
+    deadline?: string;
+    deliverables?: string;
+    current_stage_id?: string;
+    direction_card?: unknown;
+    stages?: unknown[];
+    tasks?: unknown[];
+    assignment_proposals?: unknown[];
+    assignment_responses?: unknown[];
+    assignment_negotiations?: unknown[];
+    checkin_cycles?: unknown[];
+    checkin_responses?: unknown[];
+    resources?: unknown[];
+    [key: string]: unknown;
+  };
+  current_date?: string;
+  current_datetime?: string;
+  timezone?: string;
   [key: string]: unknown;
 }
 
+/** Max characters for the serialized workspace state (prevents context window blowup). */
+const MAX_WORKSPACE_STATE_CHARS = 32_000;
+
 /**
- * Compress WorkspaceState into a task-relevant summary.
- * Does NOT include full DB dump — only what the model needs.
+ * Select task-relevant fields from WorkspaceState for the model context.
+ *
+ * This is field selection, not summarization — we include the full values
+ * of selected fields but omit fields the model doesn't need (e.g. workspace_id,
+ * internal DB fields). The output is capped at MAX_WORKSPACE_STATE_CHARS.
+ *
+ * The WorkspaceStateResponse from FastAPI has this structure:
+ *   { workspace_id, workspace_name, members, project: { id, name, idea, status, direction_card, stages, tasks, ... }, current_date, timezone }
+ *
+ * We extract the project subtree and top-level members/timezone.
  */
-function compressWorkspaceState(state: unknown): string {
+function selectWorkspaceStateFields(state: unknown): string {
   if (typeof state === "string") return state;
 
   try {
     const obj = state as WorkspaceStateSummary;
-    const summary: WorkspaceStateSummary = {};
+    const summary: Record<string, unknown> = {};
 
-    // Include key fields only
-    if (obj.project_name) summary.project_name = obj.project_name;
-    if (obj.current_stage) summary.current_stage = obj.current_stage;
-    if (obj.project_status) summary.project_status = obj.project_status;
-    if (obj.members) summary.members = obj.members;
-    if (obj.tasks) summary.tasks = obj.tasks;
-    if (obj.deadline) summary.deadline = obj.deadline;
+    // Top-level workspace fields
+    if (obj.workspace_name !== undefined) summary.workspace_name = obj.workspace_name;
+    if (obj.members !== undefined) summary.members = obj.members;
+    if (obj.current_date !== undefined) summary.current_date = obj.current_date;
+    if (obj.current_datetime !== undefined) summary.current_datetime = obj.current_datetime;
+    if (obj.timezone !== undefined) summary.timezone = obj.timezone;
 
-    return JSON.stringify(summary, null, 2);
+    // Project subtree — this is where all project data lives
+    if (obj.project) {
+      const p = obj.project;
+      summary.project = {
+        ...(p.id !== undefined ? { id: p.id } : {}),
+        ...(p.name !== undefined ? { name: p.name } : {}),
+        ...(p.idea !== undefined ? { idea: p.idea } : {}),
+        ...(p.status !== undefined ? { status: p.status } : {}),
+        ...(p.deadline !== undefined ? { deadline: p.deadline } : {}),
+        ...(p.deliverables !== undefined ? { deliverables: p.deliverables } : {}),
+        ...(p.current_stage_id !== undefined ? { current_stage_id: p.current_stage_id } : {}),
+        ...(p.direction_card !== undefined ? { direction_card: p.direction_card } : {}),
+        ...(p.stages !== undefined ? { stages: p.stages } : {}),
+        ...(p.tasks !== undefined ? { tasks: p.tasks } : {}),
+        ...(p.assignment_proposals !== undefined ? { assignment_proposals: p.assignment_proposals } : {}),
+        ...(p.assignment_responses !== undefined ? { assignment_responses: p.assignment_responses } : {}),
+        ...(p.assignment_negotiations !== undefined ? { assignment_negotiations: p.assignment_negotiations } : {}),
+        ...(p.checkin_cycles !== undefined ? { checkin_cycles: p.checkin_cycles } : {}),
+        ...(p.checkin_responses !== undefined ? { checkin_responses: p.checkin_responses } : {}),
+        ...(p.resources !== undefined ? { resources: p.resources } : {}),
+      };
+    }
+
+    const serialized = JSON.stringify(summary, null, 2);
+    // Cap payload size to prevent context window blowup
+    if (serialized.length > MAX_WORKSPACE_STATE_CHARS) {
+      return serialized.slice(0, MAX_WORKSPACE_STATE_CHARS) + "\n...[truncated]";
+    }
+    return serialized;
   } catch {
     return String(state);
   }
