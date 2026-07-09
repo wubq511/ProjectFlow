@@ -405,6 +405,43 @@ def process_conversation_message_stream(
         yield _sse_event("error", {"message": f"处理失败：{exc}"})
 
 
+# ── Deterministic intent matcher (mock / LLM-failure fallback) ──────────
+
+# Ordered by specificity — more specific patterns should match first
+_INTENT_PATTERNS: list[tuple[str, str]] = [
+    ("clarify", r"澄清方向|方向澄清|帮我澄清|先认证|先澄清"),
+    ("plan", r"阶段计划|生成.*计划|规划.*阶段|阶段.*规划|时间表|里程碑|plan\b"),
+    ("breakdown", r"拆成任务|任务拆解|拆解.*任务|把.*拆|分解.*任务|breakdown\b"),
+    ("assign", r"分工|分配.*成员|推荐.*分工|assign\b"),
+    ("push", r"行动卡|推进|下一步|push\b"),
+    ("risk", r"风险|risk\b"),
+    ("checkin", r"签到|进展|状态|checkin\b|检查.*进度"),
+    ("replan", r"调整计划|重新规划|重排|replan\b"),
+]
+
+def _deterministic_intent_plan(content: str) -> dict[str, Any] | None:
+    """Try to match user message to a module using keyword patterns.
+
+    Returns a dict compatible with _normalize_turn_plan_payload on match,
+    or None if no pattern matched.
+    """
+    import re
+    lowered = content.lower()
+    for module, pattern in _INTENT_PATTERNS:
+        if re.search(pattern, lowered):
+            return {
+                "response_type": "run_module",
+                "selected_module": module,
+                "user_instruction": content,
+                "rationale": f"确定性匹配：消息命中 {module} 模块关键词",
+                "required_inputs": [],
+                "expected_artifact": MODULE_ARTIFACT_LABEL.get(module),
+                "risk_level": "low",
+                "requires_confirmation": False,
+            }
+    return None
+
+
 def _plan_turn(
     llm_client: LLMClient,
     *,
@@ -459,6 +496,16 @@ def _plan_turn(
             if attempt < 2:
                 continue
     logger.error("Planner failed after 3 attempts, last error: %s", last_exc)
+    # Try deterministic intent matching before falling back to generic answer
+    deterministic = _deterministic_intent_plan(content)
+    if deterministic:
+        logger.info("Deterministic intent matched: module=%s", deterministic.get("selected_module"))
+        return _parse_turn_plan(json.dumps(deterministic), content)
+    logger.warning(
+        "No intent matched for message (mock mode or LLM unavailable). "
+        "Falling back to generic answer. Content preview: %s",
+        content[:80],
+    )
     return AgentTurnPlan(
         response_type="answer",
         selected_module=None,
@@ -550,12 +597,29 @@ def _normalize_turn_plan_payload(payload: dict[str, Any], user_message: str) -> 
         or payload.get("message")
         or payload.get("answer")
     )
+
+    # When LLM returns empty payload (e.g. mock mode) with no intent, try deterministic matching
+    if response_type == "answer" and not selected_module and not direct_answer:
+        deterministic = _deterministic_intent_plan(user_message)
+        if deterministic:
+            return deterministic
+
     rationale = _string_or_none(payload.get("rationale") or payload.get("reason") or payload.get("explanation"))
     if not rationale:
         if response_type in {"answer", "ask_clarifying_question"} and direct_answer:
             rationale = direct_answer
         elif response_type in {"answer", "ask_clarifying_question"}:
-            rationale = "我在。你可以直接告诉我想推进的事项，例如分析当前风险、生成下一步行动卡或根据签到调整计划。"
+            # 更友好的降级提示，告知用户当前可用的操作
+            rationale = (
+                "当前为离线/mock模式，我无法调用AI进行意图分析。"
+                "请使用以下快捷操作触发对应功能：\n"
+                "「按三周节奏生成阶段计划」→ 阶段计划\n"
+                "「把当前阶段拆成任务」→ 任务拆解\n"
+                "「根据成员情况推荐分工」→ 分工建议\n"
+                "「生成下一步行动卡」→ 推进行动\n"
+                "「分析当前风险」→ 风险分析\n"
+                "「先帮我澄清方向」→ 方向澄清"
+            )
         elif response_type == "run_module" and selected_module:
             rationale = f"LLM planner selected the {selected_module} module."
         else:
