@@ -30,7 +30,7 @@ describe("TaskStatusUpdate", () => {
     render(<TaskStatusUpdate task={task} userId="user-1" onUpdate={vi.fn()} />);
 
     expect(screen.getByText("状态")).toBeTruthy();
-    expect(screen.getByText("进行中")).toBeTruthy();
+    expect(screen.getAllByText("进行中").length).toBeGreaterThan(0);
     expect(screen.getByText("进展说明")).toBeTruthy();
     expect(screen.getByPlaceholderText("本次有哪些进展？（可选）")).toBeTruthy();
     expect(screen.getByRole("button", { name: /更新状态/ })).toBeTruthy();

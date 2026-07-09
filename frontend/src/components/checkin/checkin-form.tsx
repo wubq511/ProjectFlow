@@ -43,6 +43,8 @@ export function CheckInForm({ tasks, userId, onSubmit, pending }: CheckInFormPro
     (task) => task.owner_user_id === userId && task.status !== "done"
   );
 
+  const selectedTask = taskId ? tasks.find((t) => t.id === taskId) : null;
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
@@ -80,8 +82,8 @@ export function CheckInForm({ tasks, userId, onSubmit, pending }: CheckInFormPro
           <div className="space-y-2">
             <Label htmlFor="checkin-task">关联任务</Label>
             <Select value={taskId} onValueChange={(v) => setTaskId(v ?? "")}>
-              <SelectTrigger id="checkin-task">
-                <SelectValue placeholder="选择任务（可选）" />
+              <SelectTrigger id="checkin-task" className="h-9">
+                <span className="truncate text-sm">{selectedTask?.title ?? "选择任务（可选）"}</span>
               </SelectTrigger>
               <SelectContent>
                 {userTasks.map((task) => (

@@ -6,6 +6,8 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { MultilineText } from "@/components/ui/multiline-text";
+import { translateStatus } from "@/lib/utils";
 import type { AgentProposal, Task } from "@/lib/types";
 
 type ReplanDiffProps = {
@@ -49,7 +51,7 @@ function buildDiff(before: Task[], after: Task[]): DiffItem[] {
       items.push({ kind: "removed", task: b, changes: ["移除任务"] });
     } else if (b && a) {
       const changes: string[] = [];
-      if (b.status !== a.status) changes.push(`状态：${b.status} → ${a.status}`);
+      if (b.status !== a.status) changes.push(`状态：${translateStatus(b.status)} → ${translateStatus(a.status)}`);
       if (b.owner_user_id !== a.owner_user_id) changes.push("负责人已调整");
       if (b.due_date !== a.due_date) changes.push(`截止：${b.due_date} → ${a.due_date}`);
       if (b.priority !== a.priority) changes.push(`优先级：${b.priority} → ${a.priority}`);
@@ -123,12 +125,12 @@ const PROPOSAL_LABELS: Record<string, string> = {
   status: "状态",
   task_status: "任务状态",
   due_date: "截止日期",
+  end_date: "结束日期",
+  start_date: "开始日期",
+  deadline: "截止日期",
   blocker: "阻塞",
-  stage_id: "阶段 ID",
-  task_id: "任务 ID",
   new_start_date: "新开始日期",
   new_end_date: "新结束日期",
-  owner_user_id: "负责人 ID",
   can_cut: "可砍",
   reason: "原因",
   type: "类型",
@@ -136,31 +138,78 @@ const PROPOSAL_LABELS: Record<string, string> = {
   goal: "目标",
   start_suggestion: "如何开始",
   completion_standard: "完成标准",
-  user_id: "成员 ID",
+  estimated_hours: "预估工时",
+  priority: "优先级",
+  name: "名称",
+  description: "描述",
+  deliverable: "交付物",
+  blocker_reason: "阻塞原因",
+  progress_note: "进展说明",
+  proposed_status: "建议状态",
+  current_status: "当前状态",
+  task_title: "任务",
+  member_name: "成员",
+  acceptance_criteria: "验收标准",
+  stages: "阶段",
+  risks: "风险",
+  risks_mitigated: "已缓解风险",
+  issues: "问题点",
+  actions: "应对措施",
+  mitigation: "缓解方案",
+  // suppressed
+  evidence_refs: "",
+  stage_id: "",
+  task_id: "",
+  owner_user_id: "",
+  user_id: "",
+  backup_owner_user_id: "",
+  current_stage_id: "",
+  project_id: "",
+  workspace_id: "",
 };
 
 function proposalLabel(key: string) {
-  return PROPOSAL_LABELS[key] ?? key;
+  const label = PROPOSAL_LABELS[key];
+  if (label === "") return "";
+  if (label !== undefined) return label;
+  return key.replace(/_/g, " ");
 }
 
-function proposalValue(value: unknown) {
+function proposalValue(value: unknown): string {
   if (typeof value === "boolean") return value ? "是" : "否";
-  if (Array.isArray(value)) return value.join("、");
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (typeof item === "object" && item !== null) {
+        return Object.entries(item as Record<string, unknown>)
+          .map(([k, v]) => { const l = proposalLabel(k); return l ? `${l}: ${proposalValue(v)}` : ""; })
+          .filter(Boolean).join("、");
+      }
+      return String(item);
+    }).join("；");
+  }
   if (typeof value === "object" && value !== null) return "结构化调整";
-  return String(value);
+  return translateStatus(String(value));
 }
 
-/** Render a before/after summary — handles dict, list, or string */
 function renderSummary(value: Record<string, unknown> | unknown[]) {
   if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="text-ink/50 text-xs">无变更</span>;
+    if (value.length === 0) return <span className="text-ink/40 text-[10px]">无变更</span>;
     return (
       <ul className="space-y-1">
         {value.map((item, i) => (
-          <li key={i} className="text-xs text-ink/60">
+          <li key={i} className="text-[11px] leading-relaxed">
             {typeof item === "object" && item !== null
-              ? Object.entries(item).map(([k, v]) => `${proposalLabel(k)}: ${proposalValue(v)}`).join(", ")
-              : String(item)}
+              ? Object.entries(item as Record<string, unknown>).map(([k, v]) => {
+                  const label = proposalLabel(k);
+                  if (!label) return null;
+                  return (
+                    <div key={k} className="flex gap-1.5 py-0.5 text-[11px] leading-relaxed">
+                      <span className="font-medium text-ink/50 shrink-0">{label}：</span>
+                      <MultilineText text={proposalValue(v)} />
+                    </div>
+                  );
+                }).filter(Boolean)
+              : <MultilineText text={String(item)} />}
           </li>
         ))}
       </ul>
@@ -168,18 +217,23 @@ function renderSummary(value: Record<string, unknown> | unknown[]) {
   }
   if (typeof value === "object" && value !== null) {
     const entries = Object.entries(value);
-    if (entries.length === 0) return <span className="text-ink/50 text-xs">无变更</span>;
+    if (entries.length === 0) return <span className="text-ink/40 text-[10px]">无变更</span>;
     return (
-      <div className="space-y-1">
-        {entries.map(([key, val]) => (
-          <div key={key} className="text-xs text-ink/60">
-            <span className="font-medium text-ink/70">{proposalLabel(key)}</span>: {proposalValue(val)}
-          </div>
-        ))}
+      <div>
+        {entries.map(([key, val]) => {
+          const label = proposalLabel(key);
+          if (!label) return null;
+          return (
+            <div key={key} className="flex gap-1.5 py-0.5 text-[11px] leading-relaxed">
+              <span className="font-medium text-ink/50 shrink-0">{label}：</span>
+              <MultilineText text={proposalValue(val)} />
+            </div>
+          );
+        })}
       </div>
     );
   }
-  return <span className="text-ink/60">{String(value)}</span>;
+  return <MultilineText text={String(value)} />;
 }
 
 function ProposalDetailSection({ label, items }: { label: string; items: unknown[] }) {
@@ -187,15 +241,24 @@ function ProposalDetailSection({ label, items }: { label: string; items: unknown
   return (
     <div className="mt-2">
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">{label}</p>
-      <ul className="mt-1 space-y-1">
+      <ul className="mt-1 space-y-1.5">
         {items.map((item, i) => (
-          <li key={i} className="text-xs text-ink/60">
+          <li key={i} className="rounded bg-white/70 px-2.5 py-1.5 text-[11px] leading-relaxed text-ink/60">
             {typeof item === "object" && item !== null
-              ? Object.entries(item)
-                  .filter(([, v]) => v !== null && v !== undefined)
-                  .map(([k, v]) => `${proposalLabel(k)}: ${proposalValue(v)}`)
-                  .join(" | ")
-              : String(item)}
+              ? Object.entries(item as Record<string, unknown>)
+                  .filter(([, v]) => v !== null && v !== undefined && v !== "")
+                  .map(([k, v]) => {
+                    const label2 = proposalLabel(k);
+                    if (!label2) return null;
+                    return (
+                      <div key={k} className="flex gap-1.5 py-0.5 text-[11px] leading-relaxed">
+                        <span className="font-medium text-ink/55 shrink-0">{label2}：</span>
+                        <MultilineText text={proposalValue(v)} />
+                      </div>
+                    );
+                  })
+                  .filter(Boolean)
+              : <MultilineText text={String(item)} />}
           </li>
         ))}
       </ul>
@@ -286,23 +349,25 @@ export function ReplanDiff({
           </div>
 
           {effectiveProposal.impact && (
-            <p className="mt-2 text-sm text-ink/70">
-              <span className="font-semibold text-ink/80">影响：</span> {effectiveProposal.impact}
-            </p>
+            <div className="mt-2 text-sm text-ink/70">
+              <span className="font-semibold text-ink/80">影响：</span>
+              <MultilineText text={effectiveProposal.impact} className="mt-0.5" />
+            </div>
           )}
           {effectiveProposal.reason && (
-            <p className="mt-1 text-sm text-ink/70">
-              <span className="font-semibold text-ink/80">原因：</span> {effectiveProposal.reason}
-            </p>
+            <div className="mt-1 text-sm text-ink/70">
+              <span className="font-semibold text-ink/80">原因：</span>
+              <MultilineText text={effectiveProposal.reason} className="mt-0.5" />
+            </div>
           )}
 
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div className="mt-3 grid gap-3 md:grid-cols-2 text-[11px] leading-relaxed">
             <div className="rounded-md bg-white px-3 py-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">调整前</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink/35">调整前</p>
               <div className="mt-1">{renderSummary(effectiveProposal.before)}</div>
             </div>
             <div className="rounded-md bg-white px-3 py-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">调整后</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink/35">调整后</p>
               <div className="mt-1">{renderSummary(effectiveProposal.after)}</div>
             </div>
           </div>

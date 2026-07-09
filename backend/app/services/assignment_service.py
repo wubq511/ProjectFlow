@@ -16,6 +16,7 @@ from app.models import (
 from app.models.enums import (
     AssignmentProposalStatus,
     AssignmentResponseType,
+    NegotiationStatus,
 )
 from app.schemas.assignment import (
     AssignmentNegotiationCreate,
@@ -94,6 +95,44 @@ def _validate_proposal_relationships(session: Session, data: AssignmentProposalC
         raise ValueError(
             "(task, owner) pair was previously rejected; recommend a different owner"
         )
+
+
+def _resolve_stale_negotiations_for_task(
+    session: Session,
+    task_id: str,
+    new_owner_id: str,
+) -> list[AssignmentNegotiation]:
+    """Auto-resolve pending negotiations that target a task now taken by someone else.
+
+    When a proposal is confirmed/finalized, any pending negotiation targeting
+    the same task becomes stale (the desired task is no longer available).
+    Auto-resolve them so they don't block stage finalization.
+    """
+    stale = list(
+        session.exec(
+            select(AssignmentNegotiation).where(
+                AssignmentNegotiation.desired_task_id == task_id,
+                AssignmentNegotiation.status == NegotiationStatus.pending,
+            )
+        ).all()
+    )
+    if not stale:
+        return []
+
+    task = require_row(session, Task, task_id, "Task")
+    task_title = task.title
+    new_owner = require_row(session, User, new_owner_id, "New owner")
+    new_owner_name = new_owner.display_name
+
+    for neg in stale:
+        neg.status = NegotiationStatus.resolved
+        neg.agent_message = (
+            f"{neg.agent_message}（协商已自动过期："
+            f"目标任务「{task_title}」已被 {new_owner_name} 确认。）"
+        )
+        session.add(neg)
+
+    return stale
 
 
 def create_assignment_proposal(session: Session, data: AssignmentProposalCreate, *, auto_commit: bool = True) -> AssignmentProposal:
@@ -205,6 +244,10 @@ def create_assignment_response(
     )
     if data.response == AssignmentResponseType.accept:
         proposal.status = AssignmentProposalStatus.owner_confirmed
+        # Auto-resolve any pending negotiations targeting this task
+        _resolve_stale_negotiations_for_task(
+            session, proposal.task_id, proposal.recommended_owner_user_id
+        )
     else:
         proposal.status = AssignmentProposalStatus.owner_rejected
 
@@ -231,6 +274,12 @@ def finalize_assignment_proposal(session: Session, proposal_id: str) -> Assignme
     session.add(proposal)
     session.commit()
     session.refresh(proposal)
+
+    # Auto-resolve any pending negotiations targeting this task
+    _resolve_stale_negotiations_for_task(
+        session, proposal.task_id, proposal.recommended_owner_user_id
+    )
+    session.commit()
 
     # ── ProjectMemory extraction hook ──
     # Runs AFTER the business decision commits; failures are absorbed.
@@ -283,6 +332,13 @@ def finalize_assignment_proposals_by_stage(session: Session, stage_id: str) -> l
     for proposal in proposals:
         session.refresh(proposal)
 
+    # Auto-resolve any pending negotiations targeting finalized tasks
+    for proposal in proposals:
+        _resolve_stale_negotiations_for_task(
+            session, proposal.task_id, proposal.recommended_owner_user_id
+        )
+    session.commit()
+
     # ── ProjectMemory extraction hooks ──
     # Runs AFTER the business decision commits; failures are absorbed.
     for proposal in proposals:
@@ -326,6 +382,25 @@ def create_assignment_negotiation_from_proposal(
     # Validate that desired_task belongs to same project as proposal
     if desired_task.project_id != proposal.project_id:
         raise ValueError("Desired task does not belong to the same project as the proposal")
+
+    # Validate the desired task hasn't already been confirmed/finalized
+    existing_confirmed = session.exec(
+        select(AssignmentProposal).where(
+            AssignmentProposal.task_id == data.desired_task_id,
+            AssignmentProposal.project_id == proposal.project_id,
+            AssignmentProposal.status.in_([
+                AssignmentProposalStatus.owner_confirmed,
+                AssignmentProposalStatus.finalized,
+            ]),
+        )
+    ).first()
+    if existing_confirmed:
+        confirmed_task = require_row(session, Task, data.desired_task_id, "Desired task")
+        confirmed_owner = require_row(session, User, existing_confirmed.recommended_owner_user_id, "Confirmed owner")
+        raise ValueError(
+            f"目标任务「{confirmed_task.title}」已被 {confirmed_owner.display_name} 确认，"
+            f"无法发起协商。请选择其他任务。"
+        )
 
     # from_user_id must match proposal's recommended owner
     if data.from_user_id != proposal.recommended_owner_user_id:
@@ -389,6 +464,87 @@ def create_assignment_negotiation(
         current_owner_user_id=data.current_owner_user_id,
         agent_message=data.agent_message,
     )
+    session.add(negotiation)
+    session.commit()
+    session.refresh(negotiation)
+    return negotiation
+
+
+def get_assignment_negotiation(
+    session: Session,
+    negotiation_id: str,
+) -> AssignmentNegotiation | None:
+    return session.get(AssignmentNegotiation, negotiation_id)
+
+
+def resolve_assignment_negotiation(
+    session: Session,
+    negotiation_id: str,
+    resolution: str,  # "accepted" | "declined"
+) -> AssignmentNegotiation:
+    """Resolve a pending negotiation.
+
+    Accepted: update the associated proposal to point to the desired task,
+              set proposal status to owner_confirmed, negotiation to accepted.
+    Declined: mark negotiation as declined, leave proposal as owner_rejected.
+    """
+    negotiation = require_row(session, AssignmentNegotiation, negotiation_id, "Negotiation")
+
+    if negotiation.status != NegotiationStatus.pending:
+        raise ValueError(
+            f"只有 pending 状态的协商可以解决，当前状态为 {negotiation.status.value}"
+        )
+
+    if resolution == "accepted":
+        # Find the proposal that triggered this negotiation
+        proposal = session.exec(
+            select(AssignmentProposal).where(
+                AssignmentProposal.stage_id == negotiation.stage_id,
+                AssignmentProposal.recommended_owner_user_id == negotiation.from_user_id,
+                AssignmentProposal.status == AssignmentProposalStatus.owner_rejected,
+            )
+        ).first()
+
+        if proposal is None:
+            raise ValueError("未找到与该协商关联的被拒绝提案，无法接受协商")
+
+        # Validate desired task is still available
+        desired_task = require_row(session, Task, negotiation.desired_task_id, "Desired task")
+        existing_confirmed = session.exec(
+            select(AssignmentProposal).where(
+                AssignmentProposal.task_id == negotiation.desired_task_id,
+                AssignmentProposal.project_id == negotiation.project_id,
+                AssignmentProposal.status.in_([
+                    AssignmentProposalStatus.owner_confirmed,
+                    AssignmentProposalStatus.finalized,
+                ]),
+            )
+        ).first()
+        if existing_confirmed:
+            confirmed_owner = require_row(session, User, existing_confirmed.recommended_owner_user_id, "Confirmed owner")
+            raise ValueError(
+                f"目标任务「{desired_task.title}」已被 {confirmed_owner.display_name} 确认，无法接受协商"
+            )
+
+        # Update proposal to the desired task, mark as confirmed
+        old_task_title = require_row(session, Task, proposal.task_id, "Old task").title
+        proposal.task_id = negotiation.desired_task_id
+        proposal.status = AssignmentProposalStatus.owner_confirmed
+        session.add(proposal)
+
+        negotiation.status = NegotiationStatus.accepted
+        negotiation.agent_message = (
+            f"{negotiation.agent_message}（协商已接受："
+            f"已从「{old_task_title}」调整为「{desired_task.title}」。）"
+        )
+    elif resolution == "declined":
+        negotiation.status = NegotiationStatus.declined
+        negotiation.agent_message = (
+            f"{negotiation.agent_message}（协商已拒绝。）"
+        )
+    else:
+        raise ValueError(f"Invalid resolution: {resolution}，必须是 accepted 或 declined")
+
     session.add(negotiation)
     session.commit()
     session.refresh(negotiation)

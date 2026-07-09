@@ -20,6 +20,7 @@ import {
   BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MultilineText } from "@/components/ui/multiline-text";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CompactStat } from "@/components/ui/compact-stat";
@@ -116,6 +117,10 @@ interface ProjectContentProps {
     fromUserId: string,
     desiredTaskId: string
   ) => void;
+  onResolveNegotiation?: (
+    negotiationId: string,
+    resolution: "accepted" | "declined",
+  ) => void | Promise<void>;
   onFinalizeAssignments?: (stageId: string) => void;
   onSubmitCheckin?: (data: {
     user_id: string;
@@ -227,6 +232,7 @@ function ViewRenderer({
   onRunAgent,
   onRespondToAssignment,
   onStartNegotiation,
+  onResolveNegotiation,
   onFinalizeAssignments,
   onSubmitCheckin,
   onUpdateTaskStatus,
@@ -295,9 +301,7 @@ function ViewRenderer({
                           : "草稿"}
                   </Badge>
                 </div>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500 line-clamp-2">
-                  {project.idea}
-                </p>
+                <MultilineText text={project.idea} className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500 line-clamp-2" />
               </div>
               <div className="grid min-w-56 gap-2 rounded-lg border border-neutral-100 bg-neutral-50/50 p-4">
                 <div className="flex items-center justify-between text-sm">
@@ -352,13 +356,13 @@ function ViewRenderer({
                       <p className="font-semibold text-neutral-900">
                         {nextAction.title}
                       </p>
-                      <p className="mt-1 text-sm text-neutral-600">
-                        {nextAction.content}
-                      </p>
-                      <p className="mt-2 flex items-center gap-1 text-xs text-ink/50">
+                      <div className="mt-1 text-sm text-neutral-600">
+                        <MultilineText text={nextAction.content} />
+                      </div>
+                      <div className="mt-2 flex items-center gap-1 text-xs text-ink/50">
                         原因 <ChevronRight className="h-3 w-3" />{" "}
-                        {nextAction.reason}
-                      </p>
+                        <MultilineText text={nextAction.reason} />
+                      </div>
                     </div>
                     <Button
                       size="sm"
@@ -591,6 +595,7 @@ function ViewRenderer({
           currentUserId={currentUserId}
           onRespondToAssignment={onRespondToAssignment}
           onStartNegotiation={onStartNegotiation}
+          onResolveNegotiation={onResolveNegotiation}
           onFinalizeAssignments={onFinalizeAssignments}
         />
       );
@@ -665,6 +670,7 @@ function ViewRenderer({
             tasks={tasks}
             risks={risks}
             pending={Boolean(pendingAction)}
+            currentUserId={currentUserId}
             onRunAgent={onRunAgent}
           />
           <AgentTimeline events={timeline} />
@@ -683,6 +689,7 @@ function RetroSummaryPanel({
   tasks,
   risks,
   pending,
+  currentUserId,
   onRunAgent,
 }: {
   project: ProjectState["project"];
@@ -690,6 +697,7 @@ function RetroSummaryPanel({
   tasks: ProjectState["tasks"];
   risks: ProjectState["risks"];
   pending: boolean;
+  currentUserId?: string;
   onRunAgent?: (action: AgentAction, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => void;
 }) {
   const [summary, setSummary] = useState<{
@@ -707,7 +715,7 @@ function RetroSummaryPanel({
     setError(null);
     try {
       const { runRetrospective } = await import("@/lib/api");
-      const result = await runRetrospective(project.id);
+      const result = await runRetrospective(project.id, currentUserId ?? "");
       if (result.output) {
         setSummary(result.output as typeof summary);
       }
@@ -748,7 +756,7 @@ function RetroSummaryPanel({
 
         {summary ? (
           <div className="mt-4 space-y-4">
-            <p className="text-sm leading-6 text-ink/75">{summary.project_summary}</p>
+            <MultilineText text={summary.project_summary} className="text-sm leading-6 text-ink/75" />
 
             {summary.key_achievements.length > 0 && (
               <div>
@@ -794,7 +802,7 @@ function RetroSummaryPanel({
 
             <div className="rounded-lg bg-ink/5 p-3">
               <p className="text-sm font-semibold text-ink">整体评价</p>
-              <p className="mt-1 text-sm text-ink/70">{summary.overall_assessment}</p>
+              <MultilineText text={summary.overall_assessment} className="mt-1 text-sm text-ink/70" />
             </div>
           </div>
         ) : !loading && !error ? (

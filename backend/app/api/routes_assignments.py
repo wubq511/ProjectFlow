@@ -7,6 +7,7 @@ from app.schemas.assignment import (
     AssignmentNegotiationCreate,
     AssignmentNegotiationFromProposalCreate,
     AssignmentNegotiationRead,
+    AssignmentNegotiationResolve,
     AssignmentProposalCreate,
     AssignmentProposalRead,
     AssignmentResponseCreate,
@@ -19,10 +20,12 @@ from app.services.assignment_service import (
     create_assignment_response,
     finalize_assignment_proposal,
     finalize_assignment_proposals_by_stage,
+    get_assignment_negotiation,
     get_assignment_proposal,
     list_assignment_negotiations_by_project,
     list_assignment_proposals_by_project,
     list_assignment_responses_by_project,
+    resolve_assignment_negotiation,
 )
 
 router = APIRouter(tags=["assignments"])
@@ -143,5 +146,34 @@ def api_create_assignment_negotiation_from_proposal(
 ):
     try:
         return create_assignment_negotiation_from_proposal(session, proposal_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get(
+    "/assignment-negotiations/{negotiation_id}",
+    response_model=AssignmentNegotiationRead,
+)
+def api_get_assignment_negotiation(
+    negotiation_id: str,
+    session: Session = Depends(get_session),
+):
+    negotiation = get_assignment_negotiation(session, negotiation_id)
+    if negotiation is None:
+        raise HTTPException(status_code=404, detail="Assignment negotiation not found")
+    return negotiation
+
+
+@router.post(
+    "/assignment-negotiations/{negotiation_id}/resolve",
+    response_model=AssignmentNegotiationRead,
+)
+def api_resolve_assignment_negotiation(
+    negotiation_id: str,
+    data: AssignmentNegotiationResolve,
+    session: Session = Depends(get_session),
+):
+    try:
+        return resolve_assignment_negotiation(session, negotiation_id, data.resolution)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

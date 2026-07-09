@@ -27,7 +27,7 @@ export function useAgentStream({ onDone, onError }: UseAgentStreamOptions) {
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
   const sendMessage = useCallback(
-    async (conversationId: string, content: string) => {
+    async (conversationId: string, content: string, viewerUserId: string) => {
       abortRef.current = new AbortController();
       setIsStreaming(true);
       setStreamingBuffer("");
@@ -37,6 +37,7 @@ export function useAgentStream({ onDone, onError }: UseAgentStreamOptions) {
         await sendAgentConversationMessageStream(
           conversationId,
           content,
+          viewerUserId,
           {
             onStatus: (status) =>
               setStreamStatus(status as AgentStreamStatus),

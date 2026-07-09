@@ -1,9 +1,35 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useMemo } from "react";
 import remarkGfm from "remark-gfm";
 
 const ReactMarkdown = dynamic(() => import("react-markdown"), { ssr: false });
+
+/**
+ * Convert (1)...(2)...(3) inline-numbered prose into a markdown ordered list
+ * so that react-markdown renders each point on its own line.
+ */
+function normalizeNumberedProse(text: string): string {
+  // Already has markdown list syntax — leave as-is
+  if (/^\d+\.\s/m.test(text)) return text;
+  // Convert (1)xxx(2)yyy(3)zzz → 1. xxx\n2. yyy\n3. zzz
+  const numbered = /\(\d+\)/g;
+  if (!numbered.test(text)) return text;
+  numbered.lastIndex = 0;
+  // Split on (N) markers
+  const parts = text.split(/(?=\(\d+\))/g);
+  if (parts.length <= 1) return text;
+  const cleaned = parts
+    .map((s) => s.replace(/^\(\d+\)\s*/, "").trim())
+    .filter(Boolean);
+  if (cleaned.length <= 1) return text;
+  // Also handle the prefix before the first (1)
+  const prefixMatch = text.match(/^([^(]+)\(\d+\)/);
+  const prefix = prefixMatch ? prefixMatch[1].trim() : "";
+  const body = cleaned.map((line, i) => `${i + 1}. ${line}`).join("\n");
+  return prefix ? `${prefix}\n\n${body}` : body;
+}
 
 interface MarkdownContentProps {
   content: string;
@@ -11,6 +37,8 @@ interface MarkdownContentProps {
 }
 
 export function MarkdownContent({ content, className }: MarkdownContentProps) {
+  const normalized = useMemo(() => normalizeNumberedProse(content), [content]);
+
   return (
     <div className={className}>
       <ReactMarkdown
@@ -55,7 +83,7 @@ export function MarkdownContent({ content, className }: MarkdownContentProps) {
         ),
       }}
     >
-        {content}
+        {normalized}
       </ReactMarkdown>
     </div>
   );

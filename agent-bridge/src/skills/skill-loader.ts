@@ -26,7 +26,7 @@ export class SkillLoader {
 
     const body = await readFile(metadata.location, "utf-8");
     // Strip frontmatter
-    const bodyWithoutFrontmatter = body.replace(/^---\n[\s\S]*?\n---\n?/, "");
+    const bodyWithoutFrontmatter = body.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
 
     const skill: LoadedSkill = {
       metadata,

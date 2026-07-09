@@ -29,5 +29,12 @@ export async function handleGetRun(
     created_at: run.createdAt,
     updated_at: run.updatedAt,
     completed_at: run.completedAt ?? null,
+    tool_results: run.toolResults.map((tr) => ({
+      tool_name: tr.toolName,
+      side_effect_status: tr.sideEffectStatus,
+      observation: tr.observation,
+      ...(tr.proposalId ? { proposal_id: tr.proposalId } : {}),
+      ...(tr.createdIds?.length ? { created_ids: tr.createdIds } : {}),
+    })),
   });
 }

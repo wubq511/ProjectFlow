@@ -1,8 +1,46 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-08.
+Status: current as of 2026-07-09.
 
 ## Latest Architecture Handoff
+
+### Agent Output Localization & Display Hardening (2026-07-09)
+
+Comprehensive hardening of the Agent Bridge sidecar's LLM-facing data pipeline and frontend display layer to eliminate mixed Chinese/English output, raw internal ID leakage, and inline numbered prose rendering.
+
+**What was built:**
+
+- **`transformForLLM` pipeline** (`context-builder.ts`): Three-stage JSON transformation applied to all LLM-bound data (initial workspace_state, mid-run tool results, pending_proposals):
+  1. `translateStatusValues` — "in_progress"→"进行中", "low"→"低", etc.
+  2. `annotateIdsForDisplay` — In-place replacement of all FK IDs with「display name」: `user_id:"u-1"`→`user_id:"「小林」"`, `stage_id:"demo-stage-004"`→`stage_id:"「测试与打磨」"`, `dependency_ids` arrays resolved to titles. No raw internal IDs remain in the data the LLM sees.
+  3. `translateFieldNames` — 100+ English JSON keys translated to Chinese: `"mood_or_confidence"`→`"心情/信心"`, `"available_hours_per_week"`→`"每周可用小时"`, etc. LLM sees fully Chinese JSON.
+
+- **Tool result data injection** (`pi-runtime.ts`): `toPiTool` now includes the tool's `data` JSON (up to 32KB, after `transformForLLM`) in `content[0].text`, not just the label `observation`. The LLM can actually read the workspace state, member profiles, and task details that previous tool calls returned.
+
+- **Skill output visibility** (`start-run.ts`, `get-run.ts`, `api.ts`): `GET /runs/:runId` now returns `tool_results` array with `tool_name`, `side_effect_status`, `observation`, `proposal_id`, and `created_ids`. Frontend `runAgentFlow` parses this and returns meaningful `output` and `created_ids` instead of always empty `{}`/`[]`. Success banner now shows whether a proposal or advisory record was created.
+
+- **System prompt hardening** (`context-builder.ts`): Core rules strengthened to mandate tool calls ("用户点击按钮 = 必须产出", "禁止以已有数据为由跳过工具调用"), terminology translation table, `「」` naming convention, and output self-check checklist.
+
+- **Skill instruction hardening** (6 SKILL.md): All skills updated with explicit "必须调用", "禁止只做分析不调用工具", «」 naming convention, multi-line formatting rules, and `project-intake`'s `suggested_questions` focused to urgent decision points only.
+
+- **`MultilineText` component** (`multiline-text.tsx`): New shared UI component that splits `(1)...(2)...(3)` numbered prose into separate lines and parses `**bold**` markdown. Applied to all agent output display components (18 components across 14 files).
+
+- **`MarkdownContent` hardening** (`MarkdownContent.tsx`): Added `normalizeNumberedProse()` preprocessor that converts `(1)...(2)` inline numbering to standard markdown ordered lists before react-markdown rendering.
+
+- **Stage plan replacement semantics** (`agent_proposal_service.py`): `_persist_stage_plan` now marks all existing non-completed stages as `completed` before creating new ones. A confirmed plan is authoritative — it replaces, not appends to, the previous plan. Frontend `StagePlanBoard` splits active vs completed stages; completed stages are collapsed in a "已完成的阶段" section.
+
+- **TaskBreakdownBoard active/completed split** (`task-breakdown-board.tsx`): Task grouping now only uses active (non-completed) stages. Completed stages and their tasks appear in a collapsed footer section with full detail (tasks with priority/status/hours).
+
+- **Assignment task selector filtering** (`assignment-flow-panel.tsx`): "想换成哪个任务？" dropdown now only shows tasks from the current active stage that are unassigned and not claimed by another live proposal. Excludes the task being rejected and finalized tasks.
+
+- **`splitProseLines` utility** (`utils.ts`): Exported to shared lib as the single source of truth for numbered prose splitting.
+
+**Verification (2026-07-09):**
+- agent-bridge: 540 tests pass (18 files), typecheck pass
+- frontend: 56 tests pass (10 files), build pass
+- backend: 519 tests pass, 4 skipped
+
+**Key files modified:** `agent-bridge/src/runtime/context-builder.ts`, `agent-bridge/src/runtime/pi-runtime.ts`, `agent-bridge/src/server/routes/get-run.ts`, `agent-bridge/src/server/routes/start-run.ts`, `agent-bridge/skills/*/SKILL.md` (6 files), `backend/app/services/agent_proposal_service.py`, `backend/app/tests/test_agent_proposal_confirm.py`, `frontend/src/lib/api.ts`, `frontend/src/lib/utils.ts`, `frontend/src/app/workspaces/[workspaceId]/page.tsx`, `frontend/src/components/ui/multiline-text.tsx` (new), `frontend/src/components/ui/match-text.tsx`, `frontend/src/components/agent/agent-proposal-panel.tsx`, `frontend/src/components/agent/direction-decision-view.tsx`, `frontend/src/components/agent/direction-card-panel.tsx`, `frontend/src/components/agent/action-card.tsx`, `frontend/src/components/agent/timeline.tsx`, `frontend/src/components/stage/stage-plan-board.tsx`, `frontend/src/components/task/task-breakdown-board.tsx`, `frontend/src/components/assignment/assignment-flow-panel.tsx`, `frontend/src/components/risk/risk-card.tsx`, `frontend/src/components/risk/replan-diff.tsx`, `frontend/src/components/project/project-memory-panel.tsx`, `frontend/src/components/project/project-task-views.tsx`, `frontend/src/components/project/agent-conversation-cards.tsx`, `frontend/src/components/project/agent/ModuleRunCard.tsx`, `frontend/src/components/project/agent/MarkdownContent.tsx`
 
 ### Multi-Model Multi-Provider Config & Switching (2026-07-08)
 
@@ -994,7 +1032,7 @@ Results:
 
 - Backend: 519 tests passed, 4 skipped.
 - Agent-bridge: 540 tests passed across 18 files.
-- Frontend tests: 55 passed across 10 files (API layer, project dashboard, home page, app shell, action card, task status update, error boundaries, assignment flow panel, agent sidebar, project memory panel).
+- Frontend tests: 56 passed across 10 files (API layer, project dashboard, home page, app shell, action card, task status update, error boundaries, assignment flow panel, agent sidebar, project memory panel).
 - Frontend lint passed with 2 existing React hook warnings.
 - Frontend build passed.
 - Frontend production dependency audit reported 0 vulnerabilities.

@@ -65,6 +65,7 @@ export interface WireRunStartRequest {
   pending_proposals?: unknown[];
   runtime_config?: {
     model?: { provider: string; name: string };
+    skill?: string;
     max_steps?: number;
     max_tool_calls?: number;
     timeout_ms?: number;

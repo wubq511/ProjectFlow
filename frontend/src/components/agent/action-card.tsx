@@ -6,6 +6,7 @@ import { useInlineConfirm } from "@/lib/use-inline-confirm";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MultilineText } from "@/components/ui/multiline-text";
 import type { ActionCard } from "@/lib/types";
 
 type ActionCardItemProps = {
@@ -89,29 +90,35 @@ export function ActionCardItem({ card, onDismiss, onComplete, pending, canOperat
               {statusLabel(card.status)}
             </Badge>
           </div>
-          <p className="mt-2 text-sm text-ink/70">{card.content}</p>
+          <MultilineText text={card.content} className="mt-2 text-sm text-ink/70" />
 
           {card.goal && (
-            <p className="mt-2 text-sm text-ink/70">
-              <span className="font-semibold text-ink/80">目标：</span> {card.goal}
-            </p>
+            <div className="mt-2 text-sm text-ink/70">
+              <span className="font-semibold text-ink/80">目标：</span>
+              <MultilineText text={card.goal} />
+            </div>
           )}
           {card.start_suggestion && (
-            <p className="mt-1 text-sm text-ink/70">
-              <span className="font-semibold text-ink/80">如何开始：</span> {card.start_suggestion}
-            </p>
+            <div className="mt-1 text-sm text-ink/70">
+              <span className="font-semibold text-ink/80">如何开始：</span>
+              <MultilineText text={card.start_suggestion} />
+            </div>
           )}
           {card.completion_standard && (
-            <p className="mt-1 text-sm text-ink/70">
-              <span className="font-semibold text-ink/80">完成标准：</span> {card.completion_standard}
-            </p>
+            <div className="mt-1 text-sm text-ink/70">
+              <span className="font-semibold text-ink/80">完成标准：</span>
+              <MultilineText text={card.completion_standard} />
+            </div>
           )}
 
           {card.reason && (
-            <p className="mt-2 flex items-center gap-1 text-xs text-ink/50">
-              <Lightbulb className="h-3 w-3" />
-              {card.reason}
-            </p>
+            <div className="mt-2 text-xs text-ink/50">
+              <span className="flex items-center gap-1">
+                <Lightbulb className="h-3 w-3 shrink-0" />
+                理由
+              </span>
+              <MultilineText text={card.reason} className="mt-0.5" />
+            </div>
           )}
           {card.due_date && (
             <p className="mt-1 text-xs text-ink/50">

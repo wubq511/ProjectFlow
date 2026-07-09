@@ -25,9 +25,12 @@ references:
 2. 调用 `list_pending_proposals` 检查是否已有 pending proposal，避免重复生成
 3. **自己生成阶段计划内容**：基于方向卡、成员技能、时间约束，推理出：
    - `stages`：每个阶段含 name/goal/start_date/end_date/deliverable/done_criteria/order_index/reason
-   - `reason`：生成理由
+   - `reason`：生成理由（如果已有阶段计划，说明改进点）
    - `requires_confirmation`: true
-4. 调用 `generate_stage_plan_proposal`，将生成的阶段计划内容作为 `output` 参数传入，FastAPI 只做校验+持久化
+4. **必须调用** `generate_stage_plan_proposal`，将生成的阶段计划内容作为 `output` 参数传入。
+   - 用户点击了此按钮，意味着他们想要生成或更新阶段计划
+   - 即使项目已有阶段，也必须生成新提案（标注改进点）
+   - **禁止**只做分析不调用工具——工具调用是唯一能落库的方式
 
 ## 输出规范
 
@@ -36,3 +39,4 @@ references:
 - 考虑团队成员可用时间和技能
 - 不直接修改项目状态
 - `output` 必须符合 StagePlanOutput schema（stages 必填，每个 stage 含 name/goal/start_date/end_date/deliverable/done_criteria）
+- ⚠️ **命名规则**：引用成员/阶段/任务时必须用「」包裹的显示名（如「小林」、「测试与打磨」），**禁止**出现任何原始 ID

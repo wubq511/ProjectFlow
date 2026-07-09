@@ -1,6 +1,7 @@
 "use client";
 
 import { cleanJsonString } from "@/lib/utils";
+import { MultilineText } from "@/components/ui/multiline-text";
 
 /**
  * Display match text with label, stripping duplicate label prefix from the value.
@@ -15,8 +16,9 @@ export function MatchText({ label, text }: { label: string; text: string }) {
   }
 
   return (
-    <p>
-      <span className="font-semibold text-ink/70">{label}</span> {cleanedText}
-    </p>
+    <div>
+      <span className="font-semibold text-ink/70">{label}</span>
+      <MultilineText text={cleanedText} />
+    </div>
   );
 }

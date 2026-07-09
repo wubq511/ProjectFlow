@@ -19,7 +19,7 @@
 
 import type { AgentRunState } from "@/types/run-state.js";
 import type { ContextBuildInput, SkillContext } from "./context-builder.js";
-import { buildContext, filterModelCallableManifests } from "./context-builder.js";
+import { buildContext, filterModelCallableManifests, transformForLLM } from "./context-builder.js";
 import type { ModelRouter } from "./model-router.js";
 import type { FastapiClient } from "@/tools/fastapi-client.js";
 import type { ToolRegistry, ToolExecutionContext } from "@/tools/registry.js";
@@ -192,13 +192,42 @@ function toPiTool(
         emitPersistedEvents(stream, productEvents);
 
         runState.sideEffects.push({ toolCallId, status: normalized.sideEffectStatus });
+        runState.toolResults.push({
+          toolCallId,
+          toolName,
+          sideEffectStatus: normalized.sideEffectStatus,
+          observation: normalized.observation,
+          ...(normalized.links?.proposalId ? { proposalId: normalized.links.proposalId } : {}),
+          ...(normalized.links?.createdIds?.length ? { createdIds: normalized.links.createdIds } : {}),
+        });
 
         if (normalized.status !== "success") {
-          throw new Error(normalized.observation);
+          // Return error as content so the LLM can see it and retry,
+          // instead of terminating the entire run.
+          const errorText = `工具调用失败: ${normalized.observation}`;
+          return {
+            content: [{ type: "text" as const, text: errorText }],
+            details: { error: normalized.observation },
+          };
         }
 
+        // Include data in content so the LLM can see the actual tool result,
+        // not just a label like "workspace_state". Pi SDK may not pass `details` to the model.
+        // Cap at 32KB to avoid blowing up the context window.
+        // Also replace all raw IDs with「」display names so the LLM never sees internal IDs.
+        const MAX_CONTENT_DATA_BYTES = 32_768;
+        let textContent = normalized.observation;
+        if (normalized.data !== undefined) {
+          let dataJson = JSON.stringify(normalized.data, null, 2);
+          // Translate status values + replace IDs with display names
+          dataJson = transformForLLM(dataJson);
+          if (Buffer.byteLength(dataJson, "utf-8") > MAX_CONTENT_DATA_BYTES) {
+            dataJson = dataJson.slice(0, MAX_CONTENT_DATA_BYTES) + "\n...[截断]";
+          }
+          textContent = `${normalized.observation}\n\n${dataJson}`;
+        }
         return {
-          content: [{ type: "text" as const, text: normalized.observation }],
+          content: [{ type: "text" as const, text: textContent }],
           details: normalized.data,
         };
       } catch (err) {
@@ -291,10 +320,14 @@ function applyPiEventToRunState(event: AgentEvent, runState: AgentRunState): voi
       break;
     }
     case "agent_end": {
-      // Derive terminal status from the last assistant message's stopReason
       const lastMsg = event.messages?.[event.messages.length - 1];
       const stopReason = (lastMsg as AssistantMessage | undefined)?.stopReason;
-      if (stopReason === "error") {
+      // If any tool produced a side effect (risk created, proposal persisted, etc.),
+      // the run is successful regardless of the LLM's stopReason.
+      const hasSideEffects = runState.toolResults.some(
+        (tr) => tr.sideEffectStatus !== "no_side_effect" && tr.sideEffectStatus !== "unknown",
+      );
+      if (stopReason === "error" && !hasSideEffects) {
         runState.status = "failed";
       } else if (stopReason === "aborted") {
         runState.status = "cancelled";

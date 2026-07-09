@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { DirectionDecisionView } from "@/components/agent/direction-decision-view";
 import type { AgentProposal, AgentEvent } from "@/lib/types";
+import { MultilineText } from "@/components/ui/multiline-text";
+import { translateStatus } from "@/lib/utils";
 
 const TYPE_LABELS: Record<string, string> = {
   clarify: "方向卡",
@@ -52,23 +54,68 @@ const REPLAN_LABELS: Record<string, string> = {
   status: "状态",
   due_date: "截止日期",
   priority: "优先级",
-  owner_user_id: "负责人 ID",
+  type: "类型",
+  content: "内容",
+  goal: "目标",
+  description: "描述",
+  deliverable: "交付物",
+  name: "名称",
+  summary: "摘要",
+  new_start_date: "新开始日期",
+  new_end_date: "新结束日期",
+  estimated_hours: "预估工时",
+  can_cut: "可砍",
+  // LLM-generated dynamic fields
+  stages: "阶段",
+  deadline: "截止日期",
+  end_date: "结束日期",
+  start_date: "开始日期",
+  risks: "风险",
+  risks_mitigated: "已缓解风险",
+  issues: "问题点",
+  actions: "应对措施",
+  mitigation: "缓解方案",
+  evidence_refs: "",
+  // Suppressed fields
+  stage_id: "",
+  task_id: "",
+  owner_user_id: "",
+  user_id: "",
+  backup_owner_user_id: "",
+  blocker: "阻塞",
 };
 
 function replanLabel(key: string) {
-  return REPLAN_LABELS[key] ?? key;
+  const label = REPLAN_LABELS[key];
+  if (label === "") return "";
+  if (label !== undefined) return label;
+  return key.replace(/_/g, " ");
 }
 
 function replanValue(value: unknown): string {
   if (typeof value === "boolean") return value ? "是" : "否";
-  if (Array.isArray(value)) return value.map(replanValue).join("、");
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (typeof item === "object" && item !== null) {
+        return Object.entries(item as Record<string, unknown>)
+          .map(([k, v]) => { const l = replanLabel(k); return l ? `${l}: ${replanValue(v)}` : ""; })
+          .filter(Boolean).join("、");
+      }
+      return String(item);
+    }).join("；");
+  }
   if (typeof value === "object" && value !== null) {
     return Object.entries(value)
       .filter(([, itemValue]) => itemValue !== null && itemValue !== undefined)
-      .map(([key, itemValue]) => `${replanLabel(key)}: ${replanValue(itemValue)}`)
+      .map(([key, itemValue]) => {
+        const label = replanLabel(key);
+        if (!label) return null;
+        return `${label}: ${replanValue(itemValue)}`;
+      })
+      .filter(Boolean)
       .join(" | ");
   }
-  return String(value);
+  return translateStatus(String(value));
 }
 
 function ReplanField({ label, value }: { label: string; value: unknown }) {
@@ -78,7 +125,7 @@ function ReplanField({ label, value }: { label: string; value: unknown }) {
   return (
     <div className="rounded-md border border-ink/8 bg-paper px-3 py-2">
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink/40">{label}</p>
-      <p className="mt-1 text-sm text-ink/70">{replanValue(value)}</p>
+      <MultilineText text={replanValue(value)} className="mt-1 text-sm text-ink/70" />
     </div>
   );
 }
@@ -116,7 +163,7 @@ function ProposalContent({ proposal }: { proposal: AgentProposal }) {
     };
     return (
       <div className="space-y-3 text-sm">
-        {p.reason && <p className="text-ink/60">{p.reason}</p>}
+        {p.reason && <MultilineText text={p.reason} className="text-ink/60" />}
         {p.stages && p.stages.length > 0 && (
           <div>
             <p className="font-semibold text-ink">阶段列表（{p.stages.length} 个阶段）</p>
@@ -127,12 +174,14 @@ function ProposalContent({ proposal }: { proposal: AgentProposal }) {
                     <Badge className="bg-ink/10 text-ink/60 text-[10px]">#{s.order_index ?? i + 1}</Badge>
                     <span className="font-semibold text-ink">{s.name}</span>
                   </div>
-                  <p className="mt-1 text-ink/70">{s.goal}</p>
+                  {s.goal && <MultilineText text={s.goal} className="mt-1 text-ink/70" />}
                   {s.start_date && s.end_date && (
                     <p className="mt-1 text-xs text-ink/45">{s.start_date} → {s.end_date}</p>
                   )}
                   {s.deliverable && (
-                    <p className="mt-1 text-xs text-ink/55">交付: {s.deliverable}</p>
+                    <div className="mt-1 text-xs text-ink/55">
+                      交付: <MultilineText text={s.deliverable} />
+                    </div>
                   )}
                 </div>
               ))}
@@ -156,7 +205,7 @@ function ProposalContent({ proposal }: { proposal: AgentProposal }) {
     };
     return (
       <div className="space-y-3 text-sm">
-        {p.reason && <p className="text-ink/60">{p.reason}</p>}
+        {p.reason && <MultilineText text={p.reason} className="text-ink/60" />}
         {p.tasks && p.tasks.length > 0 && (
           <div>
             <p className="font-semibold text-ink">任务列表（{p.tasks.length} 个任务）</p>
@@ -173,7 +222,7 @@ function ProposalContent({ proposal }: { proposal: AgentProposal }) {
                     </Badge>
                     <span className="font-semibold text-ink">{t.title}</span>
                   </div>
-                  {t.description && <p className="mt-1 text-ink/70">{t.description}</p>}
+                  {t.description && <MultilineText text={t.description} className="mt-1 text-ink/70" />}
                   {t.estimated_hours != null && (
                     <p className="mt-1 text-xs text-ink/45">预估 {t.estimated_hours}h</p>
                   )}

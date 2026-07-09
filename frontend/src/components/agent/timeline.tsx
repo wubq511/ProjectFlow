@@ -18,6 +18,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MultilineText } from "@/components/ui/multiline-text";
 import type { AgentEvent } from "@/lib/types";
 
 type AgentTimelineProps = {
@@ -241,7 +242,7 @@ export function AgentTimeline({ events }: AgentTimelineProps) {
                       )}
                     </div>
 
-                    <p className="mt-2 text-sm text-ink/75">{event.reasoning_summary}</p>
+                    <MultilineText text={event.reasoning_summary} className="mt-2 text-sm text-ink/75" />
 
                     <Button
                       variant="ghost"

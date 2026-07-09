@@ -157,7 +157,8 @@ def get_workspace_state(
             stage_id=c.stage_id,
             cadence_days=c.cadence_days,
             next_due_date=c.next_due_date,
-            status=c.status,
+            status=c.status.value if isinstance(c.status, Enum) else c.status,
+            name=f"签到周期（{c.start_date}，每{c.cadence_days}天）",
         ) for c in checkin_cycle_rows]
 
         checkin_response_rows = session.exec(

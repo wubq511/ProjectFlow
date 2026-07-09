@@ -14,6 +14,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MultilineText } from "@/components/ui/multiline-text";
 import { cn } from "@/lib/utils";
 import type { AgentArtifact, AgentSuggestion } from "@/lib/types";
 
@@ -205,16 +206,20 @@ export function AgentArtifactCard({
           {ARTIFACT_STATUS_LABELS[artifact.status]}
         </Badge>
       </div>
-      <p className="mt-1.5 text-xs leading-5 text-neutral-600">{artifact.summary}</p>
+      <div className="mt-1.5 text-xs leading-5 text-neutral-600">
+        <MultilineText text={artifact.summary} />
+      </div>
       {artifact.rationale && (
-        <p className="mt-1.5 text-xs leading-5 text-neutral-500">{artifact.rationale}</p>
+        <div className="mt-1.5 text-xs leading-5 text-neutral-500">
+          <MultilineText text={artifact.rationale} />
+        </div>
       )}
       {artifact.impact.length > 0 && (
         <ul className="mt-2 space-y-0.5">
           {artifact.impact.map((item) => (
-            <li key={item} className="flex items-center gap-1 text-xs text-neutral-500">
-              <ArrowRight className="h-3 w-3 shrink-0 text-neutral-400" />
-              {item}
+            <li key={item} className="flex items-start gap-1 text-xs text-neutral-500">
+              <ArrowRight className="h-3 w-3 shrink-0 text-neutral-400 mt-0.5" />
+              <MultilineText text={item} />
             </li>
           ))}
         </ul>

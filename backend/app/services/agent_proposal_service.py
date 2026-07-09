@@ -356,17 +356,33 @@ def _persist_clarification(session: Session, proposal: AgentProposal) -> list[st
 
 
 def _persist_stage_plan(session: Session, proposal: AgentProposal) -> list[str]:
-    """Persist stage plan output and activate the first stage when needed."""
+    """Persist stage plan output, replacing all previous stages.
+
+    A confirmed plan is authoritative — old stages are marked completed rather than
+    deleted so foreign-key references (tasks, risks, checkins) remain intact and
+    historical data is preserved for the timeline and ProjectMemory.
+    """
     project = require_row(session, Project, proposal.project_id, "Project")
     payload = _get_payload(proposal)
     output = StagePlanOutput.model_validate(payload)
-    existing_active = session.exec(
+
+    # Mark all existing non-completed stages for this project as completed.
+    # This is the "replace" semantic: a new confirmed plan supersedes the old one.
+    old_stages = session.exec(
         select(Stage).where(
             Stage.project_id == proposal.project_id,
-            Stage.status == StageStatus.active.value,
+            Stage.status.in_([StageStatus.pending.value, StageStatus.active.value]),
         )
-    ).first()
-    should_activate_first = existing_active is None and project.current_stage_id is None
+    ).all()
+    for old in old_stages:
+        old.status = StageStatus.completed.value
+        session.add(old)
+    session.flush()
+
+    # Clear stale current_stage_id — the first new stage will become active
+    project.current_stage_id = None
+
+    should_activate_first = True
 
     created_ids: list[str] = []
     active_stage_id: str | None = None
@@ -399,14 +415,19 @@ def _persist_stage_plan(session: Session, proposal: AgentProposal) -> list[str]:
 
 
 def _persist_task_breakdown(session: Session, proposal: AgentProposal) -> list[str]:
-    """Persist task breakdown output by creating Task records."""
+    """Persist task breakdown output by creating Task records.
+
+    stage_id is required on TaskBreakdownItem (enforced by Pydantic validation),
+    so all tasks are guaranteed to have a valid stage_id at this point.
+    """
     payload = _get_payload(proposal)
     output = TaskBreakdownOutput.model_validate(payload)
+
     created_ids: list[str] = []
     for task_item in sorted(output.tasks, key=lambda t: (t.order_index, t.priority, t.due_date)):
         task = Task(
             project_id=proposal.project_id,
-            stage_id=task_item.stage_id or "",
+            stage_id=task_item.stage_id,
             title=task_item.title,
             description=task_item.description,
             priority=task_item.priority.value,

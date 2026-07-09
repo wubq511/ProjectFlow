@@ -77,7 +77,7 @@ export class SkillIndex {
  * Frontmatter is between the first pair of --- lines.
  */
 function parseSkillFrontmatter(content: string, filePath: string): SkillMetadata | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return null;
 
   try {
@@ -116,4 +116,21 @@ export async function createSkillIndex(baseDir?: string): Promise<SkillIndex> {
   const index = new SkillIndex({ skillsDir: dir });
   await index.load();
   return index;
+}
+
+/** Lazily-created singleton skill index. */
+let _skillIndex: SkillIndex | null = null;
+
+export function getSkillIndex(): SkillIndex {
+  if (!_skillIndex) {
+    _skillIndex = new SkillIndex({
+      skillsDir: resolve(import.meta.dirname ?? process.cwd(), "../../skills"),
+    });
+  }
+  return _skillIndex;
+}
+
+/** Initialize the skill index (must be called once at startup). */
+export async function initSkillIndex(): Promise<void> {
+  _skillIndex = await createSkillIndex();
 }

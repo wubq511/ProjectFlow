@@ -47,6 +47,10 @@ interface WorkspaceLayoutProps {
     fromUserId: string,
     desiredTaskId: string
   ) => void;
+  onResolveNegotiation?: (
+    negotiationId: string,
+    resolution: "accepted" | "declined",
+  ) => void | Promise<void>;
   onFinalizeAssignments?: (stageId: string) => void;
   onSubmitCheckin?: (data: {
     user_id: string;
@@ -106,6 +110,7 @@ export function WorkspaceLayout({
   onSendAgentMessage,
   onRespondToAssignment,
   onStartNegotiation,
+  onResolveNegotiation,
   onFinalizeAssignments,
   onSubmitCheckin,
   onUpdateTaskStatus,
@@ -190,6 +195,7 @@ export function WorkspaceLayout({
             onRunAgent={onRunAgent}
             onRespondToAssignment={onRespondToAssignment}
             onStartNegotiation={onStartNegotiation}
+            onResolveNegotiation={onResolveNegotiation}
             onFinalizeAssignments={onFinalizeAssignments}
             onSubmitCheckin={onSubmitCheckin}
             onUpdateTaskStatus={onUpdateTaskStatus}

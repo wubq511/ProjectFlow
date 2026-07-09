@@ -11,7 +11,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { Task } from "@/lib/types";
@@ -37,13 +36,14 @@ function statusClass(status: Task["status"]) {
 }
 
 function statusLabel(status: Task["status"]) {
-  const labels: Record<Task["status"], string> = {
+  const labels: Record<string, string> = {
     not_started: "未开始",
     in_progress: "进行中",
     done: "已完成",
     blocked: "受阻",
+    cancelled: "已取消",
   };
-  return labels[status];
+  return labels[status] ?? status;
 }
 
 export function TaskStatusUpdate({ task, onUpdate, userId, pending }: TaskStatusUpdateProps) {
@@ -88,13 +88,14 @@ export function TaskStatusUpdate({ task, onUpdate, userId, pending }: TaskStatus
             onValueChange={(v) => setStatus(v as Task["status"])}
           >
             <SelectTrigger id={`status-${task.id}`}>
-              <SelectValue />
+              <span className="truncate text-sm">{statusLabel(status)}</span>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="not_started">未开始</SelectItem>
               <SelectItem value="in_progress">进行中</SelectItem>
               <SelectItem value="done">已完成</SelectItem>
               <SelectItem value="blocked">受阻</SelectItem>
+              <SelectItem value="cancelled">已取消</SelectItem>
             </SelectContent>
           </Select>
         </div>

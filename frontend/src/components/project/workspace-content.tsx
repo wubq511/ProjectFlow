@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { MultilineText } from "@/components/ui/multiline-text";
 import { Separator } from "@/components/ui/separator";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -178,9 +179,7 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject, on
           <h1 className="font-display text-3xl font-normal leading-tight text-neutral-900 md:text-4xl">
             {workspace.name}
           </h1>
-          <p className="mt-1 text-sm text-neutral-500">
-            {workspace.description || "团队项目、成员能力和推进状态集中在这里。"}
-          </p>
+          <MultilineText text={workspace.description || "团队项目、成员能力和推进状态集中在这里。"} className="mt-1 text-sm text-neutral-500" />
         </div>
 
       </header>

@@ -5,6 +5,7 @@ import { File, FileText, Link2, Loader2, Plus, FolderOpen, X } from "lucide-reac
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MultilineText } from "@/components/ui/multiline-text";
 import {
   Select,
   SelectContent,
@@ -117,9 +118,7 @@ export function ProjectResourcesPanel({
                     {resource.url}
                   </a>
                 ) : (
-                  <p className="mt-2 whitespace-pre-wrap break-words text-sm text-ink/65">
-                    {resource.content_text ?? resource.file_name}
-                  </p>
+                  <MultilineText text={resource.content_text ?? resource.file_name ?? ""} className="mt-2 whitespace-pre-wrap break-words text-sm text-ink/65" />
                 )}
               </article>
             );

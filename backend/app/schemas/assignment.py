@@ -89,3 +89,7 @@ class AssignmentNegotiationRead(BaseModel):
     status: NegotiationStatus
     agent_message: str
     created_at: datetime
+
+
+class AssignmentNegotiationResolve(BaseModel):
+    resolution: str  # "accepted" | "declined"
