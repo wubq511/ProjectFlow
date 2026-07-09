@@ -1,8 +1,28 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-08.
+Status: current as of 2026-07-10.
 
 ## Latest Architecture Handoff
+
+### Agent Thinking Process Folding (2026-07-10)
+
+Implemented thinking/reasoning process folding in the Agent sidebar, using Pi runtime turn boundaries to separate thinking tokens from answer tokens.
+
+**What was built:**
+
+- **Turn boundary tracking**: SSE `status` events with `phase: "turn_start"` are used to count Pi runtime turns. `turnCountRef` starts at -1, increments on each `turn_start`. `turnTokensRef` records tokens per turn index.
+- **Thinking/answer separation**: On `onDone`, if `turnCount >= 1` (multiple turns), turn 0 tokens become `thinkingContent` (shown in collapsible section); turn 1+ tokens are the final answer. Single-turn responses have no thinking section.
+- **Streaming UX**: All tokens display in `streamingBuffer` during streaming (preserves typing effect). After completion, the message re-renders with a collapsible thinking section + final answer.
+- **Collapsible component**: `@base-ui/react/collapsible` with `grid-template-rows` CSS transition for smooth expand/collapse animation. Shows "思考过程 · N 步" with ChevronRight toggle.
+- **Tool observation noise filter**: `cleanThinkingContent()` replaces short standalone JSON (`{}`, `{"limit": 10}`) with `> 🔧 **工具调用**` blockquote format. Tracks markdown code block boundaries to avoid false positives.
+- **Step counter**: `countThinkingSteps()` counts tool call markers + reasoning paragraphs for the "N 步" display.
+- **Ref cleanup**: All streaming refs (`turnTokensRef`, `turnCountRef`, `streamingBufferRef`) are reset in `onDone`, `onError`, `handleStopStreaming`, and at the start of `handleSendAgentMessage` (prevents stale data on rapid re-sends).
+- **Project switch safety**: `lastThinkingContent` cleared in `handleSelectProject` and `handleShowWorkspace`.
+- **Dead code removed**: `project-layout.tsx` deleted (was never imported).
+
+**Key files:** `frontend/src/app/workspaces/[workspaceId]/page.tsx`, `frontend/src/components/project/agent/ChatMessage.tsx`, `frontend/src/components/project/agent-sidebar.tsx`, `frontend/src/components/project/workspace-layout.tsx`, `frontend/src/components/ui/collapsible.tsx`
+
+**Verification (2026-07-10):** `next build` pass
 
 ### Multi-Model Multi-Provider Config & Switching (2026-07-08)
 

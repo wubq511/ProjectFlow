@@ -151,6 +151,7 @@ npm audit --omit=dev
 - 已删除独立的 `/projects/new` 和 `/projects/[projectId]` 路由，所有项目操作统一在 `/workspaces/[workspaceId]` 内完成
 - 项目页采用三栏布局：左侧 workspace/project 导航(ProjectSidebar)、中间内容区(ProjectContent/WorkspaceContent)、右侧 Agent 面板(AgentSidebar)
 - 项目仪表盘 Agent 操作按状态机 4 阶段分组：规划 / 分工 / 执行 / 监控
+- Agent 思考过程折叠：流式输出时全量显示（保持打字效果），完成后用 Pi runtime turn 边界（`turn_start` 事件）分离思考/回答 token，turn 0 归入折叠区（默认收起，显示"思考过程 · N 步"），turn 1+ 为最终回答；工具调用 JSON 噪音（`{}`、`{"limit": 10}`）替换为 blockquote 格式"🔧 **工具调用**"；单 turn 无工具调用不显示折叠区
 - 当前阶段高亮，自动推荐下一步操作
 - UI 语言统一中文
 - localStorage 读取必须用 `useSyncExternalStore` 避免 hydration mismatch

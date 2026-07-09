@@ -136,9 +136,8 @@ export default function WorkspaceDashboardPage() {
   const [streamStatus, setStreamStatus] = useState<{ phase: AgentStreamPhase; module?: string; message: string } | null>(null);
   const [lastThinkingContent, setLastThinkingContent] = useState<string>("");
   const streamingBufferRef = useRef("");
-  const turnCountRef = useRef(0);
-  const thinkingBufferRef = useRef("");
-  const hasToolCallRef = useRef(false);
+  const turnCountRef = useRef(-1); // -1 = before first turn_start, 0 = first turn, 1 = second turn, etc.
+  const turnTokensRef = useRef<string[]>([]); // one string per turn, indexed by turn number
   const abortRef = useRef<AbortController | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -327,6 +326,12 @@ export default function WorkspaceDashboardPage() {
 
   const handleSendAgentMessage = async (content: string) => {
     if (!agentConversation) return;
+    // Reset streaming state from any previous request
+    turnTokensRef.current = [];
+    streamingBufferRef.current = "";
+    turnCountRef.current = -1;
+    setStreamingBuffer("");
+    setStreamStatus(null);
     setPendingAgentConversation(true);
     setPendingAgentInstruction(content);
     setAgentConversationError(null);
@@ -346,36 +351,40 @@ export default function WorkspaceDashboardPage() {
             // Track turn boundaries for thinking/answer separation
             if ((status as { phase?: string }).phase === "turn_start") {
               turnCountRef.current += 1;
-            }
-            // Track tool calls to distinguish thinking from single-turn answers
-            if ((status as { phase?: string }).phase === "executing") {
-              hasToolCallRef.current = true;
+              // Ensure turnTokensRef has an entry for this turn
+              turnTokensRef.current[turnCountRef.current] = turnTokensRef.current[turnCountRef.current] ?? "";
             }
           },
           onToken: (token) => {
             streamingBufferRef.current += token;
-            // First turn with tool calls = thinking process; later turns = final answer
-            const isThinking = turnCountRef.current <= 1 && hasToolCallRef.current;
-            if (isThinking) {
-              thinkingBufferRef.current += token;
-              // Don't update streamingBuffer — thinking tokens are hidden during streaming
+            // Record token into the current turn's buffer (if turn has started)
+            const turnIdx = turnCountRef.current;
+            if (turnIdx >= 0) {
+              turnTokensRef.current[turnIdx] = (turnTokensRef.current[turnIdx] ?? "") + token;
             } else {
-              // Answer tokens: show in streaming UI
-              setStreamingBuffer((prev) => prev + token);
+              // Token before first turn_start — append to turn 0 when it arrives
+              turnTokensRef.current[0] = (turnTokensRef.current[0] ?? "") + token;
             }
+            // Show all tokens in streaming UI (preserves typing effect)
+            setStreamingBuffer((prev) => prev + token);
           },
           onDone: (turn) => {
             setAgentConversation(turn.conversation);
             setAgentConversationSuggestions(turn.suggestions ?? []);
             setAgentConversationArtifacts(turn.artifacts ?? []);
             setPendingAgentInstruction(null);
-            // Thinking content from the accumulated thinking buffer
-            setLastThinkingContent(thinkingBufferRef.current.trim());
+            // Separate thinking from answer using turn boundaries:
+            // - Multiple turns (turnCount >= 1): turn 0 tokens = thinking, turn 1+ tokens = answer
+            // - Single turn (turnCount === 0): no thinking (entire output is the answer)
+            if (turnCountRef.current >= 1 && turnTokensRef.current[0]) {
+              setLastThinkingContent(turnTokensRef.current[0].trim());
+            } else {
+              setLastThinkingContent("");
+            }
             // Reset all streaming refs
-            thinkingBufferRef.current = "";
+            turnTokensRef.current = [];
             streamingBufferRef.current = "";
-            turnCountRef.current = 0;
-            hasToolCallRef.current = false;
+            turnCountRef.current = -1;
             setStreamingBuffer("");
             setStreamStatus(null);
             reloadProject();
@@ -387,10 +396,9 @@ export default function WorkspaceDashboardPage() {
             }
           },
           onError: (msg) => {
-            thinkingBufferRef.current = "";
+            turnTokensRef.current = [];
             streamingBufferRef.current = "";
-            turnCountRef.current = 0;
-            hasToolCallRef.current = false;
+            turnCountRef.current = -1;
             setStreamingBuffer("");
             setStreamStatus(null);
             setAgentConversationError(msg || "这次没有生成可用结果，我保留了你的请求。");
@@ -413,10 +421,9 @@ export default function WorkspaceDashboardPage() {
 
   const handleStopStreaming = () => {
     abortRef.current?.abort();
-    thinkingBufferRef.current = "";
+    turnTokensRef.current = [];
     streamingBufferRef.current = "";
-    turnCountRef.current = 0;
-    hasToolCallRef.current = false;
+    turnCountRef.current = -1;
     setStreamingBuffer("");
     setStreamStatus(null);
   };
