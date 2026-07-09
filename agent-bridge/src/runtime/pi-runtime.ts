@@ -248,18 +248,24 @@ function applyPiEventToRunState(event: AgentEvent, runState: AgentRunState): voi
     }
     case "turn_start": {
       runState.currentTurn++;
-      runState.status = "model_streaming";
+      if (runState.status !== "completed" && runState.status !== "failed" && runState.status !== "cancelled") {
+        runState.status = "model_streaming";
+      }
       runState.updatedAt = new Date().toISOString();
       break;
     }
     case "message_start":
     case "message_update": {
-      runState.status = "model_streaming";
+      if (runState.status !== "completed" && runState.status !== "failed" && runState.status !== "cancelled") {
+        runState.status = "model_streaming";
+      }
       runState.updatedAt = new Date().toISOString();
       break;
     }
     case "message_end": {
-      runState.status = "model_streaming";
+      if (runState.status !== "completed" && runState.status !== "failed" && runState.status !== "cancelled") {
+        runState.status = "model_streaming";
+      }
       runState.updatedAt = new Date().toISOString();
       break;
     }
@@ -286,7 +292,9 @@ function applyPiEventToRunState(event: AgentEvent, runState: AgentRunState): voi
       break;
     }
     case "turn_end": {
-      runState.status = "model_streaming";
+      if (runState.status !== "completed" && runState.status !== "failed" && runState.status !== "cancelled") {
+        runState.status = "model_streaming";
+      }
       runState.updatedAt = new Date().toISOString();
       break;
     }

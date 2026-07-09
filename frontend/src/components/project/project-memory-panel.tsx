@@ -106,6 +106,8 @@ export function ProjectMemoryPanel({ projectId, projectName, currentUserId }: Pr
   useEffect(() => {
     if (!currentUserId) return;
     let ignore = false;
+    setLoading(true);
+    setError(null);
     listProjectMemories(projectId, currentUserId)
       .then((data) => {
         if (!ignore) setMemories(data);

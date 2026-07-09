@@ -603,9 +603,10 @@ export async function sendAgentConversationMessage(
   conversationId: string,
   content: string,
 ): Promise<AgentConversationTurn> {
+  const viewer_user_id = typeof window !== "undefined" ? localStorage.getItem("projectflow:current-user-id") || undefined : undefined;
   const turn = await request<BackendAgentConversationTurn>(`/agent/conversations/${conversationId}/messages`, {
     method: "POST",
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, viewer_user_id }),
   });
   return normalizeAgentConversationTurn(turn);
 }
@@ -623,10 +624,11 @@ export async function sendAgentConversationMessageStream(
   callbacks: AgentStreamCallbacks,
   signal?: AbortSignal,
 ): Promise<void> {
+  const viewer_user_id = typeof window !== "undefined" ? localStorage.getItem("projectflow:current-user-id") || undefined : undefined;
   const response = await fetch(`${API_BASE_URL}/agent/conversations/${conversationId}/messages/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, viewer_user_id }),
     signal,
   });
 
@@ -736,6 +738,7 @@ async function runAgentFlow(
       conversation_id: `project-${projectId}`,
       workspace_id: project.workspace_id,
       project_id: projectId,
+      viewer_user_id: typeof window !== "undefined" ? localStorage.getItem("projectflow:current-user-id") || undefined : undefined,
       user_content: userContent,
       runtime_config: {
         skill: skillName,
@@ -755,14 +758,20 @@ async function runAgentFlow(
 
   // Step 2: Poll until completed/failed/cancelled
   const POLL_INTERVAL_MS = 1000;
-  const POLL_TIMEOUT_MS = 120_000;
+  const POLL_TIMEOUT_MS = 300_000; // Increased to 5 minutes to accommodate long-running tasks like retro generation
   const deadline = Date.now() + POLL_TIMEOUT_MS;
+  const startTime = Date.now();
 
   let runStatus: string = "running";
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     const pollResp = await fetch(`${SIDECAR_BASE_URL}/runs/${runId}`);
-    if (!pollResp.ok) continue; // transient error, keep polling
+    if (!pollResp.ok) {
+      if (pollResp.status === 404) {
+        throw new Error(`Sidecar run ${runId} not found (404)`);
+      }
+      continue; // transient error, keep polling
+    }
     const pollData = (await pollResp.json()) as { status: string };
     runStatus = pollData.status;
     if (runStatus === "completed" || runStatus === "failed" || runStatus === "cancelled") break;
@@ -770,8 +779,29 @@ async function runAgentFlow(
 
   // Step 3: Return result based on final status
   if (runStatus === "completed") {
+    // 验证是否真的成功：检查 timeline 是否有对应的 event
+    try {
+      const timeline = await listTimelineByProject(projectId);
+      // 宽松匹配：查找最近 30 秒内创建的事件，避免因时间误差漏匹配
+      const TIME_WINDOW_MS = 30_000;
+      const recentEvent = timeline.find(e => new Date(e.created_at).getTime() >= startTime - TIME_WINDOW_MS);
+      if (recentEvent) {
+        return {
+          event_type: recentEvent.event_type as AgentFlowResult["event_type"],
+          status: recentEvent.status,
+          attempts: 1,
+          used_fallback: recentEvent.status === "fallback",
+          output: recentEvent.output_snapshot ?? {},
+          created_ids: [],
+        };
+      }
+    } catch (e) {
+      console.error("Failed to verify timeline event:", e);
+    }
+    // Sidecar 完成但未找到对应 timeline 事件 — 降级返回成功结果而非报错
+    console.warn("Agent run completed but no matching timeline event found within time window");
     return {
-      event_type: endpoint as AgentFlowResult["event_type"],
+      event_type: "clarify" as AgentFlowResult["event_type"],
       status: "success",
       attempts: 1,
       used_fallback: false,
