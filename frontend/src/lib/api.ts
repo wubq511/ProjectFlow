@@ -791,6 +791,20 @@ async function runAgentFlow(
   }
 
   // Step 3: Return result based on final status
+  const timedOut = Date.now() >= deadline;
+  if (timedOut) {
+    const fallbackEventType = ENDPOINT_EVENT_TYPE_MAP[endpoint] ?? "clarify";
+    console.warn("Agent run polling timed out after %dms, run status still: %s, returning degraded fallback", POLL_TIMEOUT_MS, runStatus);
+    return {
+      event_type: fallbackEventType as AgentFlowResult["event_type"],
+      status: "fallback" as AgentFlowResult["status"],
+      attempts: 1,
+      used_fallback: true,
+      output: {},
+      created_ids: [],
+    };
+  }
+
   if (runStatus === "completed") {
     // 验证是否真的成功：检查 timeline 是否有对应的 event
     try {
