@@ -153,9 +153,13 @@ export function createServer(config: SidecarConfig, serverCtx?: Partial<ServerCo
           (req as IncomingMessage & { bodyText?: string }).bodyText = await readBody(req);
         }
         await route.handler(req, res, params, ctx);
-      } catch (err) {
+      } catch (err: any) {
         console.error(`[agent-bridge] error in ${route.method} ${url.pathname}:`, err);
-        sendJson(res, 500, { error: "internal_error", message: "服务器内部错误" });
+        if (err.name === "FastapiError" && err.status) {
+          sendJson(res, err.status, { error: "fastapi_error", message: err.body });
+        } else {
+          sendJson(res, 500, { error: "internal_error", message: "服务器内部错误" });
+        }
       }
       return;
     }

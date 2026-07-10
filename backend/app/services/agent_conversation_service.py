@@ -8,6 +8,7 @@ Message persistence (user + assistant) remains in this service.
 
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any, Iterator
 
@@ -231,7 +232,20 @@ def process_conversation_message_stream(
 
     except httpx.ConnectError:
         logger.error("Cannot reach sidecar at %s", sidecar_url)
-        yield _sse_event("error", {"message": "Agent 服务未启动，请确认 sidecar 已启动（端口 4000）。"})
+        # Use deterministic intent matcher to provide actionable guidance
+        intent = _deterministic_intent_match(content)
+        if intent:
+            guidance = (
+                f"我理解你想「{intent}」，但 Agent 服务当前未启动。"
+                "请确认 sidecar 已启动（端口 4000），然后重试。"
+            )
+        else:
+            guidance = "Agent 服务未启动，请确认 sidecar 已启动（端口 4000）。"
+        # Stream the guidance as a normal response so the user sees it in chat
+        yield _sse_event("status", {"phase": "answering", "message": "正在生成回复..."})
+        for char in guidance:
+            yield _sse_event("token", {"content": char})
+        yield _sse_event("done", {"final_content": guidance})
     except httpx.TimeoutException:
         logger.error("Sidecar stream timed out")
         yield _sse_event("error", {"message": "Agent 响应超时，请稍后重试。"})
@@ -431,3 +445,33 @@ def _next_suggestions_from_conversation(session: Session, conversation: AgentCon
     if workspace_state:
         return _next_suggestions(workspace_state)
     return ["下一步做什么？"]
+
+
+# ---------------------------------------------------------------------------
+# Deterministic intent matcher (sidecar-unavailable fallback)
+# ---------------------------------------------------------------------------
+
+# Ordered by specificity — more specific patterns should match first
+_INTENT_PATTERNS: list[tuple[str, str]] = [
+    ("方向澄清", r"澄清方向|方向澄清|帮我澄清|先认证|先澄清"),
+    ("生成阶段计划", r"阶段计划|生成.*计划|规划.*阶段|阶段.*规划|时间表|里程碑|plan\b"),
+    ("任务拆解", r"拆成任务|任务拆解|拆解.*任务|把.*拆|分解.*任务|breakdown\b"),
+    ("推荐分工", r"分工|分配.*成员|推荐.*分工|assign\b"),
+    ("生成行动卡", r"行动卡|推进|下一步|push\b"),
+    ("分析风险", r"风险|risk\b"),
+    ("签到分析", r"签到|进展|状态|checkin\b|检查.*进度"),
+    ("调整计划", r"调整计划|重新规划|重排|replan\b"),
+]
+
+
+def _deterministic_intent_match(content: str) -> str | None:
+    """Match user message to an intent label using keyword patterns.
+
+    Returns a human-readable intent label on match, or None.
+    Used as fallback when the sidecar is unavailable.
+    """
+    lowered = content.lower()
+    for label, pattern in _INTENT_PATTERNS:
+        if re.search(pattern, lowered):
+            return label
+    return None

@@ -305,8 +305,10 @@ export default function WorkspaceDashboardPage() {
         }
       }
     } catch (err: unknown) {
+      console.error("[Agent action error]", err);
       let msg = "Agent 操作失败，请稍后重试。";
       if (err instanceof Error) {
+        console.error("[Agent action error message]", err.message);
         try {
           const parsed = JSON.parse(err.message.replace(/^(?:Request failed:|请求失败：)\s*\d+\s*/, ""));
           if (parsed?.detail) msg = parsed.detail;
