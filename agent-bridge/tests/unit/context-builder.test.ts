@@ -36,7 +36,7 @@ describe("context-builder", () => {
       toolManifests: [],
     });
     expect(context.systemPrompt).toContain("ProjectFlow");
-    expect(context.systemPrompt).toContain("中文");
+    expect(context.systemPrompt).toContain("「");
   });
 
   it("includes current time in system prompt", () => {

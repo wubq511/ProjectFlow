@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -32,7 +32,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import {
   Dialog,
@@ -44,6 +43,7 @@ import {
 import { TaskStatusUpdateList } from "@/components/task/task-status-update";
 import { cn, cleanJsonString } from "@/lib/utils";
 import { MatchText } from "@/components/ui/match-text";
+import { MultilineText } from "@/components/ui/multiline-text";
 import { useInlineConfirm } from "@/lib/use-inline-confirm";
 import type { ProjectState, Task } from "@/lib/types";
 import type { AgentAction } from "./project-actions";
@@ -61,6 +61,11 @@ type NegotiationHandler = (
   fromUserId: string,
   desiredTaskId: string
 ) => void;
+
+type ResolveNegotiationHandler = (
+  negotiationId: string,
+  resolution: "accepted" | "declined",
+) => void | Promise<void>;
 
 type CheckinHandler = (data: {
   user_id: string;
@@ -187,9 +192,9 @@ export function MyTasksView({
                     <p className="text-sm font-medium text-neutral-900">
                       {tasks.find((t) => t.id === proposal.task_id)?.title}
                     </p>
-                    <p className="text-xs text-neutral-500 mt-0.5">
-                      {cleanJsonString(proposal.reason)}
-                    </p>
+                    <div className="text-xs text-neutral-500 mt-0.5">
+                      <MultilineText text={cleanJsonString(proposal.reason)} />
+                    </div>
                     {(proposal.skill_match || proposal.availability_match || proposal.preference_match || proposal.constraint_respected) && (
                       <div className="mt-2 grid gap-1 text-xs text-ink/55">
                         {proposal.skill_match && <MatchText label="技能匹配：" text={proposal.skill_match} />}
@@ -329,6 +334,7 @@ type TeamTasksViewProps = {
   currentUserId?: string;
   onRespondToAssignment?: AssignmentResponseHandler;
   onStartNegotiation?: NegotiationHandler;
+  onResolveNegotiation?: ResolveNegotiationHandler;
   onFinalizeAssignments?: (stageId: string) => void;
 };
 
@@ -341,11 +347,47 @@ export function TeamTasksView({
   pendingAction,
   onRespondToAssignment,
   onStartNegotiation,
+  onResolveNegotiation,
   onFinalizeAssignments,
 }: TeamTasksViewProps) {
+  const activeStage = useMemo(
+    () => stages.find((s) => s.status === "active") ?? stages[0],
+    [stages],
+  );
   const [filterStatus, setFilterStatus] = useState<Task["status"] | "all">("all");
   const [filterStage, setFilterStage] = useState<string>("all");
   const [groupBy, setGroupBy] = useState<"none" | "stage" | "owner">("stage");
+
+  // Resolve filter values back to display names for SelectTrigger
+  const filterStatusLabel = useMemo(() => {
+    if (filterStatus === "all") return "全部状态";
+    const labels: Record<string, string> = {
+      not_started: "待开始", in_progress: "进行中", blocked: "阻塞", done: "已完成", cancelled: "已取消",
+    };
+    return labels[filterStatus] ?? filterStatus;
+  }, [filterStatus]);
+
+  const filterStageLabel = useMemo(() => {
+    if (filterStage === "all") return "全部阶段";
+    const stage = stages.find((s) => s.id === filterStage);
+    return stage ? stage.name : filterStage;
+  }, [filterStage, stages]);
+
+  const groupByLabel = useMemo(() => {
+    const labels: Record<string, string> = {
+      stage: "按阶段分组", owner: "按负责人分组", none: "不分组",
+    };
+    return labels[groupBy] ?? groupBy;
+  }, [groupBy]);
+
+  // Jump to the active stage when it changes (e.g., after a new plan is confirmed).
+  const prevActiveStageIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (activeStage && activeStage.id !== prevActiveStageIdRef.current) {
+      prevActiveStageIdRef.current = activeStage.id;
+      setFilterStage(activeStage.id);
+    }
+  }, [activeStage]);
 
   const filtered = useMemo(() => {
     return tasks.filter((t) => {
@@ -359,17 +401,20 @@ export function TeamTasksView({
     if (groupBy === "none") return [{ key: "全部任务", items: filtered }];
     if (groupBy === "stage") {
       const map = new Map<string, Task[]>();
-      stages.forEach((s) => map.set(s.id, []));
+      // Only show active/pending stages in the group view
+      const visibleStages = stages.filter((s) => s.status !== "completed");
+      visibleStages.forEach((s) => map.set(s.id, []));
       map.set("未分配", []);
       filtered.forEach((t) => {
-        const key = stages.find((s) => s.id === t.stage_id)?.id ?? "未分配";
+        const stage = visibleStages.find((s) => s.id === t.stage_id);
+        const key = stage?.id ?? "未分配";
         const arr = map.get(key) ?? [];
         arr.push(t);
         map.set(key, arr);
       });
-      return stages
+      return visibleStages
         .map((s) => ({ key: s.name, items: map.get(s.id) ?? [] }))
-        .filter((g) => g.items.length > 0);
+        .filter((g) => filterStage !== "all" || g.items.length > 0);
     }
 
     const map = new Map<string, Task[]>();
@@ -384,7 +429,7 @@ export function TeamTasksView({
     return Array.from(map.entries())
       .map(([key, items]) => ({ key, items }))
       .filter((g) => g.items.length > 0);
-  }, [filtered, groupBy, stages, members]);
+  }, [filtered, groupBy, stages, members, filterStage]);
 
   return (
     <div className="space-y-6">
@@ -393,7 +438,7 @@ export function TeamTasksView({
           <Filter className="h-3.5 w-3.5 text-neutral-400" />
           <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as Task["status"] | "all")}>
             <SelectTrigger className="h-9 w-36 text-sm">
-              <SelectValue placeholder="全部状态" />
+              <span className="truncate">{filterStatusLabel}</span>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部状态</SelectItem>
@@ -409,13 +454,13 @@ export function TeamTasksView({
           <FolderKanban className="h-3.5 w-3.5 text-neutral-400" />
           <Select value={filterStage} onValueChange={(v) => setFilterStage(v ?? "all")}>
             <SelectTrigger className="h-9 w-36 text-sm">
-              <SelectValue placeholder="全部阶段" />
+              <span className="truncate">{filterStageLabel}</span>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部阶段</SelectItem>
-              {stages.map((s) => (
+              {stages.filter((s) => s.status !== "completed").map((s) => (
                 <SelectItem key={s.id} value={s.id}>
-                  {s.name}
+                  {s.status === "active" ? `${s.name}（当前）` : s.name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -426,7 +471,7 @@ export function TeamTasksView({
           <ArrowUpDown className="h-3.5 w-3.5 text-neutral-400" />
           <Select value={groupBy} onValueChange={(v) => setGroupBy(v as "none" | "stage" | "owner")}>
             <SelectTrigger className="h-9 w-36 text-sm">
-              <SelectValue placeholder="按阶段分组" />
+              <span className="truncate">{groupByLabel}</span>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="stage">按阶段分组</SelectItem>
@@ -489,6 +534,7 @@ export function TeamTasksView({
         pending={Boolean(pendingAction)}
         onRespondToAssignment={onRespondToAssignment}
         onStartNegotiation={onStartNegotiation}
+        onResolveNegotiation={onResolveNegotiation}
         onFinalizeAssignments={onFinalizeAssignments}
       />
     </div>
@@ -524,11 +570,12 @@ function TaskRow({
     P2: { color: "bg-gray-300", label: "P2" },
   };
 
-  const statusConfig = {
+  const statusConfig: Record<string, { label: string; color: string }> = {
     not_started: { label: "待开始", color: "text-neutral-500" },
     in_progress: { label: "进行中", color: "text-primary" },
     blocked: { label: "阻塞", color: "text-coral" },
     done: { label: "已完成", color: "text-moss" },
+    cancelled: { label: "已取消", color: "text-neutral-400" },
   };
 
   const ownerName = members?.find((m) => m.user_id === task.owner_user_id)?.display_name;

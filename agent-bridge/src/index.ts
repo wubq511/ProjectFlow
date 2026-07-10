@@ -46,6 +46,7 @@ import { ModelConfigStore } from "./config/model-config-store.js";
 import { DotEnvWriter } from "./config/dotenv-writer.js";
 import { ModelRouter } from "./runtime/model-router.js";
 import { FileWatcher } from "./config/file-watcher.js";
+import { initSkillIndex, getSkillIndex } from "./skills/skill-index.js";
 
 async function main() {
   const config = loadConfig();
@@ -73,6 +74,15 @@ async function main() {
     console.log(`[agent-bridge] 模型配置已加载: ${validCount}/${totalCount} 有效`);
   } catch (err) {
     console.warn(`[agent-bridge] 模型配置加载失败: ${err instanceof Error ? err.message : String(err)}，将使用空注册表`);
+  }
+
+  // Load skill index
+  try {
+    await initSkillIndex();
+    const skillCount = getSkillIndex().size;
+    console.log(`[agent-bridge] 技能索引已加载: ${skillCount} 个技能`);
+  } catch (err) {
+    console.warn(`[agent-bridge] 技能索引加载失败: ${err instanceof Error ? err.message : String(err)}，将使用空技能列表`);
   }
 
   // Start file watcher for auto-reload

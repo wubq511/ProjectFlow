@@ -48,6 +48,7 @@ class CheckInCycleState(BaseModel):
     cadence_days: int
     next_due_date: str
     status: str
+    name: str = ""  # 供 Agent 上下文使用，如 "签到周期（2025-07-01 开始，每2天）"
 
 
 class CheckInResponseState(BaseModel):

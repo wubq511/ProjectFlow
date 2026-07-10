@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useInlineConfirm } from "@/lib/use-inline-confirm";
 import type { Risk } from "@/lib/types";
+import { MultilineText } from "@/components/ui/multiline-text";
+import { translateStatus } from "@/lib/utils";
 
 type RiskCardProps = {
   risk: Risk;
@@ -21,37 +23,9 @@ function severityClass(severity: Risk["severity"]) {
   return "bg-ink/8 text-ink/55";
 }
 
-function severityLabel(severity: Risk["severity"]) {
-  const labels: Record<Risk["severity"], string> = {
-    high: "高",
-    medium: "中",
-    low: "低",
-  };
-  return labels[severity];
-}
-
-function typeLabel(type: Risk["type"]) {
-  const labels: Record<Risk["type"], string> = {
-    deadline: "截止风险",
-    dependency: "依赖风险",
-    workload: "工作量风险",
-    scope: "范围风险",
-    review: "评审风险",
-    assignment: "分工风险",
-    checkin: "签到风险",
-  };
-  return labels[type];
-}
-
-function statusLabel(status: Risk["status"]) {
-  const labels: Record<Risk["status"], string> = {
-    open: "待处理",
-    accepted: "已接受",
-    ignored: "已忽略",
-    resolved: "已解决",
-  };
-  return labels[status];
-}
+function severityLabel(severity: Risk["severity"]) { return translateStatus(severity); }
+function typeLabel(type: Risk["type"]) { return translateStatus(type); }
+function statusLabel(status: Risk["status"]) { return translateStatus(status); }
 
 function typeClass(type: Risk["type"]) {
   switch (type) {
@@ -94,7 +68,7 @@ function evidenceLabel(key: string) {
 function evidenceValue(value: unknown) {
   if (Array.isArray(value)) return value.join("、");
   if (typeof value === "object" && value !== null) return "结构化项目证据";
-  return String(value);
+  return translateStatus(String(value));
 }
 
 /** Render a single evidence item — handles both string and dict formats */
@@ -102,7 +76,7 @@ function renderEvidenceItem(item: string | Record<string, unknown>, index: numbe
   if (typeof item === "string") {
     return (
       <li key={index} className="text-xs text-ink/60">
-        • {item}
+        <MultilineText text={item} as="div" />
       </li>
     );
   }
@@ -122,7 +96,7 @@ function renderEvidenceItem(item: string | Record<string, unknown>, index: numbe
           <span className="font-medium text-ink/70">{evidenceLabel(key)}</span>: {evidenceValue(value)}
         </span>
       ))}
-      {detail && <span className="ml-1 text-ink/50">— {detail}</span>}
+      {detail && <span className="ml-1 text-ink/50"><MultilineText text={`— ${detail}`} /></span>}
     </li>
   );
 }
@@ -160,7 +134,7 @@ export function RiskCard({ risk, onAccept, onIgnore, onResolve, pending }: RiskC
               {statusLabel(risk.status)}
             </Badge>
           </div>
-          <p className="mt-2 text-sm text-ink/70">{risk.description}</p>
+          <MultilineText text={risk.description} className="mt-2 text-sm text-ink/70" />
 
           {risk.evidence.length > 0 && (
             <div className="mt-3">
@@ -173,7 +147,8 @@ export function RiskCard({ risk, onAccept, onIgnore, onResolve, pending }: RiskC
 
           {risk.recommendation && (
             <div className="mt-3 rounded-md bg-white px-3 py-2 text-sm text-ink/75">
-              <span className="font-semibold text-ink/70">建议：</span> {risk.recommendation}
+              <span className="font-semibold text-ink/70">建议：</span>
+              <MultilineText text={risk.recommendation} className="mt-1" />
             </div>
           )}
 

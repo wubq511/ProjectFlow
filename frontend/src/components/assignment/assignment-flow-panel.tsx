@@ -6,6 +6,7 @@ import { CheckCircle2, ShieldCheck, UserCheck, XCircle, AlertCircle, ChevronDown
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MultilineText } from "@/components/ui/multiline-text";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -43,6 +44,10 @@ type AssignmentFlowPanelProps = {
     fromUserId: string,
     desiredTaskId: string,
   ) => void | Promise<void>;
+  onResolveNegotiation?: (
+    negotiationId: string,
+    resolution: "accepted" | "declined",
+  ) => void | Promise<void>;
   onFinalizeAssignments?: (stageId: string) => void | Promise<void>;
 };
 
@@ -79,6 +84,7 @@ export function AssignmentFlowPanel({
   pending,
   onRespondToAssignment,
   onStartNegotiation,
+  onResolveNegotiation,
   onFinalizeAssignments,
 }: AssignmentFlowPanelProps) {
   const [rejectingProposalId, setRejectingProposalId] = useState<string | null>(null);
@@ -87,7 +93,40 @@ export function AssignmentFlowPanel({
   const [expandedProposals, setExpandedProposals] = useState<Record<string, boolean>>({});
 
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
-  const activeStage = stages.find((stage) => stage.status === "active") ?? stages[0];
+  const activeStage = useMemo(
+    () => stages.find((s) => s.status === "active") ?? stages[0] ?? null,
+    [stages],
+  );
+  const activeStageId = activeStage?.id ?? null;
+  // Negotiations scoped to the current active stage
+  const stageNegotiations = useMemo(
+    () => negotiations.filter((n) => n.stage_id === activeStageId),
+    [negotiations, activeStageId],
+  );
+  const pendingStageNegotiations = useMemo(
+    () => stageNegotiations.filter((n) => n.status === "pending"),
+    [stageNegotiations],
+  );
+  // Tasks in this stage that already have a confirmed or finalized assignment.
+  // These shouldn't appear in the "want to switch to" dropdown.
+  // Tasks with "proposed", "owner_rejected", or "negotiating" status
+  // are still available for selection (未确认分工).
+  const claimedTaskIds = useMemo(
+    () => new Set(
+      proposals
+        .filter((p) => p.stage_id === activeStageId && (p.status === "owner_confirmed" || p.status === "finalized"))
+        .map((p) => p.task_id),
+    ),
+    [proposals, activeStageId],
+  );
+  // Only show unassigned tasks from the current active stage,
+  // excluding tasks already claimed by a live proposal.
+  const activeStageTasks = useMemo(
+    () => activeStageId
+      ? tasks.filter((t) => t.stage_id === activeStageId && !t.owner_user_id && !claimedTaskIds.has(t.id))
+      : [],
+    [tasks, activeStageId, claimedTaskIds],
+  );
 
   const canRespond = (status: AssignmentProposal["status"]) => status === "proposed";
 
@@ -107,10 +146,22 @@ export function AssignmentFlowPanel({
     setReason("");
   };
 
-  const confirmedCount = proposals.filter(p => p.status === "owner_confirmed" || p.status === "finalized").length;
-  const negotiatingCount = proposals.filter(p => p.status === "owner_rejected" || p.status === "negotiating").length;
-  const pendingCount = proposals.filter(p => p.status === "proposed").length;
-  const totalCount = proposals.length;
+  // Filter proposals to the current active stage only
+  const stageProposals = useMemo(
+    () => activeStageId ? proposals.filter((p) => p.stage_id === activeStageId) : proposals,
+    [proposals, activeStageId],
+  );
+  const confirmedCount = stageProposals.filter(p => p.status === "owner_confirmed" || p.status === "finalized").length;
+  // Only count proposals with active (pending) negotiations as blocking.
+  // owner_rejected without negotiation or with resolved negotiation = no longer blocking.
+  const negotiatingCount = stageProposals.filter((p) => {
+    if (p.status !== "owner_rejected" && p.status !== "negotiating") return false;
+    return pendingStageNegotiations.some(
+      (n) => n.desired_task_id === p.task_id || n.from_user_id === p.recommended_owner_user_id,
+    );
+  }).length;
+  const pendingCount = stageProposals.filter(p => p.status === "proposed").length;
+  const totalCount = stageProposals.length;
 
   const toggleExpand = (id: string) => {
     setExpandedProposals(prev => ({ ...prev, [id]: !prev[id] }));
@@ -138,16 +189,17 @@ export function AssignmentFlowPanel({
           </div>
         ) : (
           <div className="grid gap-4">
-            {proposals.map((proposal) => {
+            {stageProposals.map((proposal) => {
               const task = taskById.get(proposal.task_id);
               const isRejecting = rejectingProposalId === proposal.id;
               const selectedPreferredTask = preferredTaskId ? taskById.get(preferredTaskId) : null;
               const isConfirmed = proposal.status === "owner_confirmed" || proposal.status === "finalized";
-              const isNegotiating = proposal.status === "owner_rejected" || proposal.status === "negotiating";
+              const isNegotiating = (proposal.status === "owner_rejected" || proposal.status === "negotiating")
+                && negotiations.some(n => n.from_user_id === proposal.recommended_owner_user_id && n.status === "pending");
               const isExpanded = expandedProposals[proposal.id];
 
-              // Find related negotiation
-              const relatedNegotiations = negotiations.filter(
+              // Find related negotiations (scoped to current stage, including resolved)
+              const relatedNegotiations = stageNegotiations.filter(
                 n => n.desired_task_id === proposal.task_id || n.from_user_id === proposal.recommended_owner_user_id
               );
 
@@ -218,7 +270,7 @@ export function AssignmentFlowPanel({
                       )}
                       
                       <div className={isNegotiating ? "opacity-60" : ""}>
-                        <p className="text-sm text-ink/75">{cleanJsonString(proposal.reason)}</p>
+                        <MultilineText text={cleanJsonString(proposal.reason)} className="text-sm text-ink/75" />
                         {(proposal.skill_match || proposal.availability_match || proposal.preference_match || proposal.constraint_respected) && (
                           <div className="mt-3 grid gap-1.5 text-xs text-ink/60 bg-paper/50 p-3 rounded-md border border-ink/5">
                             {proposal.skill_match && <MatchText label="技能匹配：" text={proposal.skill_match} />}
@@ -228,30 +280,98 @@ export function AssignmentFlowPanel({
                           </div>
                         )}
                         {proposal.risk_note && (
-                          <p className="mt-3 rounded-md bg-coral/10 px-3 py-2 text-xs text-coral border border-coral/20">
+                          <div className="mt-3 rounded-md bg-coral/10 px-3 py-2 text-xs text-coral border border-coral/20">
                             <AlertCircle className="w-3.5 h-3.5 inline mr-1 -mt-0.5" />
-                            {proposal.risk_note}
-                          </p>
+                            <MultilineText text={proposal.risk_note} />
+                          </div>
                         )}
                       </div>
 
                       {/* Negotiation Block */}
-                      {isNegotiating && relatedNegotiations.length > 0 && (
+                      {relatedNegotiations.length > 0 && (
                         <div className="mt-4 space-y-3">
-                          {relatedNegotiations.map((negotiation) => (
-                            <div key={negotiation.id} className="rounded-md bg-white border border-coral/30 p-3 shadow-sm relative">
-                              <div className="absolute -top-2 left-4 bg-coral text-white text-[10px] font-bold px-2 py-0.5 rounded">
-                                成员拒绝 & 协商
+                          {relatedNegotiations.map((negotiation) => {
+                            const isPending = negotiation.status === "pending";
+                            const isAccepted = negotiation.status === "accepted";
+                            const isDeclined = negotiation.status === "declined";
+                            const isResolved = !isPending;
+                            const desiredTask = taskById.get(negotiation.desired_task_id);
+                            const currentOwnerName = negotiation.current_owner_user_id
+                              ? memberName(members, negotiation.current_owner_user_id)
+                              : null;
+
+                            let statusTag: string;
+                            let statusTagClass: string;
+                            if (isPending) {
+                              statusTag = "成员拒绝 & 协商";
+                              statusTagClass = "bg-coral";
+                            } else if (isAccepted) {
+                              statusTag = "协商已接受";
+                              statusTagClass = "bg-moss";
+                            } else if (isDeclined) {
+                              statusTag = "协商已拒绝";
+                              statusTagClass = "bg-ink/60";
+                            } else {
+                              statusTag = "协商已过期";
+                              statusTagClass = "bg-ink/40";
+                            }
+
+                            return (
+                            <div key={negotiation.id} className={`rounded-md bg-white border p-3 shadow-sm relative ${
+                              isPending ? "border-coral/30" : "border-ink/10 opacity-75"
+                            }`}>
+                              <div className={`absolute -top-2 left-4 text-white text-[10px] font-bold px-2 py-0.5 rounded ${statusTagClass}`}>
+                                {statusTag}
                               </div>
                               <p className="text-sm text-ink/80 mt-2 font-medium">来自 {memberName(members, negotiation.from_user_id)} 的反馈：</p>
-                              <p className="text-sm text-ink/70 mt-1 italic">&quot;{negotiation.agent_message}&quot;</p>
+                              <div className="text-sm text-ink/70 mt-1 italic">
+                                <MultilineText text={negotiation.agent_message} />
+                              </div>
                               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                                 <Badge variant="outline" className="bg-paper/50 text-ink/60">
-                                  偏好接手：{taskById.get(negotiation.desired_task_id)?.title ?? "未知任务"}
+                                  偏好接手：{desiredTask?.title ?? "未知任务"}
                                 </Badge>
+                                {currentOwnerName && (
+                                  <Badge variant="outline" className="bg-paper/50 text-ink/60">
+                                    当前负责人：{currentOwnerName}
+                                  </Badge>
+                                )}
+                                {isAccepted && (
+                                  <Badge className="bg-moss/15 text-moss">已接受</Badge>
+                                )}
+                                {isDeclined && (
+                                  <Badge className="bg-ink/10 text-ink/50">已拒绝</Badge>
+                                )}
+                                {!isPending && !isAccepted && !isDeclined && (
+                                  <Badge className="bg-ink/10 text-ink/50">已过期</Badge>
+                                )}
                               </div>
+                              {/* Accept/Decline buttons for pending negotiations */}
+                              {!isResolved && negotiation.status === "pending" && onResolveNegotiation && (
+                                <div className="mt-3 flex items-center gap-2 pt-3 border-t border-ink/5">
+                                  <Button
+                                    size="sm"
+                                    disabled={pending}
+                                    className="bg-moss text-white hover:bg-moss/85 h-8 text-xs"
+                                    onClick={() => onResolveNegotiation(negotiation.id, "accepted")}
+                                  >
+                                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                                    接受换任务
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={pending}
+                                    className="h-8 text-xs"
+                                    onClick={() => onResolveNegotiation(negotiation.id, "declined")}
+                                  >
+                                    <XCircle className="h-3.5 w-3.5 mr-1" />
+                                    拒绝
+                                  </Button>
+                                </div>
+                              )}
                             </div>
-                          ))}
+                          )})}
                         </div>
                       )}
 
@@ -321,7 +441,9 @@ export function AssignmentFlowPanel({
                                       </span>
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {tasks.map((task) => (
+                                      {activeStageTasks
+                                        .filter((t) => t.id !== proposal.task_id)
+                                        .map((task) => (
                                         <SelectItem key={task.id} value={task.id} className="text-sm">
                                           {task.title}
                                         </SelectItem>
@@ -379,10 +501,12 @@ export function AssignmentFlowPanel({
         <Button
           type="button"
           disabled={pending || !activeStage || pendingCount > 0 || negotiatingCount > 0}
-          onClick={() => activeStage && onFinalizeAssignments?.(activeStage.id)}
-          className={`h-10 px-6 ${pendingCount === 0 && negotiatingCount === 0 ? "bg-moss text-white hover:bg-moss/90" : "bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-100 disabled:text-blue-400"}`}
+          onClick={() => { activeStage && onFinalizeAssignments?.(activeStage.id); }}
+          className="h-10 px-6 bg-moss text-white hover:bg-moss/90 disabled:bg-neutral-200 disabled:text-neutral-400"
         >
-          {pendingCount === 0 && negotiatingCount === 0 ? "确认定稿，正式生效" : "确认当前阶段分工"}
+          {pendingCount > 0 || negotiatingCount > 0
+            ? `请先处理 ${pendingCount > 0 ? `${pendingCount} 个待定` : ""}${pendingCount > 0 && negotiatingCount > 0 ? "、" : ""}${negotiatingCount > 0 ? `${negotiatingCount} 个协商` : ""}`
+            : "确认定稿，正式生效"}
         </Button>
       </div>
     </section>

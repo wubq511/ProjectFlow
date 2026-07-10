@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, Target, Package, ShieldAlert, Lightbulb, C
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { MultilineText } from "@/components/ui/multiline-text";
 
 export type DirectionDecisionContent = {
   problem?: string;
@@ -46,25 +47,6 @@ function SectionHeader({ icon: Icon, children, color }: { icon: React.ElementTyp
   );
 }
 
-function FieldBlock({
-  label,
-  children,
-  emphasized,
-}: {
-  label: string;
-  children: ReactNode;
-  emphasized?: boolean;
-}) {
-  return (
-    <div>
-      <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">{label}</p>
-      <div className={cn("mt-1 text-sm leading-6 text-ink/80", emphasized && "text-base font-semibold leading-7 text-ink")}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 export function DirectionDecisionView({ content, compact }: DirectionDecisionViewProps) {
   const deliverables = safeStringList(content.deliverables);
   const boundaries = safeStringList(content.boundaries);
@@ -84,15 +66,18 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
     <article className={cn("space-y-5", compact && "space-y-4")}>
       {/* Reason */}
       {content.reason && (
-        <p className="rounded-lg bg-primary/5 px-4 py-3 text-sm leading-6 text-ink/70 border border-primary/10">
-          {content.reason}
-        </p>
+        <div className="rounded-lg bg-primary/5 px-4 py-3 text-sm leading-6 text-ink/70 border border-primary/10">
+          <MultilineText text={content.reason} />
+        </div>
       )}
 
       {/* Source Summary */}
       {content.source_summary && (
         <div className="rounded-lg bg-paper px-4 py-3 border border-ink/8">
-          <FieldBlock label="依据摘要">{content.source_summary}</FieldBlock>
+          <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">依据摘要</p>
+          <div className="mt-1 text-sm leading-6 text-ink/80">
+            <MultilineText text={content.source_summary} />
+          </div>
         </div>
       )}
 
@@ -101,12 +86,31 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
         <section className="rounded-lg bg-primary/5 px-4 py-4 space-y-4 border border-primary/10">
           <SectionHeader icon={Target} color="bg-primary/15 text-primary">核心定义</SectionHeader>
           {content.problem && (
-            <FieldBlock label="核心问题" emphasized>{content.problem}</FieldBlock>
+            <div>
+              <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">核心问题</p>
+              <div className="mt-1 text-base font-semibold leading-7 text-ink">
+                <MultilineText text={content.problem} />
+              </div>
+            </div>
           )}
           {hasAudienceOrValue && (
             <div className="grid gap-4 sm:grid-cols-2">
-              {content.users && <FieldBlock label="目标用户">{content.users}</FieldBlock>}
-              {content.value && <FieldBlock label="核心价值">{content.value}</FieldBlock>}
+              {content.users && (
+                <div>
+                  <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">目标用户</p>
+                  <div className="mt-1 text-sm leading-6 text-ink/80">
+                    <MultilineText text={content.users} />
+                  </div>
+                </div>
+              )}
+              {content.value && (
+                <div>
+                  <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">核心价值</p>
+                  <div className="mt-1 text-sm leading-6 text-ink/80">
+                    <MultilineText text={content.value} />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </section>

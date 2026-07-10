@@ -40,6 +40,16 @@ export interface ResumePolicy {
   requiresRegenerationOnMismatch: boolean;
 }
 
+/** Lightweight summary of a tool call result for the GET /runs response. */
+export interface ToolResultSummary {
+  toolCallId: string;
+  toolName: string;
+  sideEffectStatus: SideEffectStatus;
+  observation: string;
+  proposalId?: string;
+  createdIds?: string[];
+}
+
 export interface RunBudgetLimits {
   maxSteps: number;
   maxToolCalls: number;
@@ -61,6 +71,7 @@ export interface AgentRunState {
   thinkingLevel?: ThinkingLevel;
   pendingToolCall?: PendingToolCall;
   sideEffects: SideEffect[];
+  toolResults: ToolResultSummary[];
   lastEventSeq: number;
   budgetLimits: RunBudgetLimits;
   resumePolicy: ResumePolicy;
@@ -99,6 +110,7 @@ export function createRunState(input: CreateRunStateInput): AgentRunState {
     model: input.model,
     thinkingLevel: input.thinkingLevel,
     sideEffects: [],
+    toolResults: [],
     lastEventSeq: 0,
     budgetLimits: {
       maxSteps: input.maxSteps,

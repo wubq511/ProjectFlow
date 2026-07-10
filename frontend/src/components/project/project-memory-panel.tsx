@@ -14,6 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { MultilineText } from "@/components/ui/multiline-text";
 import type { ProjectMemory } from "@/lib/types";
 import {
   exportProjectMemoriesMarkdown,
@@ -279,8 +280,8 @@ export function ProjectMemoryPanel({ projectId, projectName, currentUserId }: Pr
                         : "border-neutral-100 bg-neutral-50/30 text-neutral-500"
                     )}
                   >
-                    <p className="text-sm font-medium text-neutral-900">{memory.content}</p>
-                    <p className="mt-1 text-xs text-neutral-500">{memory.rationale}</p>
+                    <MultilineText text={memory.content} className="text-sm font-medium text-neutral-900" />
+                    <MultilineText text={memory.rationale} className="mt-1 text-xs text-neutral-500" />
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <Badge variant="outline" className="text-[10px]">
                         {SOURCE_TYPE_CN[memory.source_type] ?? memory.source_type}

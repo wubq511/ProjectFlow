@@ -211,7 +211,7 @@ describe("frontend API layer", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await runAssignment("project-1");
+    await runAssignment("project-1", "test-user");
 
     // getProject + POST /runs + GET /runs/:id + GET timeline
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -301,7 +301,7 @@ describe("frontend API layer", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await runAssignment("project-1", "stage-pending");
+    await runAssignment("project-1", "test-user", "stage-pending");
 
     // getProject + POST /runs + GET /runs/:id + GET timeline
     expect(fetchMock).toHaveBeenCalledTimes(4);

@@ -97,7 +97,7 @@ class StagePlanOutput(AgentOutputBase):
 
 class TaskBreakdownItem(BaseModel):
     id: str = Field(default="", description="Task identifier for dependency references, e.g. 'task-1', 'task-2'. Auto-generated if empty.")
-    stage_id: str | None = None
+    stage_id: str = Field(min_length=1)
     title: str = Field(min_length=1)
     description: str = Field(min_length=1)
     priority: TaskPriority

@@ -621,6 +621,7 @@ export type AgentStreamCallbacks = {
 export async function sendAgentConversationMessageStream(
   conversationId: string,
   content: string,
+  viewerUserId: string,
   callbacks: AgentStreamCallbacks,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -628,7 +629,7 @@ export async function sendAgentConversationMessageStream(
   const response = await fetch(`${API_BASE_URL}/agent/conversations/${conversationId}/messages/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content, viewer_user_id }),
+    body: JSON.stringify({ content, viewer_user_id: viewerUserId }),
     signal,
   });
 
@@ -698,7 +699,7 @@ const SKILL_NAME_MAP: Record<string, string> = {
   assign: "assignment-planning",
   "active-push": "project-status",
   "check-in-analysis": "risk-replan",
-  "risk-analysis": "risk-replan",
+  "risk-analysis": "risk-analysis",
   replan: "risk-replan",
   negotiate: "assignment-planning",
   retrospective: "project-status",
@@ -720,6 +721,7 @@ const ENDPOINT_EVENT_TYPE_MAP: Record<string, string> = {
 async function runAgentFlow(
   projectId: string,
   endpoint: string,
+  viewerUserId: string,
   extraBody?: Record<string, unknown>,
   thinkingLevel?: import("./types").ThinkingLevel,
   model?: { provider: string; name: string },
@@ -751,7 +753,7 @@ async function runAgentFlow(
       conversation_id: `project-${projectId}`,
       workspace_id: project.workspace_id,
       project_id: projectId,
-      viewer_user_id: typeof window !== "undefined" && window.localStorage ? localStorage.getItem("projectflow:current-user-id") || undefined : undefined,
+      viewer_user_id: viewerUserId,
       user_content: userContent,
       runtime_config: {
         skill: skillName,
@@ -776,6 +778,18 @@ async function runAgentFlow(
   const startTime = Date.now();
 
   let runStatus: string = "running";
+  // Capture the last poll response to extract tool_results after completion
+  interface PollData {
+    status: string;
+    tool_results?: Array<{
+      tool_name: string;
+      side_effect_status: string;
+      observation: string;
+      proposal_id?: string;
+      created_ids?: string[];
+    }>;
+  }
+  let lastPollData: PollData | null = null;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     const pollResp = await fetch(`${SIDECAR_BASE_URL}/runs/${runId}`);
@@ -785,8 +799,9 @@ async function runAgentFlow(
       }
       continue; // transient error, keep polling
     }
-    const pollData = (await pollResp.json()) as { status: string };
-    runStatus = pollData.status;
+    const pollData = (await pollResp.json()) as PollData;
+    lastPollData = pollData;
+    runStatus = pollData?.status ?? "running";
     if (runStatus === "completed" || runStatus === "failed" || runStatus === "cancelled") break;
   }
 
@@ -796,7 +811,24 @@ async function runAgentFlow(
   const isTerminal = runStatus === "completed" || runStatus === "failed" || runStatus === "cancelled";
   const timedOut = !isTerminal && Date.now() >= deadline;
 
-  if (runStatus === "completed") {
+  // Extract tool_results from poll response for visibility
+  const toolResults = lastPollData?.tool_results ?? [];
+  const successfulResults = toolResults.filter(
+    (tr) => tr.side_effect_status === "advisory_record_persisted" || tr.side_effect_status === "proposal_persisted",
+  );
+
+  if (runStatus === "completed" || successfulResults.length > 0) {
+    // Extract created_ids, proposal_id, observations from tool_results
+    const createdIds: string[] = [];
+    let proposalId: string | null = null;
+    const observations: string[] = [];
+
+    for (const tr of toolResults) {
+      if (tr.proposal_id) proposalId = tr.proposal_id;
+      if (tr.created_ids) createdIds.push(...tr.created_ids);
+      if (tr.observation) observations.push(tr.observation);
+    }
+
     // Verify success: check timeline for a corresponding event
     try {
       const timeline = await listTimelineByProject(projectId);
@@ -804,19 +836,45 @@ async function runAgentFlow(
       // to avoid matching events from a previous run
       const recentEvent = timeline.find(e => new Date(e.created_at).getTime() >= startTime);
       if (recentEvent) {
+        const output = (recentEvent.output_snapshot ?? {}) as Record<string, unknown>;
+        // Merge tool_results into output for visibility
+        if (toolResults.length > 0) {
+          output.tool_results = toolResults;
+        }
         return {
           event_type: recentEvent.event_type as AgentFlowResult["event_type"],
           status: recentEvent.status,
           attempts: 1,
           used_fallback: recentEvent.status === "fallback",
-          output: recentEvent.output_snapshot ?? {},
-          created_ids: [],
+          output,
+          created_ids: createdIds.length > 0 ? createdIds : [],
+          ...(proposalId ? { proposal_id: proposalId } : {}),
         };
       }
     } catch (e) {
       console.error("Failed to verify timeline event:", e);
     }
-    // Sidecar completed but no matching timeline event — degraded success
+
+    // No timeline event but tool_results available — use tool_results data
+    if (toolResults.length > 0) {
+      const output: Record<string, unknown> = {};
+      if (observations.length > 0) {
+        output.summary = observations.join("\n");
+      }
+      output.tool_results = toolResults;
+
+      return {
+        event_type: (ENDPOINT_EVENT_TYPE_MAP[endpoint] ?? "clarify") as AgentFlowResult["event_type"],
+        status: "success",
+        attempts: 1,
+        used_fallback: false,
+        output,
+        created_ids: createdIds,
+        ...(proposalId ? { proposal_id: proposalId } : {}),
+      };
+    }
+
+    // Sidecar completed but no matching timeline event and no tool_results — degraded success
     const fallbackEventType = ENDPOINT_EVENT_TYPE_MAP[endpoint] ?? "clarify";
     console.warn("Agent run completed but no matching timeline event found, fallback event_type=%s", fallbackEventType);
     return {
@@ -856,44 +914,44 @@ async function runAgentFlow(
 type TL = import("./types").ThinkingLevel;
 type ModelRef = { provider: string; name: string };
 
-export async function runClarification(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "clarify", undefined, thinkingLevel, model);
+export async function runClarification(projectId: string, viewerUserId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "clarify", viewerUserId, undefined, thinkingLevel, model);
 }
 
-export async function runPlanning(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "plan", undefined, thinkingLevel, model);
+export async function runPlanning(projectId: string, viewerUserId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "plan", viewerUserId, undefined, thinkingLevel, model);
 }
 
-export async function runBreakdown(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "breakdown", undefined, thinkingLevel, model);
+export async function runBreakdown(projectId: string, viewerUserId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "breakdown", viewerUserId, undefined, thinkingLevel, model);
 }
 
-export async function runAssignment(projectId: string, stageId?: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "assign", stageId ? { stage_id: stageId } : undefined, thinkingLevel, model);
+export async function runAssignment(projectId: string, viewerUserId: string, stageId?: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "assign", viewerUserId, stageId ? { stage_id: stageId } : undefined, thinkingLevel, model);
 }
 
-export async function runActivePush(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "active-push", undefined, thinkingLevel, model);
+export async function runActivePush(projectId: string, viewerUserId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "active-push", viewerUserId, undefined, thinkingLevel, model);
 }
 
-export async function runCheckinAnalysis(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "check-in-analysis", undefined, thinkingLevel, model);
+export async function runCheckinAnalysis(projectId: string, viewerUserId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "check-in-analysis", viewerUserId, undefined, thinkingLevel, model);
 }
 
-export async function runRiskAnalysis(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "risk-analysis", undefined, thinkingLevel, model);
+export async function runRiskAnalysis(projectId: string, viewerUserId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "risk-analysis", viewerUserId, undefined, thinkingLevel, model);
 }
 
-export async function runReplan(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "replan", undefined, thinkingLevel, model);
+export async function runReplan(projectId: string, viewerUserId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "replan", viewerUserId, undefined, thinkingLevel, model);
 }
 
-export async function runAgentNegotiate(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "negotiate", undefined, thinkingLevel, model);
+export async function runAgentNegotiate(projectId: string, viewerUserId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "negotiate", viewerUserId, undefined, thinkingLevel, model);
 }
 
-export async function runRetrospective(projectId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
-  return runAgentFlow(projectId, "retrospective", undefined, thinkingLevel, model);
+export async function runRetrospective(projectId: string, viewerUserId: string, thinkingLevel?: TL, model?: ModelRef): Promise<AgentFlowResult> {
+  return runAgentFlow(projectId, "retrospective", viewerUserId, undefined, thinkingLevel, model);
 }
 
 // --- Confirmation ---
@@ -952,12 +1010,11 @@ export async function startNegotiation(
 
 export async function resolveNegotiation(
   negotiationId: string,
-  accepted: boolean,
-  resolvedBy: string,
+  resolution: "accepted" | "declined",
 ): Promise<void> {
   await request(`/assignment-negotiations/${negotiationId}/resolve`, {
     method: "POST",
-    body: JSON.stringify({ accepted, resolved_by: resolvedBy }),
+    body: JSON.stringify({ resolution }),
   });
 }
 

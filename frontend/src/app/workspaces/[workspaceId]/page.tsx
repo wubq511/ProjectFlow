@@ -18,6 +18,7 @@ import {
   getProjectState,
   getWorkspaceState,
   rejectAgentProposal,
+  resolveNegotiation,
   respondToAssignment,
   resetDemo,
   runActivePush,
@@ -48,16 +49,16 @@ import type {
   ThinkingLevel,
 } from "@/lib/types";
 
-const AGENT_RUNNERS: Record<AgentAction, (projectId: string, state?: ProjectState, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => Promise<unknown>> = {
-  clarify: (projectId, _state, tl, m) => runClarification(projectId, tl, m),
-  plan: (projectId, _state, tl, m) => runPlanning(projectId, tl, m),
-  breakdown: (projectId, _state, tl, m) => runBreakdown(projectId, tl, m),
-  assign: (projectId, state, tl, m) => runAssignment(projectId, resolveActiveStageId(state), tl, m),
-  push: (projectId, _state, tl, m) => runActivePush(projectId, tl, m),
-  "analyze-checkins": (projectId, _state, tl, m) => runCheckinAnalysis(projectId, tl, m),
-  "risk-analysis": (projectId, _state, tl, m) => runRiskAnalysis(projectId, tl, m),
-  replan: (projectId, _state, tl, m) => runReplan(projectId, tl, m),
-};
+	const AGENT_RUNNERS: Record<AgentAction, (projectId: string, state?: ProjectState, viewerUserId?: string, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => Promise<unknown>> = {
+	  clarify: (projectId, _state, vuid, tl, m) => runClarification(projectId, vuid!, tl, m),
+	  plan: (projectId, _state, vuid, tl, m) => runPlanning(projectId, vuid!, tl, m),
+	  breakdown: (projectId, _state, vuid, tl, m) => runBreakdown(projectId, vuid!, tl, m),
+	  assign: (projectId, state, vuid, tl, m) => runAssignment(projectId, vuid!, resolveActiveStageId(state), tl, m),
+	  push: (projectId, _state, vuid, tl, m) => runActivePush(projectId, vuid!, tl, m),
+	  "analyze-checkins": (projectId, _state, vuid, tl, m) => runCheckinAnalysis(projectId, vuid!, tl, m),
+	  "risk-analysis": (projectId, _state, vuid, tl, m) => runRiskAnalysis(projectId, vuid!, tl, m),
+	  replan: (projectId, _state, vuid, tl, m) => runReplan(projectId, vuid!, tl, m),
+	};
 
 const AGENT_ACTION_LABELS: Record<AgentAction, string> = {
   clarify: "方向澄清",
@@ -286,7 +287,7 @@ export default function WorkspaceDashboardPage() {
     setActionError(null);
     setActionSuccess(null);
     try {
-      const result = (await AGENT_RUNNERS[action](selectedProjectId, projectState ?? undefined, thinkingLevel, model)) as AgentFlowResult;
+      const result = (await AGENT_RUNNERS[action](selectedProjectId, projectState ?? undefined, currentUserId, thinkingLevel, model)) as AgentFlowResult;
       await reloadProject();
       if (result?.status === "fallback") {
         setActionSuccess(`${AGENT_ACTION_LABELS[action]}已完成（已使用基础建议）`);
@@ -295,13 +296,38 @@ export default function WorkspaceDashboardPage() {
       } else if (result?.status === "failed") {
         setActionError(`${AGENT_ACTION_LABELS[action]}失败，请重试。`);
       } else {
-        // For push, mention what was created
-        const cards = (result?.output as Record<string, unknown>)?.action_cards;
-        if (action === "push" && Array.isArray(cards) && cards.length > 0) {
-          const title = (cards[0] as Record<string, unknown>)?.title;
-          setActionSuccess(`已生成行动卡"${title}"，请在项目总览中查看`);
+        // Build a meaningful success message from tool results
+        const toolResults = (result?.output as Record<string, unknown>)?.tool_results as Array<{
+          tool_name: string;
+          side_effect_status: string;
+          observation: string;
+          proposal_id?: string;
+        }> | undefined;
+
+        if (toolResults && toolResults.length > 0) {
+          const hasProposal = toolResults.some((tr) => tr.side_effect_status === "proposal_persisted");
+          const hasAdvisory = toolResults.some((tr) => tr.side_effect_status === "advisory_record_persisted");
+
+          if (hasProposal) {
+            // Proposal was created — tell user to check overview
+            setActionSuccess(`${AGENT_ACTION_LABELS[action]}已完成：已生成提案，请在项目总览中确认或拒绝`);
+          } else if (hasAdvisory) {
+            // Advisory records created (risk/checkin) — tell user what happened
+            const advisoryObs = toolResults.find((tr) => tr.side_effect_status === "advisory_record_persisted")?.observation;
+            setActionSuccess(`${AGENT_ACTION_LABELS[action]}已完成：${advisoryObs || "已创建记录"}`);
+          } else {
+            // Tools were called but nothing was created — state didn't need changes
+            setActionSuccess(`${AGENT_ACTION_LABELS[action]}已完成：项目状态已分析，暂无需更新`);
+          }
         } else {
-          setActionSuccess(`${AGENT_ACTION_LABELS[action]}已完成`);
+          // Fallback for push action cards
+          const cards = (result?.output as Record<string, unknown>)?.action_cards;
+          if (action === "push" && Array.isArray(cards) && cards.length > 0) {
+            const title = (cards[0] as Record<string, unknown>)?.title;
+            setActionSuccess(`已生成行动卡"${title}"，请在项目总览中查看`);
+          } else {
+            setActionSuccess(`${AGENT_ACTION_LABELS[action]}已完成`);
+          }
         }
       }
     } catch (err: unknown) {
@@ -347,6 +373,7 @@ export default function WorkspaceDashboardPage() {
       await sendAgentConversationMessageStream(
         agentConversation.id,
         content,
+        currentUserId ?? "",
         {
           onStatus: (status) => {
             setStreamStatus(status as { phase: AgentStreamPhase; module?: string; message: string });
@@ -461,14 +488,37 @@ export default function WorkspaceDashboardPage() {
     }
   };
 
+  const handleResolveNegotiation = async (
+    negotiationId: string,
+    resolution: "accepted" | "declined",
+  ) => {
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      await resolveNegotiation(negotiationId, resolution);
+      await reloadProject();
+      setActionSuccess(
+        resolution === "accepted"
+          ? "协商已接受，任务分配已更新。"
+          : "协商已拒绝。"
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "未知错误";
+      setActionError(`协商解决失败：${msg}`);
+    }
+  };
+
   const handleFinalizeAssignments = async (stageId: string) => {
     if (!projectState) return;
     setActionError(null);
+    setActionSuccess(null);
     try {
       await finalizeAssignments(stageId, projectState.project.created_by);
       await reloadProject();
-    } catch {
-      setActionError("确认分工路由暂不可用，任务负责人未被更改。");
+      setActionSuccess("分工已定稿，任务负责人已更新。");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "未知错误";
+      setActionError(`定稿失败：${msg}`);
     }
   };
 
@@ -698,6 +748,7 @@ export default function WorkspaceDashboardPage() {
       onSendAgentMessage={handleSendAgentMessage}
       onRespondToAssignment={handleAssignmentResponse}
       onStartNegotiation={handleStartNegotiation}
+      onResolveNegotiation={handleResolveNegotiation}
       onFinalizeAssignments={handleFinalizeAssignments}
       onSubmitCheckin={handleSubmitCheckin}
       onUpdateTaskStatus={handleUpdateTaskStatus}

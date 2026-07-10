@@ -27,6 +27,7 @@ import { EventStream } from "@/events/stream.js";
 import { ModelConfigStore } from "@/config/model-config-store.js";
 import { DotEnvWriter } from "@/config/dotenv-writer.js";
 import { ModelRouter } from "@/runtime/model-router.js";
+import { SkillLoader } from "@/skills/skill-loader.js";
 import type { RunContext } from "./routes/utils.js";
 
 type RouteHandler = (req: IncomingMessage, res: ServerResponse, params: Record<string, string>, ctx: RunContext) => Promise<void>;
@@ -86,6 +87,8 @@ export function createServer(config: SidecarConfig, serverCtx?: Partial<ServerCo
   });
   const modelRouter = serverCtx?.modelRouter ?? new ModelRouter(modelConfigStore);
 
+  const skillLoader = new SkillLoader();
+
   const ctx: RunContext = {
     config,
     sessionStore,
@@ -96,6 +99,7 @@ export function createServer(config: SidecarConfig, serverCtx?: Partial<ServerCo
     modelConfigStore,
     dotenvWriter,
     reloadDotEnv: serverCtx?.reloadDotEnv ?? (async () => { await modelConfigStore.load(); }),
+    skillLoader,
   };
 
   const routes: Route[] = [

@@ -7,6 +7,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { parseRunStartRequest } from "@/types/wire.js";
 import { createRunState } from "@/types/run-state.js";
 import { executeRun } from "@/runtime/pi-runtime.js";
+import type { SkillContext } from "@/runtime/context-builder.js";
+import { getSkillIndex } from "@/skills/skill-index.js";
 import type { StreamEventType } from "@/events/stream.js";
 import type { RuntimeEvent } from "@/types/runtime-event.js";
 import type { RunContext } from "./utils.js";
@@ -80,6 +82,22 @@ export async function handleStartRun(
   // Default read-only tools are registered once at server startup (see app.ts);
   // the shared registry is reused across runs.
 
+  // Load skill context from SKILL.md
+  let skillContext: SkillContext | undefined;
+  const skillName = parsed.runtime_config?.skill;
+  if (skillName) {
+    const skillMeta = getSkillIndex().get(skillName);
+    if (skillMeta) {
+      const loaded = await ctx.skillLoader.loadSkill(skillMeta);
+      skillContext = {
+        name: skillMeta.name,
+        description: skillMeta.description,
+        body: loaded.body,
+        allowedTools: skillMeta.allowedTools,
+      };
+    }
+  }
+
   // Start the runtime loop asynchronously
   executeRun(
     runState,
@@ -91,6 +109,7 @@ export async function handleStartRun(
       workspaceState: parsed.workspace_state,
       recentMessages: parsed.recent_messages,
       pendingProposals: parsed.pending_proposals,
+      skillContext,
     },
     ctx.toolRegistry,
     // Model router: resolve from model config registry (loaded from model-configs.json)

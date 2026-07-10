@@ -345,7 +345,11 @@ def test_confirm_plan_sets_first_new_stage_active(client: TestClient):
 
 
 def test_confirm_plan_does_not_duplicate_active_stage(client: TestClient):
-    """Re-confirming a plan when an active stage exists should not create another active stage."""
+    """Confirming a second plan replaces old stages (completed) and activates the first new stage.
+
+    A confirmed plan is authoritative — the old plan is superseded, its stages become
+    "completed", and the new plan's first stage becomes active.
+    """
     workspace, project, owner = _create_project_without_stage(client)
 
     # First plan confirmation -> activates the first stage
@@ -362,7 +366,7 @@ def test_confirm_plan_does_not_duplicate_active_stage(client: TestClient):
     stages_after_first = client.get(f"/api/projects/{project['id']}/stages").json()
     assert any(s["status"] == "active" for s in stages_after_first)
 
-    # Second plan confirmation -> new stages should be pending
+    # Second plan confirmation — replaces old plan entirely
     data2 = _call_stage_plan_proposal(client, workspace["id"], project["id"])
     confirm2 = client.post(
         f"/api/agent-proposals/{data2['links']['proposal_id']}/confirm",
@@ -371,12 +375,20 @@ def test_confirm_plan_does_not_duplicate_active_stage(client: TestClient):
     assert confirm2.status_code == 200
 
     all_stages = client.get(f"/api/projects/{project['id']}/stages").json()
-    new_stages = [s for s in all_stages if s["id"] not in {st["id"] for st in stages_after_first}]
-    assert all(s["status"] == "pending" for s in new_stages)
+    old_stage_ids = {st["id"] for st in stages_after_first}
+    old_stages = [s for s in all_stages if s["id"] in old_stage_ids]
+    new_stages = [s for s in all_stages if s["id"] not in old_stage_ids]
 
-    # Original active stage should remain the current one
+    # Old stages are now completed
+    assert all(s["status"] == "completed" for s in old_stages)
+    # New stages exist and the first one is active
+    assert len(new_stages) > 0
+    assert new_stages[0]["status"] == "active"
+
+    # New active stage is now the current stage
     project_after = client.get(f"/api/projects/{project['id']}").json()
-    assert project_after["current_stage_id"] == original_active_id
+    assert project_after["current_stage_id"] != original_active_id
+    assert project_after["current_stage_id"] == new_stages[0]["id"]
 
 
 # --- Task Breakdown ---

@@ -127,13 +127,16 @@ class OpenAICompatibleLLMClient:
         self.timeout_seconds = timeout_seconds
 
     def complete(self, messages: list[dict[str, str]], *, max_tokens: int | None = None) -> str:
-        body = {
+        body: dict = {
             "model": self.model,
             "messages": messages,
-            "response_format": {"type": "json_object"},
             "temperature": 0.05,
             "max_tokens": max_tokens or 1800,
         }
+        # DeepSeek does not support response_format json_object; only set it for providers that do
+        is_deepseek = "deepseek" in self.base_url.lower() or "deepseek" in self.model.lower()
+        if not is_deepseek:
+            body["response_format"] = {"type": "json_object"}
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",

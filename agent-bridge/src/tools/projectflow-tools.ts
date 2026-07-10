@@ -271,14 +271,20 @@ const getTimelineSliceManifest: ProjectFlowToolManifest = {
 const generateStagePlanProposalManifest: ProjectFlowToolManifest = {
   ...PROPOSAL_DEFAULTS,
   name: "generate_stage_plan_proposal",
-  description: "根据当前项目状态生成待确认的阶段计划草案，不直接创建或修改 Stage/Project 主事实。Sidecar LLM 生成 output 后传入持久化。",
+  description: "根据当前项目状态生成待确认的阶段计划草案，不直接创建或修改 Stage/Project 主事实。",
   inputSchema: {
     type: "object",
     properties: {
       user_instruction: { type: "string", description: "本次阶段计划的用户意图或约束（可选）" },
       output: {
         type: "object",
-        description: "Sidecar LLM 生成的阶段计划内容（含 stages、reason、requires_confirmation），传入后 FastAPI 只做校验+持久化，不调 LLM",
+        description: "阶段计划内容",
+        properties: {
+          reason: { type: "string", description: "计划理由" },
+          requires_confirmation: { type: "boolean" },
+          stages: { type: "array", description: "阶段列表" },
+        },
+        required: ["reason", "stages"],
       },
     },
   },
@@ -296,14 +302,19 @@ const generateStagePlanProposalManifest: ProjectFlowToolManifest = {
 const generateReplanProposalManifest: ProjectFlowToolManifest = {
   ...PROPOSAL_DEFAULTS,
   name: "generate_replan_proposal",
-  description: "根据当前项目状态、签到和风险信号生成待确认的计划调整草案，不直接修改任务、阶段或负责人。Sidecar LLM 生成 output 后传入持久化。",
+  description: "根据当前项目状态、签到和风险信号生成待确认的计划调整草案，不直接修改任务、阶段或负责人。",
   inputSchema: {
     type: "object",
     properties: {
       user_instruction: { type: "string", description: "本次重规划的用户意图或触发原因（可选）" },
       output: {
         type: "object",
-        description: "Sidecar LLM 生成的重规划内容（含 before/after/impact/task_changes/stage_adjustments），传入后 FastAPI 只做校验+持久化，不调 LLM",
+        description: "重规划内容",
+        properties: {
+          reason: { type: "string", description: "调整原因" },
+          impact: { type: "string", description: "影响描述" },
+        },
+        required: ["reason", "impact"],
       },
     },
   },
@@ -321,14 +332,22 @@ const generateReplanProposalManifest: ProjectFlowToolManifest = {
 const generateDirectionCardProposalManifest: ProjectFlowToolManifest = {
   ...PROPOSAL_DEFAULTS,
   name: "generate_direction_card_proposal",
-  description: "根据当前项目信息生成待确认的方向卡草案，不直接写入 Project。Sidecar LLM 生成 output 后传入持久化。",
+  description: "根据当前项目信息生成待确认的方向卡草案，不直接写入 Project。",
   inputSchema: {
     type: "object",
     properties: {
       user_instruction: { type: "string", description: "本次方向卡的补充意图或约束（可选）" },
       output: {
         type: "object",
-        description: "Sidecar LLM 生成的方向卡内容（含 problem/users/value/deliverables/reason/requires_confirmation），传入后 FastAPI 只做校验+持久化，不调 LLM",
+        description: "方向卡内容",
+        properties: {
+          reason: { type: "string", description: "分析理由" },
+          problem: { type: "string", description: "核心问题" },
+          users: { type: "string", description: "目标用户" },
+          value: { type: "string", description: "核心价值" },
+          deliverables: { type: "array", items: { type: "string" }, description: "交付物" },
+        },
+        required: ["reason", "problem", "users", "value", "deliverables"],
       },
     },
   },
@@ -346,15 +365,23 @@ const generateDirectionCardProposalManifest: ProjectFlowToolManifest = {
 const generateTaskBreakdownProposalManifest: ProjectFlowToolManifest = {
   ...PROPOSAL_DEFAULTS,
   name: "generate_task_breakdown_proposal",
-  description: "根据当前项目和阶段信息生成待确认的任务拆解草案，不直接创建 Task。Sidecar LLM 生成 output 后传入持久化。",
+  description: `根据当前项目和阶段信息生成待确认的任务拆解草案，不直接创建 Task。
+⚠️ 枚举值用英文：priority=P0|P1|P2`,
   inputSchema: {
     type: "object",
+    required: ["output"],
     properties: {
-      stage_id: { type: "string", description: "阶段 ID（可选，指定某个阶段的拆解）" },
-      user_instruction: { type: "string", description: "本次拆解的补充意图或约束（可选）" },
+      stage_id: { type: "string", description: "阶段 UUID（可选）" },
+      user_instruction: { type: "string", description: "补充意图或约束（可选）" },
       output: {
         type: "object",
-        description: "Sidecar LLM 生成的任务拆解内容（含 tasks、reason、requires_confirmation），传入后 FastAPI 只做校验+持久化，不调 LLM",
+        description: "任务拆解内容",
+        properties: {
+          reason: { type: "string", description: "拆解理由" },
+          requires_confirmation: { type: "boolean" },
+          tasks: { type: "array", description: "任务列表" },
+        },
+        required: ["reason", "requires_confirmation", "tasks"],
       },
     },
   },
@@ -372,39 +399,49 @@ const generateTaskBreakdownProposalManifest: ProjectFlowToolManifest = {
 const analyzeCheckinsAndRisksManifest: ProjectFlowToolManifest = {
   ...ADVISORY_WRITE_DEFAULTS,
   name: "analyze_checkins_and_risks",
-  description: "分析签到和风险信号，幂等创建 advisory Risk/ActionCard 记录；若涉及主事实调整，只返回后续 replan 信号而不直接提交。Sidecar LLM 生成分析结果后传入持久化。",
+  description: `分析签到和风险信号，幂等创建 advisory Risk/ActionCard 记录。
+⚠️ 所有枚举值必须用英文原始值（不要翻译成中文）：
+- RiskType enum: deadline / dependency / workload / scope / review / assignment / checkin
+- RiskSeverity enum: low / medium / high
+- TaskStatus enum: not_started / in_progress / done / blocked / cancelled`,
   inputSchema: {
     type: "object",
     properties: {
       user_instruction: { type: "string", description: "本次分析的补充意图或约束（可选）" },
       checkin_analysis_output: {
         type: "object",
-        description: "Sidecar LLM 生成的签到分析结果（含 task_updates/risks/summary/reason），传入后 FastAPI 只做校验+持久化，不调 LLM",
+        description: `签到分析结果示例:
+{
+  "reason": "分析理由（中文）",
+  "summary": "签到摘要（中文）",
+  "task_updates": [{"task_id": "任务UUID", "user_id": "成员UUID", "status": "in_progress", "progress_note": "进度说明", "blocker": "阻塞原因（可选）"}],
+  "risks": [{"type": "deadline", "severity": "high", "title": "风险标题", "description": "风险描述", "evidence": ["证据1"], "recommendation": "建议", "stage_id": "阶段UUID（可选）"}]
+}`,
+        properties: {
+          reason: { type: "string", description: "分析理由" },
+          summary: { type: "string", description: "签到摘要" },
+          task_updates: { type: "array", items: { type: "object" }, description: "任务状态更新列表" },
+          risks: { type: "array", items: { type: "object" }, description: "关联风险列表" },
+        },
+        required: ["reason", "summary"],
       },
       risk_analysis_output: {
         type: "object",
-        description: "Sidecar LLM 生成的风险分析结果（含 risks/reason/requires_confirmation），传入后 FastAPI 只做校验+持久化，不调 LLM",
+        description: `风险分析结果示例:
+{
+  "reason": "分析理由（中文）",
+  "risks": [{"type": "deadline", "severity": "high", "title": "风险标题", "description": "风险描述", "evidence": ["证据1"], "recommendation": "建议", "stage_id": "阶段UUID（可选）"}]
+}`,
+        properties: {
+          reason: { type: "string", description: "分析理由" },
+          risks: { type: "array", items: { type: "object" }, description: "风险列表" },
+        },
+        required: ["reason"],
       },
       action_cards: {
         type: "array",
-        description: "可选的 ActionCard advisory records；仅创建行动卡，不修改主事实。",
-        items: {
-          type: "object",
-          properties: {
-            type: { type: "string", description: "行动卡类型" },
-            title: { type: "string", description: "标题" },
-            content: { type: "string", description: "内容（可选）" },
-            reason: { type: "string", description: "创建原因" },
-            goal: { type: "string", description: "目标（可选）" },
-            start_suggestion: { type: "string", description: "启动建议（可选）" },
-            completion_standard: { type: "string", description: "完成标准（可选）" },
-            user_id: { type: "string", description: "关联成员 ID（可选）" },
-            task_id: { type: "string", description: "关联任务 ID（可选）" },
-            stage_id: { type: "string", description: "关联阶段 ID（可选）" },
-            due_date: { type: "string", description: "截止日期 YYYY-MM-DD（可选）" },
-          },
-          required: ["type", "title", "reason"],
-        },
+        description: "可选的 ActionCard 记录",
+        items: { type: "object" },
       },
     },
   },

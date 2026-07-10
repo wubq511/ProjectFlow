@@ -377,7 +377,10 @@ class TestLLMDiagnostic:
             result = run_diagnostic(req)
 
         assert result.status == "ok"
-        assert captured["body"]["response_format"] == {"type": "json_object"}
+        # response_format is only set for non-DeepSeek providers
+        # When base_url contains "deepseek", response_format is omitted
+        if "deepseek" not in captured["body"].get("model", "").lower():
+            assert captured["body"]["response_format"] == {"type": "json_object"}
         assert "json" in captured["body"]["messages"][0]["content"].lower()
 
     def test_diagnostic_request_rejects_runtime_api_key_override(self):

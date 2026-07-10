@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { ChevronRight, Loader2, CheckCircle2, Cpu } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MultilineText } from "@/components/ui/multiline-text";
 
 interface ModuleRunCardProps {
   module: string;
@@ -54,7 +55,7 @@ export const ModuleRunCard = React.memo(function ModuleRunCard({ module, status,
           animate={{ maxHeight: 200, opacity: 1 }}
           className="border-t border-neutral-100 px-3 py-2 text-xs text-neutral-500"
         >
-          {message}
+          <MultilineText text={message} />
         </motion.div>
       )}
     </div>

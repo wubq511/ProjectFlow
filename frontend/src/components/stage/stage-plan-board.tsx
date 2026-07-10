@@ -1,9 +1,11 @@
 "use client";
 
-import { CalendarDays, CheckCircle2, Circle, Clock, Flag, AlertTriangle } from "lucide-react";
+import { useState } from "react";
+import { CalendarDays, CheckCircle2, ChevronDown, ChevronUp, Circle, Clock, Flag, AlertTriangle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { MultilineText } from "@/components/ui/multiline-text";
 import { cn } from "@/lib/utils";
 import type { AgentProposal, Stage, Task } from "@/lib/types";
 
@@ -78,14 +80,17 @@ function parsePendingStages(proposal: AgentProposal): PendingStage[] {
 }
 
 export function StagePlanBoard({ stages, tasks, currentStageId, pendingPlanProposal }: StagePlanBoardProps) {
-  const completed = stages.filter((stage) => stage.status === "completed").length;
-  const progress = stages.length > 0 ? Math.round((completed / stages.length) * 100) : 0;
+  const activeStages = stages.filter((s) => s.status !== "completed");
+  const completedStages = stages.filter((s) => s.status === "completed");
+  const completed = activeStages.filter((s) => s.status === "completed").length;
+  const progress = activeStages.length > 0 ? Math.round((completed / activeStages.length) * 100) : 0;
 
   const pendingStages =
     pendingPlanProposal && pendingPlanProposal.status === "pending"
       ? parsePendingStages(pendingPlanProposal)
       : [];
   const hasPending = pendingStages.length > 0;
+  const [showCompleted, setShowCompleted] = useState(false);
 
   return (
     <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
@@ -125,12 +130,12 @@ export function StagePlanBoard({ stages, tasks, currentStageId, pendingPlanPropo
                   <Badge className="bg-ink/10 text-ink/50 text-[10px]">#{stage.order_index ?? i + 1}</Badge>
                   <span className="font-semibold text-ink">{stage.name}</span>
                 </div>
-                <p className="mt-1 text-sm text-ink/65">{stage.goal}</p>
+                <div className="mt-1 text-sm text-ink/65"><MultilineText text={stage.goal} /></div>
                 <div className="mt-1 flex flex-wrap gap-3 text-xs text-ink/50">
                   <span>
                     {stage.start_date} → {stage.end_date}
                   </span>
-                  <span>交付: {stage.deliverable}</span>
+                  <span className="inline-flex items-center gap-1">交付: <MultilineText text={stage.deliverable} /></span>
                 </div>
               </div>
             ))}
@@ -138,17 +143,17 @@ export function StagePlanBoard({ stages, tasks, currentStageId, pendingPlanPropo
         </div>
       )}
 
-      {stages.length === 0 && !hasPending ? (
+      {activeStages.length === 0 && !hasPending ? (
         <div className="mt-5 rounded-lg border border-dashed border-ink/15 bg-paper/70 p-6 text-sm text-ink/55">
           暂无阶段。方向卡确认后运行阶段计划。
         </div>
-      ) : stages.length === 0 && hasPending ? null : (
+      ) : activeStages.length === 0 && hasPending ? null : (
         <div className="mt-5 relative">
           {/* Timeline connector line */}
           <div className="absolute left-[18px] top-3 bottom-3 w-px bg-neutral-200" aria-hidden="true" />
 
           <div className="space-y-1">
-            {stages.map((stage) => {
+            {activeStages.map((stage) => {
               const stageTasks = tasks.filter((task) => task.stage_id === stage.id);
               const isCurrent = stage.id === currentStageId || stage.status === "active";
               const timeLabel = relativeTimeLabel(stage.start_date, stage.end_date, stage.status);
@@ -190,7 +195,7 @@ export function StagePlanBoard({ stages, tasks, currentStageId, pendingPlanPropo
                           </span>
                         )}
                       </div>
-                      <p className="mt-1 max-w-2xl text-sm text-ink/65">{stage.goal}</p>
+                      <MultilineText text={stage.goal} className="mt-1 max-w-2xl text-sm text-ink/65" />
                     </div>
                     <div className="text-right text-xs text-ink/55 shrink-0">
                       <div className="flex items-center gap-1">
@@ -203,8 +208,8 @@ export function StagePlanBoard({ stages, tasks, currentStageId, pendingPlanPropo
                   {/* Deliverable & Task count — inline, not cards */}
                   <div className="mt-2 flex flex-wrap gap-4 text-sm">
                     <span className="inline-flex items-center gap-1.5 text-ink/70">
-                      <Flag className="h-3.5 w-3.5 text-ink/40" />
-                      {stage.deliverable}
+                      <Flag className="h-3.5 w-3.5 text-ink/40 flex-shrink-0" />
+                      <MultilineText text={stage.deliverable} />
                     </span>
                     <span className="text-ink/50">
                       {stageTasks.length === 0 ? "暂无任务" : `${stageTasks.length} 个任务`}
@@ -229,6 +234,53 @@ export function StagePlanBoard({ stages, tasks, currentStageId, pendingPlanPropo
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Completed stages — historical record, collapsed by default */}
+      {completedStages.length > 0 && (
+        <div className="mt-4 rounded-lg border border-ink/8 bg-ink/3">
+          <button
+            type="button"
+            onClick={() => setShowCompleted(!showCompleted)}
+            className="flex w-full items-center justify-between p-3 text-sm text-ink/50 hover:text-ink/70"
+          >
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-moss/60" />
+              已完成的阶段（{completedStages.length} 个）— 已被新计划替换
+            </span>
+            {showCompleted ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+          {showCompleted && (
+            <div className="border-t border-ink/8 px-3 pb-3 pt-2 space-y-3">
+              {completedStages.map((stage) => (
+                <div key={stage.id} className="rounded-md bg-white px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-moss/60 shrink-0" />
+                    <span className="text-sm font-medium text-ink/65">{stage.name}</span>
+                    <Badge className="bg-ink/10 text-ink/60 text-[10px]">已完成</Badge>
+                    <span className="text-xs text-ink/40">{stage.start_date} → {stage.end_date}</span>
+                  </div>
+                  {stage.goal && (
+                    <MultilineText text={stage.goal} className="mt-1 ml-6 text-xs text-ink/50" />
+                  )}
+                  {stage.deliverable && (
+                    <div className="mt-0.5 ml-6 text-xs text-ink/45">交付: <MultilineText text={stage.deliverable} /></div>
+                  )}
+                  {stage.done_criteria && stage.done_criteria.length > 0 && (
+                    <div className="mt-1.5 ml-6 flex flex-wrap gap-1.5">
+                      {stage.done_criteria.map((c, i) => (
+                        <span key={i} className="inline-flex items-center gap-1 rounded-full bg-ink/5 px-2 py-0.5 text-[10px] text-ink/45">
+                          <CheckCircle2 className="h-2.5 w-2.5 text-ink/25" />
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </section>

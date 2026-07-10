@@ -6,6 +6,7 @@ import { CheckCircle2, HelpCircle, History, Info, Sparkles } from "lucide-react"
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DirectionDecisionView } from "@/components/agent/direction-decision-view";
+import { MultilineText } from "@/components/ui/multiline-text";
 import {
   Tooltip,
   TooltipContent,
@@ -78,9 +79,9 @@ function DirectionHistoryItem({ event }: { event: AgentEvent }) {
   return (
     <div className="rounded-lg border border-ink/10 bg-paper/60 p-3">
       <p className="text-xs text-ink/45">{new Date(event.created_at).toLocaleDateString("zh-CN")}</p>
-      <p className={`mt-1 text-sm text-ink/75 whitespace-pre-wrap ${expanded ? "" : "line-clamp-2"}`}>
-        {summary}
-      </p>
+      <div className={`mt-1 text-sm text-ink/75 ${expanded ? "" : "line-clamp-2"}`}>
+        <MultilineText text={summary} />
+      </div>
       {isLong && (
         <button
           onClick={() => setExpanded(!expanded)}
