@@ -103,16 +103,35 @@ export function mapPiEvent(piEvent: PiEvent, runId: string): MappedEvent {
         newStatus: "model_streaming",
       };
 
-    case "message_update":
+    case "message_update": {
+      // Extract incremental content from assistantMessageEvent.
+      // Do NOT pass the full assistantMessageEvent object — it causes DB bloat.
+      // text_delta and thinking_delta both become visible streaming text.
+      // toolcall_delta is intentionally discarded (tool args JSON not shown to user).
+      const ame = piEvent.assistantMessageEvent as Record<string, unknown> | undefined;
+      let deltaContent: string | undefined;
+      let deltaType: string | undefined;
+      if (ame && typeof ame.type === "string") {
+        // text_end, thinking_end, text_start, thinking_start are structural markers
+        // but NOT reliable signals for thinking/answer boundary in non-reasoning models.
+        // Thinking/answer separation happens at agent.completed using tool boundaries.
+        if (typeof ame.delta === "string" && (ame.type === "text_delta" || ame.type === "thinking_delta")) {
+          deltaContent = ame.delta;
+          deltaType = ame.type;
+        }
+        // toolcall_delta, thinking_start, text_end, toolcall_start, etc. → no content
+      }
       return {
         type: "agent.delta",
         payload: {
           run_id: runId,
-          content: piEvent.assistantMessageEvent ?? piEvent.data?.content,
+          ...(deltaContent !== undefined ? { content: deltaContent } : {}),
+          ...(deltaType !== undefined ? { delta_type: deltaType } : {}),
           ...piEvent.data,
         },
         newStatus: "model_streaming",
       };
+    }
 
     case "message_end":
       return {
@@ -174,12 +193,29 @@ export function mapPiEvent(piEvent: PiEvent, runId: string): MappedEvent {
     case "agent_end": {
       // Derive failure from explicit error flags OR from the last assistant message's stopReason
       const lastMsg = piEvent.messages?.[piEvent.messages.length - 1] as
-        | { stopReason?: string }
+        | { stopReason?: string; content?: unknown[] }
         | undefined;
       const stopReason = lastMsg?.stopReason;
       const cancelled = stopReason === "aborted";
       const failed = !!(piEvent.error || piEvent.isError || stopReason === "error");
       const newStatus: RunStatus = cancelled ? "cancelled" : failed ? "failed" : "completed";
+
+      // Extract final answer text from the last assistant message's TextContent parts.
+      // This is the only source of truth for the terminal answer — not accumulatedContent.
+      let finalContent = "";
+      if (lastMsg?.content && Array.isArray(lastMsg.content)) {
+        const textParts: string[] = [];
+        for (const part of lastMsg.content) {
+          if (part && typeof part === "object") {
+            const p = part as Record<string, unknown>;
+            if (p.type === "text" && typeof p.text === "string") {
+              textParts.push(p.text);
+            }
+          }
+        }
+        finalContent = textParts.join("");
+      }
+
       return {
         type: cancelled ? "run.cancelled" : failed ? "agent.failed" : "agent.completed",
         payload: {
@@ -188,6 +224,7 @@ export function mapPiEvent(piEvent: PiEvent, runId: string): MappedEvent {
           ...(piEvent.isError !== undefined ? { is_error: piEvent.isError } : {}),
           ...(stopReason === "error" ? { reason: "模型返回错误" } : {}),
           ...(stopReason === "aborted" ? { reason: "模型返回中止" } : {}),
+          ...(finalContent ? { final_content: finalContent } : {}),
           ...piEvent.data,
         },
         newStatus,

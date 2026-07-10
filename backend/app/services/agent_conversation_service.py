@@ -211,11 +211,17 @@ def process_conversation_message_stream(
                             accumulated_content += token_content
                             yield _sse_event("token", data)
                         elif current_event == "done":
-                            # Final content from sidecar
+                            # Final content from sidecar — prefer the terminal answer text.
+                            # Fallback to accumulated_content (already filtered by sidecar
+                            # to text_delta only) if final_content is empty.
                             final_content = data.get("final_content", "") or accumulated_content
+                            execution_steps = data.get("execution_steps")
+                            thinking_content = data.get("thinking_content", "")
                             # 4. Save assistant message
                             assistant_message = _save_assistant_message(
                                 session, conversation, final_content,
+                                execution_steps=execution_steps,
+                                thinking_content=thinking_content,
                             )
                             # 5. Build and yield done event
                             turn = _build_done_turn(
@@ -267,6 +273,9 @@ def _save_assistant_message(
     session: Session,
     conversation: AgentConversation,
     content: str,
+    *,
+    execution_steps: list[dict[str, Any]] | None = None,
+    thinking_content: str | None = None,
 ) -> AgentMessage:
     """Save assistant message and update conversation."""
     next_labels = _next_suggestions_from_conversation(session, conversation)
@@ -277,10 +286,15 @@ def _save_assistant_message(
         role="assistant",
         content=content,
     )
-    assistant_message.set_structured_payload({
+    payload: dict[str, Any] = {
         "next_suggestions": next_labels,
         "suggestions": [s.model_dump(mode="json") for s in suggestions],
-    })
+    }
+    if execution_steps:
+        payload["execution_steps"] = execution_steps
+    if thinking_content:
+        payload["thinking_content"] = thinking_content
+    assistant_message.set_structured_payload(payload)
     session.add(assistant_message)
 
     conversation.updated_at = datetime.now(UTC)

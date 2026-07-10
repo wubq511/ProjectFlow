@@ -111,7 +111,6 @@ interface AgentSidebarProps {
   selectedProjectId?: string | null;
   hasProject?: boolean;
   conversation?: AgentConversation | null;
-  thinkingContent?: string;
   conversationSuggestions?: AgentSuggestion[] | string[];
   conversationArtifacts?: AgentArtifact[];
   pendingConversation?: boolean;
@@ -134,7 +133,6 @@ export function AgentSidebar({
   selectedProjectId,
   hasProject = true,
   conversation,
-  thinkingContent,
   conversationSuggestions = [],
   conversationArtifacts = [],
   pendingConversation,
@@ -507,7 +505,6 @@ export function AgentSidebar({
                           message={message}
                           isLast={index === messages.length - 1}
                           index={index}
-                          thinkingContent={index === messages.length - 1 && message.role === "assistant" ? thinkingContent : undefined}
                           onRetry={pendingConversationInstruction ? () => void submitMessage(pendingConversationInstruction) : undefined}
                           onAction={(instruction) => void submitMessage(instruction)}
                         />

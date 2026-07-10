@@ -89,6 +89,20 @@ export async function handleStartRunStream(
   // Step 4: Subscribe to EventStream and forward as SSE
   let runCompleted = false;
   let accumulatedContent = "";
+  /** Final answer text extracted from the last assistant message at agent_end. */
+  let finalAnswerFromRuntime = "";
+  /** Thinking text separated from answer at completion. */
+  let thinkingContent = "";
+  /**
+   * Ordered content chunks with their delta type.
+   * At completion, separated into thinking (before last tool boundary) and answer (after).
+   */
+  const contentChunks: Array<{ type: "text" | "thinking"; content: string }> = [];
+  /** Index in contentChunks of the last chunk before a tool.started event.
+   *  Used at completion to separate thinking (before boundary) from answer (after). */
+  let lastToolBoundaryIdx = -1;
+  /** Bounded execution steps collected from tool lifecycle events. */
+  const executionSteps: Array<{ tool_name: string; tool_call_id?: string; status: string; label: string }> = [];
 
   // Abort runtime when client disconnects mid-stream
   res.on("close", () => {
@@ -111,37 +125,18 @@ export async function handleStartRunStream(
         writeSSE(res, "status", { phase: "planning", message: "正在理解你的需求..." });
         break;
       case "agent.delta":
-        // Forward model delta tokens — Pi runtime emits "agent.delta" via event-mapper.
-        // Do NOT also listen for "model.streaming" — that's the raw Pi SDK event that
-        // event-mapper already mapped to "agent.delta". Listening to both would double-count tokens.
-        // payload.content may be:
-        //   - a plain string
-        //   - a Pi structured object {type: "text_delta", delta: "..."}
-        //   - an array of ContentPart objects [{type: "text_delta", delta: "..."}, ...]
+        // event-mapper filters: content is from text_delta or thinking_delta.
+        // toolcall_delta never reaches here.
+        // Both types are streamed to the client for real-time visibility.
         {
-          let tokenText = "";
-          const rawContent = data.payload?.content ?? data.payload?.delta;
-          if (typeof rawContent === "string") {
-            tokenText = rawContent;
-          } else if (Array.isArray(rawContent)) {
-            // Pi SDK ContentPart[] — extract text from each part
-            for (const part of rawContent) {
-              if (part && typeof part === "object") {
-                const p = part as Record<string, unknown>;
-                if (p.type === "text_delta" && typeof p.delta === "string") {
-                  tokenText += p.delta;
-                } else if (p.type === "text" && typeof p.text === "string") {
-                  tokenText += p.text;
-                }
-              }
-            }
-          } else if (rawContent && typeof rawContent === "object") {
-            // Pi SDK structured content: extract delta from text_delta events
-            const obj = rawContent as Record<string, unknown>;
-            tokenText = (typeof obj.delta === "string" ? obj.delta : "") || (typeof obj.text === "string" ? obj.text : "");
-          }
+          const tokenText = typeof data.payload?.content === "string" ? data.payload.content : "";
           if (tokenText) {
             accumulatedContent += tokenText;
+            const deltaType = data.payload?.delta_type;
+            contentChunks.push({
+              type: deltaType === "thinking_delta" ? "thinking" : "text",
+              content: tokenText,
+            });
             writeSSE(res, "token", { content: tokenText });
           }
         }
@@ -168,13 +163,48 @@ export async function handleStartRunStream(
           module: data.payload?.tool_name ?? "unknown",
           message: `正在执行 ${data.payload?.tool_name ?? "工具"}...`,
         });
+        // Record tool boundary: text before this point is thinking, text after is answer
+        lastToolBoundaryIdx = contentChunks.length;
+        // Collect execution step (started)
+        {
+          const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "工具";
+          const toolCallId = typeof data.payload?.tool_call_id === "string" ? data.payload.tool_call_id : undefined;
+          executionSteps.push({ tool_name: toolName, tool_call_id: toolCallId, status: "started", label: `调用${toolName}` });
+        }
         break;
       case "tool.completed":
         writeSSE(res, "status", { phase: "generating", message: "正在整理结果..." });
+        // Update matching step to completed (prefer tool_call_id for precision)
+        {
+          const toolCallId = typeof data.payload?.tool_call_id === "string" ? data.payload.tool_call_id : undefined;
+          const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "";
+          const step = toolCallId
+            ? executionSteps.find((s) => s.tool_call_id === toolCallId && s.status === "started")
+            : [...executionSteps].reverse().find((s) => s.tool_name === toolName && s.status === "started");
+          if (step) step.status = "completed";
+        }
         break;
       case "tool.failed":
+        // Update matching step to failed (prefer tool_call_id for precision)
+        {
+          const toolCallId = typeof data.payload?.tool_call_id === "string" ? data.payload.tool_call_id : undefined;
+          const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "";
+          const step = toolCallId
+            ? executionSteps.find((s) => s.tool_call_id === toolCallId && s.status === "started")
+            : [...executionSteps].reverse().find((s) => s.tool_name === toolName && s.status === "started");
+          if (step) step.status = "failed";
+        }
+        break;
       case "tool.blocked":
-        // Tool issues — let the runtime handle them; just log
+        // Update matching step to blocked (policy gate rejection, distinct from execution failure)
+        {
+          const toolCallId = typeof data.payload?.tool_call_id === "string" ? data.payload.tool_call_id : undefined;
+          const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "";
+          const step = toolCallId
+            ? executionSteps.find((s) => s.tool_call_id === toolCallId && s.status === "started")
+            : [...executionSteps].reverse().find((s) => s.tool_name === toolName && s.status === "started");
+          if (step) step.status = "blocked";
+        }
         break;
       case "tool.progress":
         // Tool progress updates — forward as status for UI feedback
@@ -210,10 +240,37 @@ export async function handleStartRunStream(
       case "agent.completed":
       case "run.completed": {
         runCompleted = true;
+        // Capture final_content from the runtime (extracted from last assistant message's TextContent).
+        // This only contains text_delta, not thinking_delta.
+        finalAnswerFromRuntime = typeof data.payload?.final_content === "string"
+          ? data.payload.final_content
+          : "";
+        // Separate thinking from answer using tool boundaries.
+        // Text before the last tool.started = thinking/analysis.
+        // Text after the last tool.started = final answer.
+        const thinkingChunks = lastToolBoundaryIdx >= 0
+          ? contentChunks.slice(0, lastToolBoundaryIdx)
+          : [];  // No tools = no separation (all text is answer)
+        const answerChunks = lastToolBoundaryIdx >= 0
+          ? contentChunks.slice(lastToolBoundaryIdx)
+          : contentChunks;
+        const accumulatedThinking = thinkingChunks.map((c) => c.content).join("");
+        const answerText = answerChunks.map((c) => c.content).join("");
+        let finalAnswer: string;
+        if (finalAnswerFromRuntime) {
+          finalAnswer = finalAnswerFromRuntime;
+        } else if (answerText) {
+          finalAnswer = answerText;
+        } else {
+          finalAnswer = accumulatedContent;
+        }
+        thinkingContent = accumulatedThinking;
         writeSSE(res, "done", {
           run_id: runState.runId,
           status: "completed",
-          final_content: data.payload?.final_content ?? data.payload?.content ?? accumulatedContent,
+          final_content: finalAnswer,
+          ...(thinkingContent ? { thinking_content: thinkingContent } : {}),
+          execution_steps: executionSteps.length > 0 ? executionSteps : undefined,
         });
         res.end();
         break;
@@ -269,10 +326,29 @@ export async function handleStartRunStream(
           ctx.sessionStore.clearAbortController(state.runId);
           if (!runCompleted) {
             runCompleted = true;
+            const thinkingChunks = lastToolBoundaryIdx >= 0
+              ? contentChunks.slice(0, lastToolBoundaryIdx)
+              : [];
+            const answerChunks = lastToolBoundaryIdx >= 0
+              ? contentChunks.slice(lastToolBoundaryIdx)
+              : contentChunks;
+            const accumulatedThinking = thinkingChunks.map((c) => c.content).join("");
+            const answerText = answerChunks.map((c) => c.content).join("");
+            let finalAnswer: string;
+            if (finalAnswerFromRuntime) {
+              finalAnswer = finalAnswerFromRuntime;
+            } else if (answerText) {
+              finalAnswer = answerText;
+            } else {
+              finalAnswer = accumulatedContent;
+            }
+            thinkingContent = accumulatedThinking;
             writeSSE(res, "done", {
               run_id: state.runId,
               status: "completed",
-              final_content: accumulatedContent,
+              final_content: finalAnswer,
+              ...(thinkingContent ? { thinking_content: thinkingContent } : {}),
+              execution_steps: executionSteps.length > 0 ? executionSteps : undefined,
             });
             res.end();
           }

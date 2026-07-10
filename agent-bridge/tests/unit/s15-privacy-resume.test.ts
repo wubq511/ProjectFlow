@@ -116,8 +116,29 @@ describe("S15 privacy: trace defaults exclude sensitive data", () => {
       runState,
       { orderingHint: 2 },
     );
+    // assistantMessageEvent (full growing message) must NOT be in payload
     expect(event.payload).not.toHaveProperty("message");
-    expect(event.payload.content).toEqual({ type: "delta", delta: "公开增量" });
+    expect(event.payload).not.toHaveProperty("assistantMessageEvent");
+    // Verify text_delta from assistantMessageEvent is extracted
+    const eventWithTextDelta = buildRuntimeEventFromPiEvent(
+      {
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "安全的文本增量", contentIndex: 0 },
+      },
+      runState,
+      { orderingHint: 3 },
+    );
+    expect(eventWithTextDelta.payload.content).toBe("安全的文本增量");
+    // Verify data.content is passed through when present
+    const eventWithContent = buildRuntimeEventFromPiEvent(
+      {
+        type: "message_update",
+        data: { content: "安全的增量文本" },
+      },
+      runState,
+      { orderingHint: 4 },
+    );
+    expect(eventWithContent.payload.content).toBe("安全的增量文本");
   });
 
   it("trace from run state does not include API key or provider headers", () => {

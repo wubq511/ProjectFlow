@@ -135,10 +135,8 @@ export default function WorkspaceDashboardPage() {
   const [pendingAgentConversation, setPendingAgentConversation] = useState(false);
   const [streamingBuffer, setStreamingBuffer] = useState("");
   const [streamStatus, setStreamStatus] = useState<{ phase: AgentStreamPhase; module?: string; message: string } | null>(null);
-  const [lastThinkingContent, setLastThinkingContent] = useState<string>("");
   const streamingBufferRef = useRef("");
-  const turnCountRef = useRef(-1); // -1 = before first turn_start, 0 = first turn, 1 = second turn, etc.
-  const turnTokensRef = useRef<string[]>([]); // one string per turn, indexed by turn number
+  const streamingClearTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -220,7 +218,6 @@ export default function WorkspaceDashboardPage() {
       setAgentConversationArtifacts([]);
       setPendingAgentInstruction(null);
       setAgentConversationError(null);
-      setLastThinkingContent("");
     } catch {
       setActionError("加载项目数据失败");
     } finally {
@@ -238,7 +235,6 @@ export default function WorkspaceDashboardPage() {
       setAgentConversationArtifacts([]);
       setPendingAgentInstruction(null);
       setAgentConversationError(null);
-      setLastThinkingContent("");
       // Clear project param from URL
       const params = new URLSearchParams(searchParams.toString());
       params.delete("project");
@@ -354,10 +350,13 @@ export default function WorkspaceDashboardPage() {
 
   const handleSendAgentMessage = async (content: string) => {
     if (!agentConversation) return;
+    // Cancel any pending streaming buffer clear from previous run
+    if (streamingClearTimeoutRef.current) {
+      clearTimeout(streamingClearTimeoutRef.current);
+      streamingClearTimeoutRef.current = null;
+    }
     // Reset streaming state from any previous request
-    turnTokensRef.current = [];
     streamingBufferRef.current = "";
-    turnCountRef.current = -1;
     setStreamingBuffer("");
     setStreamStatus(null);
     setPendingAgentConversation(true);
@@ -377,24 +376,10 @@ export default function WorkspaceDashboardPage() {
         {
           onStatus: (status) => {
             setStreamStatus(status as { phase: AgentStreamPhase; module?: string; message: string });
-            // Track turn boundaries for thinking/answer separation
-            if ((status as { phase?: string }).phase === "turn_start") {
-              turnCountRef.current += 1;
-              // Ensure turnTokensRef has an entry for this turn
-              turnTokensRef.current[turnCountRef.current] = turnTokensRef.current[turnCountRef.current] ?? "";
-            }
           },
           onToken: (token) => {
             streamingBufferRef.current += token;
-            // Record token into the current turn's buffer (if turn has started)
-            const turnIdx = turnCountRef.current;
-            if (turnIdx >= 0) {
-              turnTokensRef.current[turnIdx] = (turnTokensRef.current[turnIdx] ?? "") + token;
-            } else {
-              // Token before first turn_start — append to turn 0 when it arrives
-              turnTokensRef.current[0] = (turnTokensRef.current[0] ?? "") + token;
-            }
-            // Show all tokens in streaming UI (preserves typing effect)
+            // Show tokens in streaming UI (preserves typing effect)
             setStreamingBuffer((prev) => prev + token);
           },
           onDone: (turn) => {
@@ -402,20 +387,14 @@ export default function WorkspaceDashboardPage() {
             setAgentConversationSuggestions(turn.suggestions ?? []);
             setAgentConversationArtifacts(turn.artifacts ?? []);
             setPendingAgentInstruction(null);
-            // Separate thinking from answer using turn boundaries:
-            // - Multiple turns (turnCount >= 1): turn 0 tokens = thinking, turn 1+ tokens = answer
-            // - Single turn (turnCount === 0): no thinking (entire output is the answer)
-            if (turnCountRef.current >= 1 && turnTokensRef.current[0]) {
-              setLastThinkingContent(turnTokensRef.current[0].trim());
-            } else {
-              setLastThinkingContent("");
-            }
-            // Reset all streaming refs
-            turnTokensRef.current = [];
-            streamingBufferRef.current = "";
-            turnCountRef.current = -1;
-            setStreamingBuffer("");
-            setStreamStatus(null);
+            // Delay clearing streaming buffer for smooth transition
+            // (new ChatMessage mounts with thinking fold, old streaming text stays visible briefly)
+            streamingClearTimeoutRef.current = setTimeout(() => {
+              streamingBufferRef.current = "";
+              setStreamingBuffer("");
+              setStreamStatus(null);
+              streamingClearTimeoutRef.current = null;
+            }, 300);
             reloadProject();
             const hasPendingArtifact = (turn.artifacts ?? []).some(
               (a) => a.status === "pending_confirmation",
@@ -425,9 +404,7 @@ export default function WorkspaceDashboardPage() {
             }
           },
           onError: (msg) => {
-            turnTokensRef.current = [];
             streamingBufferRef.current = "";
-            turnCountRef.current = -1;
             setStreamingBuffer("");
             setStreamStatus(null);
             setAgentConversationError(msg || "这次没有生成可用结果，我保留了你的请求。");
@@ -449,9 +426,11 @@ export default function WorkspaceDashboardPage() {
 
   const handleStopStreaming = () => {
     abortRef.current?.abort();
-    turnTokensRef.current = [];
+    if (streamingClearTimeoutRef.current) {
+      clearTimeout(streamingClearTimeoutRef.current);
+      streamingClearTimeoutRef.current = null;
+    }
     streamingBufferRef.current = "";
-    turnCountRef.current = -1;
     setStreamingBuffer("");
     setStreamStatus(null);
   };
@@ -729,7 +708,6 @@ export default function WorkspaceDashboardPage() {
       pendingAgentInstruction={pendingAgentInstruction}
       agentConversationError={agentConversationError}
       pendingAgentConversation={pendingAgentConversation}
-      thinkingContent={lastThinkingContent}
       streamingBuffer={streamingBuffer}
       streamStatus={streamStatus}
       onStopStreaming={handleStopStreaming}

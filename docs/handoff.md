@@ -4,6 +4,27 @@ Status: current as of 2026-07-10.
 
 ## Latest Architecture Handoff
 
+### Conversation Output Channel + Thinking Fold (2026-07-10)
+
+Fixed streaming output loss, toolcall JSON pollution, DB bloat, and added thinking/answer separation with collapsible folds.
+
+**Root Causes (3 bugs):**
+1. `event-mapper.ts` passed full `assistantMessageEvent` as content → ~302 MB DB bloat.
+2. `start-run-stream.ts` accumulated all `agent.delta` content including `toolcall_delta` → tool JSON polluted `AgentMessage.content`.
+3. Removing `assistantMessageEvent` from payload broke streaming entirely — Pi SDK's `message_update` has no `data` field, all content is in `assistantMessageEvent`.
+
+**Final Architecture:**
+- `event-mapper.ts`: `message_update` extracts `text_delta.delta` and `thinking_delta.delta` from `assistantMessageEvent` into `payload.content` with `delta_type` label. `toolcall_delta` discarded. Full `assistantMessageEvent` never passed. `agent_end` extracts `final_content` from last assistant message's TextContent parts.
+- `start-run-stream.ts`: Content chunks tracked with delta type. `tool.started` records `lastToolBoundaryIdx`. At `agent.completed`, chunks before boundary = thinking, after = answer. `execution_steps` collected from tool lifecycle events with `tool_call_id` precision matching. `tool.blocked` → status `"blocked"` (distinct from `"failed"`).
+- `agent_conversation_service.py`: `_save_assistant_message` persists `execution_steps` and `thinking_content` in `structured_payload`. `final_content` falls back to `accumulated_content`.
+- Frontend `ChatMessage`: Reads `thinking_content` and `execution_steps` from `structured_payload`. Renders thinking fold (plain text, not Markdown) → execution steps fold → final answer. Runtime validation on `execution_steps` shape.
+
+**Key Design Decision:** Thinking/answer separation happens at `agent.completed` using tool call boundaries, NOT during streaming. Non-reasoning models (DeepSeek V4, MiMo V2.5) don't emit `thinking_end` events, so real-time folding is impossible. All text streams visibly, then folds on reload from persisted `structured_payload`.
+
+**Verification:** 557 agent-bridge tests pass, 513 backend tests pass, 17 ChatMessage frontend tests pass.
+
+---
+
 ### PR #84/#85/#86 Merge + Adversarial Review Bug Fixes (2026-07-10)
 
 Merged three PRs with adversarial review, resolved merge conflicts, and fixed critical bugs found during review.

@@ -231,9 +231,116 @@ describe("event-mapper", () => {
     );
 
     expect(event.type).toBe("agent.delta");
-    expect(event.payload).toMatchObject({
-      content: { type: "delta", delta: "公开增量" },
-    });
+    // assistantMessageEvent must NOT be passed as content (causes DB bloat)
+    expect(event.payload).not.toHaveProperty("assistantMessageEvent");
     expect(event.payload).not.toHaveProperty("message");
+  });
+
+  it("message_update extracts text_delta from assistantMessageEvent", () => {
+    const runState = createRunState({
+      runId,
+      conversationId: "conv_1",
+      workspaceId: "ws_1",
+      projectId: "proj_1",
+      model: { provider: "mock", name: "mock-model" },
+      maxSteps: 8,
+      maxToolCalls: 6,
+      timeoutMs: 180000,
+    });
+    runState.runId = runId;
+
+    const event = buildRuntimeEventFromPiEvent(
+      {
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "这是可见的文本增量", contentIndex: 0 },
+      },
+      runState,
+      { orderingHint: 3 },
+    );
+
+    expect(event.type).toBe("agent.delta");
+    expect(event.payload.content).toBe("这是可见的文本增量");
+    expect(event.payload).not.toHaveProperty("assistantMessageEvent");
+  });
+
+  it("message_update extracts thinking_delta from assistantMessageEvent", () => {
+    const runState = createRunState({
+      runId,
+      conversationId: "conv_1",
+      workspaceId: "ws_1",
+      projectId: "proj_1",
+      model: { provider: "mock", name: "mock-model" },
+      maxSteps: 8,
+      maxToolCalls: 6,
+      timeoutMs: 180000,
+    });
+    runState.runId = runId;
+
+    const event = buildRuntimeEventFromPiEvent(
+      {
+        type: "message_update",
+        assistantMessageEvent: { type: "thinking_delta", delta: "内部推理链", contentIndex: 0 },
+      },
+      runState,
+      { orderingHint: 4 },
+    );
+
+    expect(event.type).toBe("agent.delta");
+    expect(event.payload.content).toBe("内部推理链");
+    expect(event.payload.delta_type).toBe("thinking_delta");
+    expect(event.payload).not.toHaveProperty("assistantMessageEvent");
+  });
+
+  it("message_update discards toolcall_delta from assistantMessageEvent", () => {
+    const runState = createRunState({
+      runId,
+      conversationId: "conv_1",
+      workspaceId: "ws_1",
+      projectId: "proj_1",
+      model: { provider: "mock", name: "mock-model" },
+      maxSteps: 8,
+      maxToolCalls: 6,
+      timeoutMs: 180000,
+    });
+    runState.runId = runId;
+
+    const event = buildRuntimeEventFromPiEvent(
+      {
+        type: "message_update",
+        assistantMessageEvent: { type: "toolcall_delta", delta: '{"limit": 10}', contentIndex: 0 },
+      },
+      runState,
+      { orderingHint: 5 },
+    );
+
+    expect(event.type).toBe("agent.delta");
+    expect(event.payload.content).toBeUndefined();
+  });
+
+  it("message_update with data.content passes content through correctly", () => {
+    const runState = createRunState({
+      runId,
+      conversationId: "conv_1",
+      workspaceId: "ws_1",
+      projectId: "proj_1",
+      model: { provider: "mock", name: "mock-model" },
+      maxSteps: 8,
+      maxToolCalls: 6,
+      timeoutMs: 180000,
+    });
+    runState.runId = runId;
+
+    const event = buildRuntimeEventFromPiEvent(
+      {
+        type: "message_update",
+        data: { content: "增量文本" },
+      },
+      runState,
+      { orderingHint: 6 },
+    );
+
+    expect(event.type).toBe("agent.delta");
+    expect(event.payload.content).toBe("增量文本");
+    expect(event.payload).not.toHaveProperty("assistantMessageEvent");
   });
 });
