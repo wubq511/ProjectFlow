@@ -254,7 +254,7 @@ describe("frontend API layer", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await runAgentNegotiate("project-1");
+    const result = await runAgentNegotiate("project-1", "user-1");
 
     // With ENDPOINT_EVENT_TYPE_MAP, negotiate maps to "assign" not "negotiate"
     expect(result.event_type).toBe("assign");

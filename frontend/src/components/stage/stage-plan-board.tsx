@@ -82,8 +82,7 @@ function parsePendingStages(proposal: AgentProposal): PendingStage[] {
 export function StagePlanBoard({ stages, tasks, currentStageId, pendingPlanProposal }: StagePlanBoardProps) {
   const activeStages = stages.filter((s) => s.status !== "completed");
   const completedStages = stages.filter((s) => s.status === "completed");
-  const completed = activeStages.filter((s) => s.status === "completed").length;
-  const progress = activeStages.length > 0 ? Math.round((completed / activeStages.length) * 100) : 0;
+  const progress = stages.length > 0 ? Math.round((completedStages.length / stages.length) * 100) : 0;
 
   const pendingStages =
     pendingPlanProposal && pendingPlanProposal.status === "pending"

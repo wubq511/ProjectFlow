@@ -177,104 +177,120 @@ function buildToolDefinitions(manifests: ProjectFlowToolManifest[], skillContext
 }
 
 /**
- * Translate known backend status values to Chinese in the workspace state string.
- * The LLM receives this translated data and should output Chinese consistently.
+ * Known backend enum values → Chinese translations.
+ * Used by translateStatusValuesOnParsed() which walks the parsed JSON tree
+ * and only replaces string VALUES (never keys), avoiding corruption of
+ * field names or free-text content that happens to contain enum tokens.
  */
-function translateStatusValues(jsonStr: string): string {
-  const STATUS_MAP: Record<string, string> = {
-    // Task status
-    '"not_started"': '"未开始"',
-    '"in_progress"': '"进行中"',
-    '"done"': '"已完成"',
-    '"blocked"': '"已阻塞"',
-    '"cancelled"': '"已取消"',
-    // Stage / Project status
-    '"active"': '"进行中"',
-    '"pending"': '"待开始"',
-    '"completed"': '"已完成"',
-    '"paused"': '"已暂停"',
-    '"draft"': '"草稿"',
-    '"at_risk"': '"有风险"',
-    // Severity / Mood
-    '"low"': '"低"',
-    '"medium"': '"中"',
-    '"high"': '"高"',
-    // Assignment proposal status
-    '"proposed"': '"待确认"',
-    '"owner_confirmed"': '"已确认"',
-    '"owner_rejected"': '"已拒绝"',
-    '"negotiating"': '"协商中"',
-    '"finalized"': '"已定稿"',
-    // Assignment response
-    '"accept"': '"接受"',
-    '"reject"': '"拒绝"',
-    // Negotiation / Invitation status
-    '"accepted"': '"已接受"',
-    '"declined"': '"已拒绝"',
-    '"resolved"': '"已解决"',
-    '"expired"': '"已过期"',
-    // Risk status
-    '"open"': '"待处理"',
-    '"ignored"': '"已忽略"',
-    // Risk type
-    '"deadline"': '"截止风险"',
-    '"dependency"': '"依赖风险"',
-    '"workload"': '"工作量风险"',
-    '"scope"': '"范围风险"',
-    '"review"': '"评审风险"',
-    '"assignment"': '"分工风险"',
-    '"checkin"': '"签到风险"',
-    // Resource type
-    '"text_note"': '"文本笔记"',
-    '"file_stub"': '"文件"',
-    '"link"': '"链接"',
-    // ActionCard type / status
-    '"personal_task"': '"个人任务"',
-    '"team_next_step"': '"下一步"',
-    '"reminder"': '"提醒"',
-    '"risk_action"': '"风险应对"',
-    '"kickoff_tip"': '"启动提示"',
-    '"checkin_prompt"': '"签到提醒"',
-    '"assignment_request"': '"分工请求"',
-    '"suggestion"': '"建议"',
-    '"dismissed"': '"已忽略"',
-    // AgentEvent type
-    '"clarify"': '"方向澄清"',
-    '"plan"': '"阶段计划"',
-    '"breakdown"': '"任务拆解"',
-    '"assign"': '"分工推荐"',
-    '"negotiate"': '"协商"',
-    '"push"': '"主动推进"',
-    '"risk"': '"风险分析"',
-    '"replan"': '"计划调整"',
-    '"export"': '"导出"',
-    '"retrospective"': '"复盘"',
-    // AgentEvent status
-    '"success"': '"成功"',
-    '"repaired"': '"已修复"',
-    '"fallback"': '"基础建议"',
-    '"failed"': '"失败"',
-    // AgentProposal status
-    '"confirmed"': '"已确认"',
-    '"rejected"': '"已拒绝"',
-    // Membership role
-    '"owner"': '"负责人"',
-    '"member"': '"成员"',
-    // Memory type / status
-    '"direction"': '"方向"',
-    '"boundary"': '"边界"',
-    '"tradeoff"': '"权衡"',
-    '"rejection"': '"拒绝"',
-    '"member_constraint"': '"成员约束"',
-    '"superseded"': '"已替换"',
-    '"archived"': '"已归档"',
-  };
+const STATUS_VALUE_MAP: Record<string, string> = {
+  // Task status
+  "not_started": "未开始",
+  "in_progress": "进行中",
+  "done": "已完成",
+  "blocked": "已阻塞",
+  "cancelled": "已取消",
+  // Stage / Project status
+  "active": "进行中",
+  "pending": "待开始",
+  "completed": "已完成",
+  "paused": "已暂停",
+  "draft": "草稿",
+  "at_risk": "有风险",
+  // Severity / Mood
+  "low": "低",
+  "medium": "中",
+  "high": "高",
+  // Assignment proposal status
+  "proposed": "待确认",
+  "owner_confirmed": "已确认",
+  "owner_rejected": "已拒绝",
+  "negotiating": "协商中",
+  "finalized": "已定稿",
+  // Assignment response
+  "accept": "接受",
+  "reject": "拒绝",
+  // Negotiation / Invitation status
+  "accepted": "已接受",
+  "declined": "已拒绝",
+  "resolved": "已解决",
+  "expired": "已过期",
+  // Risk status
+  "open": "待处理",
+  "ignored": "已忽略",
+  // Risk type
+  "deadline": "截止风险",
+  "dependency": "依赖风险",
+  "workload": "工作量风险",
+  "scope": "范围风险",
+  "review": "评审风险",
+  "assignment": "分工风险",
+  "checkin": "签到风险",
+  // Resource type
+  "text_note": "文本笔记",
+  "file_stub": "文件",
+  "link": "链接",
+  // ActionCard type / status
+  "personal_task": "个人任务",
+  "team_next_step": "下一步",
+  "reminder": "提醒",
+  "risk_action": "风险应对",
+  "kickoff_tip": "启动提示",
+  "checkin_prompt": "签到提醒",
+  "assignment_request": "分工请求",
+  "suggestion": "建议",
+  "dismissed": "已忽略",
+  // AgentEvent type
+  "clarify": "方向澄清",
+  "plan": "阶段计划",
+  "breakdown": "任务拆解",
+  "assign": "分工推荐",
+  "negotiate": "协商",
+  "push": "主动推进",
+  "risk": "风险分析",
+  "replan": "计划调整",
+  "export": "导出",
+  "retrospective": "复盘",
+  // AgentEvent status
+  "success": "成功",
+  "repaired": "已修复",
+  "fallback": "基础建议",
+  "failed": "失败",
+  // AgentProposal status
+  "confirmed": "已确认",
+  "rejected": "已拒绝",
+  // Membership role
+  "owner": "负责人",
+  "member": "成员",
+  // Memory type / status
+  "direction": "方向",
+  "boundary": "边界",
+  "tradeoff": "权衡",
+  "rejection": "拒绝",
+  "member_constraint": "成员约束",
+  "superseded": "已替换",
+  "archived": "已归档",
+};
 
-  let result = jsonStr;
-  for (const [eng, chn] of Object.entries(STATUS_MAP)) {
-    result = result.replaceAll(eng, chn);
+/**
+ * Walk a parsed JSON structure and translate known enum string VALUES to Chinese.
+ * Only replaces leaf string values that match STATUS_VALUE_MAP — never touches keys.
+ */
+function translateStatusValuesOnParsed(data: unknown): unknown {
+  if (typeof data === "string") {
+    return STATUS_VALUE_MAP[data] ?? data;
   }
-  return result;
+  if (Array.isArray(data)) {
+    return data.map(translateStatusValuesOnParsed);
+  }
+  if (typeof data === "object" && data !== null) {
+    const record = data as Record<string, unknown>;
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(record)) {
+      result[key] = translateStatusValuesOnParsed(val);
+    }
+    return result;
+  }
+  return data;
 }
 
 /** Map English JSON field names to Chinese equivalents. Applied during transformForLLM. */
@@ -293,7 +309,7 @@ const FIELD_NAME_MAP: Record<string, string> = {
   "project": "项目",
   "current_stage": "当前阶段",
   "deadline": "截止日期",
-  "deliverables": "交付物",
+  "deliverables": "交付物列表",
   "direction_card": "方向卡",
   "name": "名称",
   "idea": "想法",
@@ -314,7 +330,7 @@ const FIELD_NAME_MAP: Record<string, string> = {
   "due_date": "截止日期",
   "estimated_hours": "预估工时",
   "dependency_ids": "依赖任务",
-  "dependency_ids_ref": "依赖任务",
+  "dependency_ids_ref": "依赖任务(参考)",
   "acceptance_criteria": "验收标准",
   "can_cut": "可裁剪",
   "assignment_reason": "分配理由",
@@ -324,7 +340,7 @@ const FIELD_NAME_MAP: Record<string, string> = {
   "checkin_responses": "签到记录",
   "cadence_days": "签到间隔天数",
   "next_due_date": "下次到期日",
-  "next_due": "下次到期日",
+  "next_due": "下次到期",
   "what_done": "已完成内容",
   "blocker": "阻塞项",
   "available_hours_next_cycle": "下周期可用小时",
@@ -424,17 +440,18 @@ function buildIdMappingTable(state: unknown): string {
   function walk(val: unknown): void {
     if (Array.isArray(val)) {
       for (const item of val) walk(item);
-    } else if (typeof val === "object" && val !== null && "id" in (val as Record<string, unknown>)) {
+    } else if (typeof val === "object" && val !== null) {
       const r = val as Record<string, unknown>;
-      if (typeof r.id === "string" && r.id) {
+      if ("id" in r && typeof r.id === "string" && r.id) {
         const name =
           (typeof r.display_name === "string" && r.display_name) ||
           (typeof r.name === "string" && r.name) ||
           (typeof r.title === "string" && r.title);
         if (name) idToName.set(r.id, `「${name}」`);
       }
+      // Recurse into ALL values (arrays AND nested objects)
       for (const v of Object.values(r)) {
-        if (Array.isArray(v)) for (const item of v) walk(item);
+        walk(v);
       }
     }
   }
@@ -453,13 +470,14 @@ function buildIdMappingTable(state: unknown): string {
 
 export function transformForLLM(jsonStr: string): string {
   try {
-    // Step 1: status values → Chinese
-    let result = translateStatusValues(jsonStr);
+    const obj = JSON.parse(jsonStr);
+    // Step 1: status values → Chinese (tree-walk, only replaces leaf string values)
+    const translated = translateStatusValuesOnParsed(obj);
     // Step 2: field names → Chinese
-    const obj = JSON.parse(result);
-    const final = translateFieldNames(obj);
+    const final = translateFieldNames(translated);
     return JSON.stringify(final, null, 2);
   } catch {
-    return translateStatusValues(jsonStr);
+    // If JSON parse fails, return as-is (shouldn't happen with valid API data)
+    return jsonStr;
   }
 }
