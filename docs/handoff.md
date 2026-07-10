@@ -4,16 +4,61 @@ Status: current as of 2026-07-10.
 
 ## Latest Architecture Handoff
 
+### PR #84/#85/#86 Merge + Adversarial Review Bug Fixes (2026-07-10)
+
+Merged three PRs with adversarial review, resolved merge conflicts, and fixed critical bugs found during review.
+
+**PR #84 — SSE Streaming Fixes:**
+- Fixed `currentEvent` variable scoping (moved inside while loop broke cross-chunk event tracking)
+- Added `ENDPOINT_EVENT_TYPE_MAP` for unified endpoint→event_type mapping (retrospective→"replan", not "retro")
+- Polling timeout race condition fix: check terminal status BEFORE timeout check
+- Timeline verification window tightened: use `startTime` as lower bound (not `startTime - TIME_WINDOW_MS`)
+- ConnectError fallback now persists assistant message via `_save_assistant_message` + `_build_done_turn`
+- Degraded success semantics: `status: "fallback"`, `used_fallback: true`
+
+**PR #85 — Pi Runtime Terminal State Guards + Error Handling:**
+- All `tool_execution_*` events + `message_*`/`turn_*` events: guard against writes after terminal state (completed/failed/cancelled)
+- `app.ts` error handling: `err: any` → `err: unknown` with proper type narrowing, FastapiError detection with status code validation (400-599)
+- `signal?.aborted` returning false → throw `DOMException AbortError`
+- Deterministic intent matcher `_deterministic_intent_match()` as ConnectError fallback (narrowed patterns: "分析.*风险", "生成.*行动", "检查.*进度")
+
+**PR #86 — Output Localization + Tool Reliability + Enhancements:**
+- `buildIdMappingTable()` ID→名称对照表注入系统提示
+- `translateStatusValues` 55 enum values Chinese translation
+- `translateFieldNames` field name Chinese translation
+- Tool failure returns error content (not exception) for LLM retry
+- `analyze_checkins_and_risks` supports single-side input
+- Negotiation accept/reject API + UI
+- New risk-analysis skill (`create_risk` creates directly)
+- `replan-diff` ID field hiding + enum translation
+
+**Merge conflict resolution:** 4 files with 9 conflict regions. Strategy: preserve main's sidecar proxy architecture + integrate PR enhancements. Deterministic intent matcher adapted as ConnectError fallback (not replacement).
+
+**Adversarial review — Critical bugs found and fixed (commit `96bd560`):**
+
+| ID | Bug | Fix |
+|----|-----|-----|
+| C1 | `buildIdMappingTable()` walk only recursed into array values — no-op for real workspace state | Walk now recurses into ALL values (arrays + nested objects), no longer requires top-level `id` field |
+| C2 | `translateStatusValues()` blind `replaceAll` on raw JSON corrupted field names and free-text content | Replaced with `translateStatusValuesOnParsed()` — tree-walk on parsed JSON, only replaces leaf string values, never touches keys |
+| C3 | `FIELD_NAME_MAP` 3 key collision groups caused silent data loss | Disambiguated: `dependency_ids_ref→依赖任务(参考)`, `next_due→下次到期`, `deliverables→交付物列表` |
+| C9 | Stage progress bar permanently 0% (`activeStages.filter(completed)` always 0) | Changed to `completedStages.length / stages.length` |
+
+Also fixed 2 TS compilation errors: `page.tsx` extra `currentUserId` arg, `api.test.ts` missing `viewerUserId` arg.
+
+**Verification (2026-07-10):** agent-bridge 540 tests pass, typecheck pass; backend 506 tests pass, 4 skipped; frontend typecheck pass.
+
+**Key files modified:** `agent-bridge/src/runtime/context-builder.ts`, `agent-bridge/src/runtime/pi-runtime.ts`, `agent-bridge/src/server/app.ts`, `frontend/src/lib/api.ts`, `frontend/src/lib/api.test.ts`, `frontend/src/app/workspaces/[workspaceId]/page.tsx`, `frontend/src/components/stage/stage-plan-board.tsx`, `backend/app/services/agent_conversation_service.py`, `backend/app/services/agent_tools_service.py`, `backend/app/agent/llm_client.py`
+
 ### Agent Output Localization & Display Hardening (2026-07-09)
 
 Comprehensive hardening of the Agent Bridge sidecar's LLM-facing data pipeline and frontend display layer to eliminate mixed Chinese/English output, raw internal ID leakage, and inline numbered prose rendering.
 
 **What was built:**
 
-- **`transformForLLM` pipeline** (`context-builder.ts`): Three-stage JSON transformation applied to all LLM-bound data (initial workspace_state, mid-run tool results, pending_proposals):
-  1. `translateStatusValues` — "in_progress"→"进行中", "low"→"低", etc.
-  2. `annotateIdsForDisplay` — In-place replacement of all FK IDs with「display name」: `user_id:"u-1"`→`user_id:"「小林」"`, `stage_id:"demo-stage-004"`→`stage_id:"「测试与打磨」"`, `dependency_ids` arrays resolved to titles. No raw internal IDs remain in the data the LLM sees.
-  3. `translateFieldNames` — 100+ English JSON keys translated to Chinese: `"mood_or_confidence"`→`"心情/信心"`, `"available_hours_per_week"`→`"每周可用小时"`, etc. LLM sees fully Chinese JSON.
+- **`transformForLLM` pipeline** (`context-builder.ts`): Two-stage JSON transformation applied to all LLM-bound data (initial workspace_state, mid-run tool results, pending_proposals):
+  1. `translateStatusValuesOnParsed` — tree-walk on parsed JSON, replaces only leaf string values matching known enums: "in_progress"→"进行中", "low"→"低", etc. Never touches keys or free-text content (supersedes blind `replaceAll` on raw JSON string).
+  2. `translateFieldNames` — 100+ English JSON keys translated to Chinese: `"mood_or_confidence"`→`"心情/信心"`, `"available_hours_per_week"`→`"每周可用小时"`, etc. LLM sees fully Chinese JSON.
+  - **`buildIdMappingTable`** — walks entire workspace state tree (all objects + arrays), extracts `id→display_name/name/title` mappings, injects as persistent system prompt table. LLM uses UUIDs in tool calls and Chinese names in text output.
 
 - **Tool result data injection** (`pi-runtime.ts`): `toPiTool` now includes the tool's `data` JSON (up to 32KB, after `transformForLLM`) in `content[0].text`, not just the label `observation`. The LLM can actually read the workspace state, member profiles, and task details that previous tool calls returned.
 
@@ -35,10 +80,10 @@ Comprehensive hardening of the Agent Bridge sidecar's LLM-facing data pipeline a
 
 - **`splitProseLines` utility** (`utils.ts`): Exported to shared lib as the single source of truth for numbered prose splitting.
 
-**Verification (2026-07-09):**
+**Verification (2026-07-09, updated 2026-07-10):**
 - agent-bridge: 540 tests pass (18 files), typecheck pass
-- frontend: 56 tests pass (10 files), build pass
-- backend: 519 tests pass, 4 skipped
+- frontend: 56 tests pass (10 files), typecheck pass
+- backend: 506 tests pass, 4 skipped
 
 **Key files modified:** `agent-bridge/src/runtime/context-builder.ts`, `agent-bridge/src/runtime/pi-runtime.ts`, `agent-bridge/src/server/routes/get-run.ts`, `agent-bridge/src/server/routes/start-run.ts`, `agent-bridge/skills/*/SKILL.md` (6 files), `backend/app/services/agent_proposal_service.py`, `backend/app/tests/test_agent_proposal_confirm.py`, `frontend/src/lib/api.ts`, `frontend/src/lib/utils.ts`, `frontend/src/app/workspaces/[workspaceId]/page.tsx`, `frontend/src/components/ui/multiline-text.tsx` (new), `frontend/src/components/ui/match-text.tsx`, `frontend/src/components/agent/agent-proposal-panel.tsx`, `frontend/src/components/agent/direction-decision-view.tsx`, `frontend/src/components/agent/direction-card-panel.tsx`, `frontend/src/components/agent/action-card.tsx`, `frontend/src/components/agent/timeline.tsx`, `frontend/src/components/stage/stage-plan-board.tsx`, `frontend/src/components/task/task-breakdown-board.tsx`, `frontend/src/components/assignment/assignment-flow-panel.tsx`, `frontend/src/components/risk/risk-card.tsx`, `frontend/src/components/risk/replan-diff.tsx`, `frontend/src/components/project/project-memory-panel.tsx`, `frontend/src/components/project/project-task-views.tsx`, `frontend/src/components/project/agent-conversation-cards.tsx`, `frontend/src/components/project/agent/ModuleRunCard.tsx`, `frontend/src/components/project/agent/MarkdownContent.tsx`
 
