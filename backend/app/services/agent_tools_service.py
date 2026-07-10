@@ -209,10 +209,17 @@ def execute_agent_tool(
             return _cached_advisory_tool_result(cached_event)
 
         # Sidecar direct-persist path: LLM already generated checkin + risk analysis
-        if "checkin_analysis_output" in args and "risk_analysis_output" in args:
+        # Accept partial output: only checkin_analysis_output OR only risk_analysis_output
+        has_checkin = "checkin_analysis_output" in args
+        has_risk = "risk_analysis_output" in args
+        if has_checkin or has_risk:
+            checkin_output: CheckInAnalysisOutput | None = None
+            risk_output: RiskAnalysisOutput | None = None
             try:
-                checkin_output = CheckInAnalysisOutput.model_validate(args["checkin_analysis_output"])
-                risk_output = RiskAnalysisOutput.model_validate(args["risk_analysis_output"])
+                if has_checkin:
+                    checkin_output = CheckInAnalysisOutput.model_validate(args["checkin_analysis_output"])
+                if has_risk:
+                    risk_output = RiskAnalysisOutput.model_validate(args["risk_analysis_output"])
             except ValidationError as exc:
                 return _failed(
                     "CHECKINS_RISKS_OUTPUT_INVALID",
@@ -224,28 +231,46 @@ def execute_agent_tool(
                 return action_cards_result
             action_cards = action_cards_result
 
-            # Create AgentEvent for traceability (store both outputs)
+            # Build output payload and determine event type based on what was provided
+            output_payload: dict[str, Any] = {}
+            if checkin_output:
+                output_payload["checkin_analysis"] = checkin_output.model_dump(mode="json")
+                risks_from_checkin = checkin_output.risks
+            else:
+                risks_from_checkin = []
+            if risk_output:
+                output_payload["risk_analysis"] = risk_output.model_dump(mode="json")
+                risks_from_risk = risk_output.risks
+            else:
+                risks_from_risk = []
+
+            event_type = AgentEventType.risk if has_risk and not has_checkin else AgentEventType.checkin
+
+            # Create AgentEvent for traceability (store available outputs)
             agent_event_id = _create_sidecar_agent_event(
                 session,
                 workspace_id=workspace_id,
                 project_id=project_id,
-                event_type=AgentEventType.checkin,
-                output={"checkin_analysis": checkin_output.model_dump(mode="json"), "risk_analysis": risk_output.model_dump(mode="json")},
+                event_type=event_type,
+                output=output_payload,
                 request=request,
             )
             created_ids = _dedupe_ids(
                 [
-                    *_persist_advisory_risks(session, project_id, checkin_output.risks),
-                    *_persist_advisory_risks(session, project_id, risk_output.risks),
+                    *_persist_advisory_risks(session, project_id, risks_from_checkin),
+                    *_persist_advisory_risks(session, project_id, risks_from_risk),
                     *_persist_advisory_action_cards(session, project_id, action_cards),
                 ]
             )
-            replan_signal = _build_replan_signal(checkin_output, risk_output)
+            replan_signal = _build_replan_signal(
+                checkin_output or CheckInAnalysisOutput(summary="", task_updates=[], risks=[]),
+                risk_output or RiskAnalysisOutput(summary="", risks=[], reason="", requires_confirmation=False),
+            )
             data = {
                 "event_type": "checkin_and_risk_analysis",
                 "status": "success",
-                "checkin_analysis": checkin_output.model_dump(mode="json"),
-                "risk_analysis": risk_output.model_dump(mode="json"),
+                "checkin_analysis": checkin_output.model_dump(mode="json") if checkin_output else None,
+                "risk_analysis": risk_output.model_dump(mode="json") if risk_output else None,
                 "replan_signal": replan_signal,
                 "created_ids": created_ids,
                 "related_event_ids": [agent_event_id],
@@ -268,7 +293,7 @@ def execute_agent_tool(
 
         return _failed(
             "CHECKINS_RISKS_OUTPUT_REQUIRED",
-            "checkins-and-risks-analysis requires sidecar-generated checkin_analysis_output and risk_analysis_output — the sidecar LLM should generate the analysis content directly.",
+            "checkins-and-risks-analysis requires at least one of checkin_analysis_output or risk_analysis_output from the sidecar LLM.",
             side_effect_status=SideEffectStatus.no_side_effect,
         )
 

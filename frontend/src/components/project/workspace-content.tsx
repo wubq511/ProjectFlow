@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Users,
@@ -115,6 +115,13 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject, on
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Listen for create-project event from Agent sidebar
+  useEffect(() => {
+    const handler = () => setNewProjectOpen(true);
+    window.addEventListener("projectflow:create-project", handler);
+    return () => window.removeEventListener("projectflow:create-project", handler);
+  }, []);
 
   const localProjects = React.useMemo(() => {
     if (deletedProjectIds.length === 0) return projects;

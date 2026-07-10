@@ -203,14 +203,18 @@ describe("frontend API layer", () => {
       if (url.includes("/runs/run-1")) {
         return jsonResponse({ run_id: "run-1", status: "completed" });
       }
+      // Timeline verification after sidecar completion
+      if (url.endsWith("/projects/project-1/timeline")) {
+        return jsonResponse([]);
+      }
       throw new Error(`Unexpected request ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
 
     await runAssignment("project-1");
 
-    // getProject + POST /runs + GET /runs/:id
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // getProject + POST /runs + GET /runs/:id + GET timeline
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("calls sidecar negotiate skill with workspace_id in body", async () => {
@@ -242,14 +246,20 @@ describe("frontend API layer", () => {
       if (url.includes("/runs/run-neg")) {
         return jsonResponse({ run_id: "run-neg", status: "completed" });
       }
+      // Timeline verification after sidecar completion
+      if (url.endsWith("/projects/project-1/timeline")) {
+        return jsonResponse([]);
+      }
       throw new Error(`Unexpected request ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await runAgentNegotiate("project-1");
 
-    expect(result.event_type).toBe("negotiate");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // With ENDPOINT_EVENT_TYPE_MAP, negotiate maps to "assign" not "negotiate"
+    expect(result.event_type).toBe("assign");
+    // getProject + POST /runs + GET /runs/:id + GET timeline
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("passes stage_id in assignment sidecar request when provided", async () => {
@@ -283,13 +293,18 @@ describe("frontend API layer", () => {
       if (url.includes("/runs/run-stage")) {
         return jsonResponse({ run_id: "run-stage", status: "completed" });
       }
+      // Timeline verification after sidecar completion
+      if (url.endsWith("/projects/project-1/timeline")) {
+        return jsonResponse([]);
+      }
       throw new Error(`Unexpected request ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
 
     await runAssignment("project-1", "stage-pending");
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // getProject + POST /runs + GET /runs/:id + GET timeline
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("starts assignment negotiation through the proposal-scoped backend route", async () => {
