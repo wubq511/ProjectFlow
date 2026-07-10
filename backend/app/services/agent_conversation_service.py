@@ -241,11 +241,16 @@ def process_conversation_message_stream(
             )
         else:
             guidance = "Agent 服务未启动，请确认 sidecar 已启动（端口 4000）。"
+        # Persist assistant message so the response survives page refresh
+        assistant_message = _save_assistant_message(session, conversation, guidance)
+        session.refresh(user_message)
         # Stream the guidance as a normal response so the user sees it in chat
         yield _sse_event("status", {"phase": "answering", "message": "正在生成回复..."})
         for char in guidance:
             yield _sse_event("token", {"content": char})
-        yield _sse_event("done", {"final_content": guidance})
+        turn = _build_done_turn(session, conversation, user_message, assistant_message)
+        yield _sse_event("done", turn.model_dump(mode="json"))
+        return
     except httpx.TimeoutException:
         logger.error("Sidecar stream timed out")
         yield _sse_event("error", {"message": "Agent 响应超时，请稍后重试。"})
@@ -457,9 +462,9 @@ _INTENT_PATTERNS: list[tuple[str, str]] = [
     ("生成阶段计划", r"阶段计划|生成.*计划|规划.*阶段|阶段.*规划|时间表|里程碑|plan\b"),
     ("任务拆解", r"拆成任务|任务拆解|拆解.*任务|把.*拆|分解.*任务|breakdown\b"),
     ("推荐分工", r"分工|分配.*成员|推荐.*分工|assign\b"),
-    ("生成行动卡", r"行动卡|推进|下一步|push\b"),
-    ("分析风险", r"风险|risk\b"),
-    ("签到分析", r"签到|进展|状态|checkin\b|检查.*进度"),
+    ("生成行动卡", r"行动卡|生成.*行动|下一步.*行动|push\b"),
+    ("分析风险", r"分析.*风险|风险.*分析|risk\b"),
+    ("签到分析", r"签到|检查.*进度|checkin\b"),
     ("调整计划", r"调整计划|重新规划|重排|replan\b"),
 ]
 

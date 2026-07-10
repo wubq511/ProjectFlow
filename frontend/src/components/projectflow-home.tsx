@@ -55,7 +55,7 @@ function getServerSnapshot() {
 
 async function checkWorkspaceExists(workspaceId: string, signal?: AbortSignal): Promise<boolean> {
   try {
-    if (signal?.aborted) return false;
+    if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
     const response = await fetch(`${API_BASE_URL}/workspaces/${workspaceId}`, { signal });
     return response.ok;
   } catch (err) {

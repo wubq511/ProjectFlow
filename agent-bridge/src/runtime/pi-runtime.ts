@@ -275,25 +275,31 @@ function applyPiEventToRunState(event: AgentEvent, runState: AgentRunState): voi
       break;
     }
     case "tool_execution_start": {
-      runState.status = "tool_preparing";
-      runState.currentStep++;
-      runState.pendingToolCall = {
-        toolCallId: event.toolCallId,
-        toolName: event.toolName,
-        toolVersion: 1,
-        idempotencyKey: `${runState.runId}_${event.toolCallId}`,
-      };
+      if (runState.status !== "completed" && runState.status !== "failed" && runState.status !== "cancelled") {
+        runState.status = "tool_preparing";
+        runState.currentStep++;
+        runState.pendingToolCall = {
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          toolVersion: 1,
+          idempotencyKey: `${runState.runId}_${event.toolCallId}`,
+        };
+      }
       break;
     }
     case "tool_execution_update": {
-      runState.status = "tool_running";
-      runState.updatedAt = new Date().toISOString();
+      if (runState.status !== "completed" && runState.status !== "failed" && runState.status !== "cancelled") {
+        runState.status = "tool_running";
+        runState.updatedAt = new Date().toISOString();
+      }
       break;
     }
     case "tool_execution_end": {
-      runState.status = "persisting_tool_result";
-      runState.pendingToolCall = undefined;
-      runState.updatedAt = new Date().toISOString();
+      if (runState.status !== "completed" && runState.status !== "failed" && runState.status !== "cancelled") {
+        runState.status = "persisting_tool_result";
+        runState.pendingToolCall = undefined;
+        runState.updatedAt = new Date().toISOString();
+      }
       break;
     }
     case "turn_end": {

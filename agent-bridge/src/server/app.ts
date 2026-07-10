@@ -153,10 +153,17 @@ export function createServer(config: SidecarConfig, serverCtx?: Partial<ServerCo
           (req as IncomingMessage & { bodyText?: string }).bodyText = await readBody(req);
         }
         await route.handler(req, res, params, ctx);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error(`[agent-bridge] error in ${route.method} ${url.pathname}:`, err);
-        if (err.name === "FastapiError" && err.status) {
-          sendJson(res, err.status, { error: "fastapi_error", message: err.body });
+        const errRec = typeof err === "object" && err !== null ? err as Record<string, unknown> : null;
+        if (
+          errRec &&
+          errRec.name === "FastapiError" &&
+          typeof errRec.status === "number" &&
+          errRec.status >= 400 && errRec.status < 600
+        ) {
+          const message = typeof errRec.body === "string" ? errRec.body : JSON.stringify(errRec.body);
+          sendJson(res, errRec.status, { error: "fastapi_error", message });
         } else {
           sendJson(res, 500, { error: "internal_error", message: "服务器内部错误" });
         }

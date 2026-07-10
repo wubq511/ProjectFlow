@@ -714,7 +714,7 @@ const ENDPOINT_EVENT_TYPE_MAP: Record<string, string> = {
   "risk-analysis": "risk",
   replan: "replan",
   negotiate: "assign",
-  retrospective: "retro",
+  retrospective: "replan",
 };
 
 async function runAgentFlow(
@@ -821,9 +821,9 @@ async function runAgentFlow(
     console.warn("Agent run completed but no matching timeline event found, fallback event_type=%s", fallbackEventType);
     return {
       event_type: fallbackEventType as AgentFlowResult["event_type"],
-      status: "success",
+      status: "fallback",
       attempts: 1,
-      used_fallback: false,
+      used_fallback: true,
       output: {},
       created_ids: [],
     };
