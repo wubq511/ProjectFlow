@@ -20,6 +20,7 @@
 import type { AgentRunState } from "@/types/run-state.js";
 import type { ContextBuildInput, MemoryContext, SkillContext } from "./context-builder.js";
 import { buildContext, filterModelCallableManifests } from "./context-builder.js";
+import { createMemoryGuardedStreamFn, shouldGuardMemoryOutput } from "./memory-output-guard.js";
 import type { ModelRouter } from "./model-router.js";
 import type { FastapiClient } from "@/tools/fastapi-client.js";
 import type { ToolRegistry, ToolExecutionContext } from "@/tools/registry.js";
@@ -58,6 +59,7 @@ import {
 } from "@earendil-works/pi-agent-core";
 import type { Model, Api, Provider, AssistantMessage, Message, ToolCall, Usage, TSchema } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream, Type } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/compat";
 
 export interface RunInput {
   conversationId: string;
@@ -373,6 +375,7 @@ export async function executeRun(
             used: !!input.memoryContext.text,
             backend: input.memoryContext.memoryBackend,
             used_memory_ids: input.memoryContext.usedMemoryIds,
+            used_memory_types: input.memoryContext.usedMemoryTypes ?? [],
             retrieval_count: input.memoryContext.retrievalCount,
             injected_count: input.memoryContext.injectedCount,
             latency_ms: input.memoryContext.latencyMs,
@@ -431,7 +434,18 @@ export async function executeRun(
         : { provider: runState.model.provider, name: runState.model.name },
     );
     const model = options.model ?? resolved.model;
-    const streamFn = options.streamFn ?? ((modelConfigEntry?.provider ?? runState.model.provider) === "mock" ? createMockStreamFn() : undefined);
+    const configuredStreamFn = options.streamFn ?? ((modelConfigEntry?.provider ?? runState.model.provider) === "mock" ? createMockStreamFn() : undefined);
+    const streamFn = shouldGuardMemoryOutput(input.memoryContext, input.userContent)
+      ? createMemoryGuardedStreamFn(configuredStreamFn ?? (streamSimple as StreamFn), {
+          userContent: input.userContent,
+          workspaceState: input.workspaceState,
+          memoryContext: input.memoryContext!,
+          onResult: (result) => {
+            input.memoryContext!.outputGuardStatus = result.status;
+            input.memoryContext!.outputGuardModelCalls = result.modelCalls;
+          },
+        })
+      : configuredStreamFn;
 
     // Step 6: Build AgentLoopConfig with hooks
     // Map our ThinkingLevel to Pi SDK's ThinkingLevel.

@@ -551,10 +551,23 @@ def evaluate_check(check: ScenarioCheck, output_text: str) -> CheckResult:
                 r"(?:晚上|晚间|周末|异步)",
                 re.IGNORECASE,
             )
+            rejected_option_pattern = re.compile(
+                r"(?:否决|排除|不采纳|不作为(?:首选|推荐|最终)?方案|不可行|不成立)"
+            )
+            hypothetical_conflict_pattern = re.compile(
+                rf"(?:无论|如果|若|假如)[^。！？；;]{{0,48}}"
+                rf"(?:分配给|指派给|交给)\s*{escaped_member}"
+                rf"[^。！？；;]{{0,32}}(?:违反|冲突|无法|不满足|不可行)"
+            )
             for clause in clauses:
                 if check.forbidden_member not in clause:
                     continue
-                if negative_pattern.search(clause) or auxiliary_pattern.search(clause):
+                if (
+                    negative_pattern.search(clause)
+                    or auxiliary_pattern.search(clause)
+                    or rejected_option_pattern.search(clause)
+                    or hypothetical_conflict_pattern.search(clause)
+                ):
                     continue
                 assignment = assignment_pattern.search(clause)
                 if assignment:

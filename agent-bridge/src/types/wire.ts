@@ -77,6 +77,8 @@ export interface WireRunStartRequest {
 export interface WireMemoryContext {
   text: string;
   used_memory_ids: string[];
+  used_memory_types?: string[];
+  guarded_member_names?: string[];
   memory_backend: string;
   retrieval_count: number;
   injected_count: number;

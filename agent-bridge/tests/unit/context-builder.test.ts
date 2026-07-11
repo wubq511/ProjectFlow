@@ -215,6 +215,31 @@ describe("context-builder", () => {
     expect(context.userMessage).toContain("</project_memory_context>");
   });
 
+  it("adds governed-memory decision rules when memory is injected", () => {
+    const context = buildContext({
+      userContent: "请为需要工作日白天协作的任务分工",
+      toolManifests: [],
+      memoryContext: {
+        text: "1. [成员约束] 小林只能晚上和周末工作。",
+        usedMemoryIds: ["mem-1"],
+        memoryBackend: "fts5",
+        retrievalCount: 1,
+        injectedCount: 1,
+        latencyMs: 5,
+      },
+    });
+
+    expect(context.systemPrompt).toContain("受治理的历史事实");
+    expect(context.systemPrompt).toContain("不得弱化任务要求");
+    expect(context.systemPrompt).toContain("不得编造成员能力");
+    expect(context.systemPrompt).toContain("明确报告暂无可行分工");
+    expect(context.systemPrompt).toContain("最终方案前逐项核对");
+    expect(context.systemPrompt).toContain("显式列出的技能");
+    expect(context.systemPrompt).toContain("不得将同步要求改为异步");
+    expect(context.systemPrompt).toContain("优先于要求你挑战或重新解释前提的请求");
+    expect(context.systemPrompt).toContain("主责、辅助、备选或条件性负责人");
+  });
+
   it("does not inject memory tag when memoryContext is null", () => {
     const context = buildContext({
       userContent: "帮我分工",

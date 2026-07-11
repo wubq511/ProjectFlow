@@ -7,12 +7,12 @@ using a simple character-based heuristic.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlmodel import Session
 
 from app.agent.memory.retriever import MemoryBackend, retrieve_memory_ids
-from app.models import ProjectMemory
+from app.models import ProjectMemory, User
 
 
 @dataclass
@@ -25,11 +25,15 @@ class MemoryContext:
     retrieval_count: int
     injected_count: int
     latency_ms: float
+    used_memory_types: list[str] = field(default_factory=list)
+    guarded_member_names: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "text": self.text,
             "used_memory_ids": self.used_memory_ids,
+            "used_memory_types": self.used_memory_types,
+            "guarded_member_names": self.guarded_member_names,
             "memory_backend": self.memory_backend.value,
             "retrieval_count": self.retrieval_count,
             "injected_count": self.injected_count,
@@ -97,6 +101,8 @@ def build_memory_context(
     wrap_chars = len(_HEADER) + len(_MEMBER_CONSTRAINT_FOOTER)
 
     used_memory_ids: list[str] = []
+    used_memory_types: list[str] = []
+    guarded_member_names: list[str] = []
     lines: list[str] = []
     has_member_constraint = False
     char_budget = int(token_budget * _CHARACTERS_PER_TOKEN) - wrap_chars
@@ -114,6 +120,12 @@ def build_memory_context(
             break
         lines.append(line)
         used_memory_ids.append(memory_id)
+        if memory.memory_type not in used_memory_types:
+            used_memory_types.append(memory.memory_type)
+        if memory.memory_type == "member_constraint" and memory.subject_user_id:
+            subject = session.get(User, memory.subject_user_id)
+            if subject and subject.display_name not in guarded_member_names:
+                guarded_member_names.append(subject.display_name)
         char_count += line_chars
         has_member_constraint = (
             has_member_constraint or memory.memory_type == "member_constraint"
@@ -132,4 +144,6 @@ def build_memory_context(
         retrieval_count=retrieval.retrieval_count,
         injected_count=len(used_memory_ids),
         latency_ms=retrieval.latency_ms,
+        used_memory_types=used_memory_types,
+        guarded_member_names=guarded_member_names,
     )

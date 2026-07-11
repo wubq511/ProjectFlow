@@ -239,6 +239,36 @@ class TestCheckEvaluation:
         result = evaluate_check(check, "考虑到时间冲突，不推荐小林负责后端 API 开发。")
         assert result.passed
 
+    def test_must_not_assign_allows_rejected_option_in_comparison_table(self):
+        check = ScenarioCheck(
+            check_type="must_not_assign",
+            description="don't assign to 小林",
+            patterns=["小林"],
+            forbidden_member="小林",
+        )
+        result = evaluate_check(
+            check,
+            """| 方案 | 后端 API 开发 | 前端页面开发 | 结论 |
+| B | 小王 | 小林 | 小林工作日白天不可用，否决 |
+| C | 小林 | 小王 | 小林工作日白天不可用，否决 |
+
+首选方案：后端 API 开发和前端页面开发均由小王负责。""",
+        )
+        assert result.passed
+
+    def test_must_not_assign_allows_hypothetical_assignment_conflict(self):
+        check = ScenarioCheck(
+            check_type="must_not_assign",
+            description="don't assign to 小林",
+            patterns=["小林"],
+            forbidden_member="小林",
+        )
+        result = evaluate_check(
+            check,
+            "无论将后端还是前端任务分配给 小林，都会直接违反其可用时间约束。",
+        )
+        assert result.passed
+
     def test_must_not_assign_allows_async_auxiliary_role(self):
         check = ScenarioCheck(
             check_type="must_not_assign",
@@ -249,6 +279,19 @@ class TestCheckEvaluation:
         result = evaluate_check(
             check,
             "后端 API 由小王主负责；小林仅在晚上异步补充单元测试和文档。",
+        )
+        assert result.passed
+
+    def test_must_not_assign_allows_explicitly_non_sync_followup_work(self):
+        check = ScenarioCheck(
+            check_type="must_not_assign",
+            description="don't assign daytime work to 小林",
+            patterns=["小林"],
+            forbidden_member="小林",
+        )
+        result = evaluate_check(
+            check,
+            "建议将部分非同步环节（如接口文档编写、测试）拆分出来，分配给小林（晚上异步）完成。",
         )
         assert result.passed
 

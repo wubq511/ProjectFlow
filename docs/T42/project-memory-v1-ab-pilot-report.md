@@ -1,6 +1,6 @@
 # ProjectMemory V1 Agent A/B 正式 Pilot 报告
 
-> 2026-07-11 更新：本报告记录首次正式 Pilot。失败项已完成选择性复验，组合证据现为 7/7 Gate 通过；详见 `project-memory-v1-ab-selective-rerun-report.md`。
+> 2026-07-11 更新：本报告记录首次正式 Pilot，不改写历史结果。失败项已完成选择性复验，组合证据现为 7/7 Gate 通过；后续 S1 输出守卫将 B 组最终组合证据提升到 10/10，详见 `project-memory-v1-ab-selective-rerun-report.md`。
 
 日期：2026-07-10 至 2026-07-11
 模型：DeepSeek V4 Pro

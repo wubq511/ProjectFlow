@@ -142,8 +142,8 @@ npm audit --omit=dev
 
 Expected baseline as of 2026-07-11:
 
-- Backend tests pass: 641 passed, 4 skipped (MVP API/model smoke plus CORS, agent schema/module/provider/fallback, timeline logging, assignment, action-card, check-in, risk, replan, seed/reset/export, demo reset, LLM diagnostic, agent proposal confirmation, T41 internal tool/runtime contract, service-token auth, idempotency, side-effect reconciliation, runtime event bridge tests, T42 ProjectMemory tests, and R8 A/B eval harness tests).
-- Agent bridge tests pass: 558 tests across 20 unit files; `npm run typecheck` and `npm run build` pass in `agent-bridge/`.
+- Backend tests pass: 644 passed, 4 skipped (MVP API/model smoke plus CORS, agent schema/module/provider/fallback, timeline logging, assignment, action-card, check-in, risk, replan, seed/reset/export, demo reset, LLM diagnostic, agent proposal confirmation, T41 internal tool/runtime contract, service-token auth, idempotency, side-effect reconciliation, runtime event bridge tests, T42 ProjectMemory tests, and R8 A/B eval harness tests).
+- Agent bridge tests pass: 566 tests across 21 unit files; `npm run typecheck` and `npm run build` pass in `agent-bridge/`.
 - Frontend tests pass: 57 tests across 10 files (API layer, project dashboard, home page, app shell, action cards, task status update, error boundaries, assignment flow panel, agent proposal panel with generation-status badge coverage).
 - Frontend lint passes.
 - Frontend production build passes.

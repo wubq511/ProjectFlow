@@ -7,7 +7,7 @@ All notable changes to ProjectFlow are documented here. Format follows [Keep a C
 ### Added
 
 - T42 ProjectMemory V1 remediation Batches A–D (R1–R6, R8): sidecar memory context injection, FTS5 project-scoped top-k, two-phase natural language retrieval (strict AND → relaxed OR), query normalization, 50-query stratified eval, memory observability via `agent.started` `_memory` payload, history memory display (active+superseded+archived), ProjectMemorySync status closure, streaming raw-ID sanitization, partial aggregate support, and a 5-scenario A/B eval harness with independent blind review.
-- R8 release evidence: the initial 150-pair/300-call sidecar Pilot and selective S1/S2 remediation runs completed without model-call errors; combined evidence passes 7/7 gates, with S1 B-group absolute compliance at 80% retained as a model residual-risk baseline.
+- R8 release evidence: the initial 150-pair/300-call sidecar Pilot and selective S1/S2 remediation runs completed without model-call errors; combined evidence passes 7/7 gates. A narrow member-constraint assignment output guard (review, one repair, re-review, deterministic check, conservative fallback) raises the final selective S1 B-group evidence from 80% to 10/10 and reports guard status/calls in SSE evidence.
 
 ## [0.3.0] - 2026-07-08
 

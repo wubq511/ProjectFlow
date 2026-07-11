@@ -9,6 +9,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { parseRunStartRequest } from "@/types/wire.js";
 import { createRunState } from "@/types/run-state.js";
 import { executeRun } from "@/runtime/pi-runtime.js";
+import type { MemoryContext } from "@/runtime/context-builder.js";
 import { createOutputSanitizer } from "@/runtime/output-sanitizer.js";
 import type { StreamEventType } from "@/events/stream.js";
 import type { RuntimeEvent } from "@/types/runtime-event.js";
@@ -56,10 +57,12 @@ export async function handleStartRunStream(
   };
   const fastapiRunResp = await ctx.fastapiClient.startRun(fastapiRequestBody as any);
   const fastapiRunId = fastapiRunResp.run_id;
-  const memoryContext = fastapiRunResp.memory_context
+  const memoryContext: MemoryContext | null = fastapiRunResp.memory_context
     ? {
         text: fastapiRunResp.memory_context.text,
         usedMemoryIds: fastapiRunResp.memory_context.used_memory_ids,
+        usedMemoryTypes: fastapiRunResp.memory_context.used_memory_types ?? [],
+        guardedMemberNames: fastapiRunResp.memory_context.guarded_member_names ?? [],
         memoryBackend: fastapiRunResp.memory_context.memory_backend,
         retrievalCount: fastapiRunResp.memory_context.retrieval_count,
         injectedCount: fastapiRunResp.memory_context.injected_count,
@@ -70,10 +73,16 @@ export async function handleStartRunStream(
     mode: parsed.memory_mode ?? "enabled",
     backend: memoryContext?.memoryBackend ?? "none",
     used_memory_ids: memoryContext?.usedMemoryIds ?? [],
+    used_memory_types: memoryContext?.usedMemoryTypes ?? [],
     retrieval_count: memoryContext?.retrievalCount ?? 0,
     injected_count: memoryContext?.injectedCount ?? 0,
     latency_ms: memoryContext?.latencyMs ?? 0,
   };
+  const finalMemoryEvidence = () => ({
+    ...memoryEvidence,
+    output_guard_status: memoryContext?.outputGuardStatus ?? "not_applied",
+    output_guard_model_calls: memoryContext?.outputGuardModelCalls ?? 0,
+  });
 
   // Step 2: Create local run state
   const runState = createRunState({
@@ -251,7 +260,7 @@ export async function handleStartRunStream(
           run_id: runState.runId,
           status: "completed",
           final_content: finalContent,
-          memory_evidence: memoryEvidence,
+          memory_evidence: finalMemoryEvidence(),
         });
         res.end();
         break;
@@ -313,7 +322,7 @@ export async function handleStartRunStream(
               run_id: state.runId,
               status: "completed",
               final_content: accumulatedContent,
-              memory_evidence: memoryEvidence,
+              memory_evidence: finalMemoryEvidence(),
             });
             res.end();
           }

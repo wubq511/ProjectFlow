@@ -483,13 +483,15 @@ vector dependency guardrail + lazy backend scaffold
 
 优先级：P1 release evidence
 依赖：R1、R2、R3、R4
-状态：**已完成**。初始 150 paired trials / 300-call sidecar 正式 Pilot 完成后，按失败项选择性复验 S1/S2；综合证据通过 7/7 gates。详见 `project-memory-v1-ab-pilot-report.md` 与 `project-memory-v1-ab-selective-rerun-report.md`。
+状态：**已完成**。初始 150 paired trials / 300-call sidecar 正式 Pilot 完成后，按失败项选择性复验 S1/S2；综合证据通过 7/7 gates。S1 Prompt-only 方案停在 80%-90% 后，增加仅针对成员约束分工请求的输出守卫：独立审查、一次修复、独立复审、确定性成员检查和保守 fallback，最终选择性组合证据为 B 组 10/10。详见 `project-memory-v1-ab-pilot-report.md` 与 `project-memory-v1-ab-selective-rerun-report.md`。
 
 实现产物：
 
 - `backend/app/agent/memory/ab_eval.py`：5 场景定义 + A/B runner + 确定性指标计算 + Markdown 报告 + gate
 - `backend/app/agent/memory/ab_eval_cli.py`：CLI 实现；`ab_eval.py` 的模块入口会委托到该 CLI
 - `backend/app/tests/test_ab_eval.py`：Mock 结构测试与真实 sidecar runner 请求契约测试
+- `agent-bridge/src/runtime/memory-output-guard.ts`：成员约束分工输出的审查、修复、复审、确定性检查与 fallback
+- `agent-bridge/tests/unit/memory-output-guard.test.ts`：守卫激活边界、缓冲、修复、复审、fallback 和工具调用回放测试
 
 目的：回答 memory 是否改善 Agent 决策，而不只是能否检索。
 

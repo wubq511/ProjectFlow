@@ -37,6 +37,8 @@ const config: SidecarConfig = {
 const wireMemoryContext = {
   text: "历史记忆：MVP 不做外部集成",
   used_memory_ids: ["mem-1", "mem-2"],
+  used_memory_types: ["member_constraint", "assignment"],
+  guarded_member_names: ["小林"],
   memory_backend: "fts5",
   retrieval_count: 10,
   injected_count: 2,
@@ -98,6 +100,8 @@ function expectMappedMemoryContext(): void {
     memoryContext: {
       text: wireMemoryContext.text,
       usedMemoryIds: wireMemoryContext.used_memory_ids,
+      usedMemoryTypes: wireMemoryContext.used_memory_types,
+      guardedMemberNames: wireMemoryContext.guarded_member_names,
       memoryBackend: wireMemoryContext.memory_backend,
       retrievalCount: wireMemoryContext.retrieval_count,
       injectedCount: wireMemoryContext.injected_count,
@@ -136,7 +140,9 @@ describe("memory_context route passthrough", () => {
 
   it("returns runtime memory evidence without the memory text", async () => {
     const response = createResponse();
-    executeRunMock.mockImplementationOnce(async (state, ...args) => {
+    executeRunMock.mockImplementationOnce(async (state, input, ...args) => {
+      input.memoryContext.outputGuardStatus = "repaired";
+      input.memoryContext.outputGuardModelCalls = 3;
       const callbacks = args.at(-1) as { onComplete: (value: unknown) => void };
       callbacks.onComplete({ ...state, status: "completed" });
       return { ...state, status: "completed" };
@@ -148,6 +154,8 @@ describe("memory_context route passthrough", () => {
     expect(writes).toContain('"memory_evidence"');
     expect(writes).toContain('"mode":"enabled"');
     expect(writes).toContain('"injected_count":2');
+    expect(writes).toContain('"output_guard_status":"repaired"');
+    expect(writes).toContain('"output_guard_model_calls":3');
     expect(writes).not.toContain(wireMemoryContext.text);
   });
 

@@ -59,8 +59,8 @@ The merged #71-#80 implementation is now followed by completed remediation slice
 - FastAPI-built memory context reaches the sidecar model prompt on both run routes; runtime evidence is emitted in `agent.started`.
 - Retrieval is project-scoped and uses two-phase natural-language matching; the 50-query eval reaches Recall@10/Recall@3 100%, MRR@10 0.97, and 2% bad-first rate.
 - Viewer authorization is shared by list/export/injection, history display is lifecycle-aware, and FTS synchronization reaches terminal `synced` or `failed` states.
-- The initial 150-pair/300-call sidecar Pilot plus selective S1/S2 remediation evidence passes 7/7 gates. Post-fix raw-ID leakage is 0/140 calls; S2 rejection reduction is 100%; S1 lift is +80pp with B-group absolute compliance of 80% retained as a model residual-risk baseline.
-- Verification: backend `641 passed, 4 skipped` and Ruff pass; agent bridge `558 passed` across 20 files plus typecheck/build pass; frontend `57 passed` across 10 files plus lint/build pass.
+- The initial 150-pair/300-call sidecar Pilot plus selective S1/S2 remediation evidence passes 7/7 gates. Post-fix raw-ID leakage is 0/140 calls; S2 rejection reduction is 100%. A narrow member-constraint assignment output guard raised the selectively composed S1 B-group evidence to 10/10 and exposes guard status/call count in final SSE evidence.
+- Verification: backend `644 passed, 4 skipped` and Ruff pass; agent bridge `566 passed` across 21 files plus typecheck/build pass; frontend `57 passed` across 10 files plus lint/build pass.
 - Accepted V1 limitation: alternate `/api/replans/confirm` path still does not produce ProjectMemory; current frontend does not use this endpoint.
 
 **Canonical closure record:** `docs/T42/project-memory-v1-closure.md`. Final Pilot evidence: `docs/T42/project-memory-v1-ab-selective-rerun-report.md`.

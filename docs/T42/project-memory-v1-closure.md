@@ -1,6 +1,6 @@
 # T42 ProjectMemory V1 Closure Review
 
-Status: R8 selective remediation Pilot passed 7/7 gates as of 2026-07-11.
+Status: R8 selective remediation Pilot passed 7/7 gates; S1 B-group output guard reached 10/10 compliance as of 2026-07-11.
 
 ## Summary
 
@@ -20,6 +20,7 @@ The completed implementation covers the ProjectMemory V1 backend/runtime and fro
 - 50-query stratified evaluation harness covering 8 query slices (exact keyword, paraphrase, short/elliptical, typo/noisy, mixed Chinese/English, conflict/lifecycle, project distractor, privacy negative).
 - Agent context injection through FastAPI-built context; sidecar receives `memory_context` via `WireRunStartResponse` and injects into model prompt via `<project_memory_context>` XML tag. Real route tests cover both `/runs` and `/runs/stream` through the `executeRun` boundary.
 - Sidecar `agent.started` event payload includes `_memory` metadata (backend, used_memory_ids, retrieval_count, injected_count, latency_ms) for runtime observability (R2).
+- Member-constraint assignment requests use a narrow output guard: independent review, one repair, independent re-review, deterministic guarded-member check, and conservative fallback. Final SSE evidence reports guard status and model-call count.
 - Debug payload store records memory text (redacted by default; full text only with `includeSensitiveData`).
 - Retrieval evaluation harness and optional `memory-vector` extra with default-install guardrails.
 - Frontend `ProjectMemoryPanel` with topic-grouped read-only list, loading/error/empty states, and Markdown export/copy/download using the current viewer identity.
@@ -28,15 +29,15 @@ The completed implementation covers the ProjectMemory V1 backend/runtime and fro
 
 Latest local verification (formal Pilot remediation, 2026-07-11):
 
-- Backend tests: 641 passed, 4 skipped.
-- Agent bridge tests: 558 passed across 20 files.
+- Backend tests: 644 passed, 4 skipped.
+- Agent bridge tests: 566 passed across 21 files.
 - Frontend tests: 57 passed across 10 files.
 - Agent bridge typecheck/build: passed.
 - Backend Ruff: passed.
 - Frontend lint/build: passed.
 - 50-query FTS5 eval: Recall@10 100%, Recall@3 100%, MRR@10 0.97, bad-first rate 2%, fixture max latency 10.60 ms.
-- R8 A/B eval harness: 103 targeted tests passed, including runtime evidence validation, aggregate → blind review → reviewed release workflow, terminal-decision checks, raw-ID gate, and report regressions.
-- R8 formal Pilot: initial 300-call / 150-pair sidecar run completed with 0 errors and 300/300 runtime evidence records. The selective remediation Pilot then reran S1/S2 plus a reduced S1 hard-constraint slice: S2 rejection reduction reached 100%, S1 compliance lift remained +80pp, and raw-ID leakage was 0/140 post-fix calls. Combined per-Gate evidence now passes 7/7. See `project-memory-v1-ab-pilot-report.md` and `project-memory-v1-ab-selective-rerun-report.md`.
+- R8 A/B eval harness: 106 targeted tests passed, including runtime evidence validation, aggregate → blind review → reviewed release workflow, terminal-decision checks, rejected-option/hypothetical-conflict handling, raw-ID gate, and report regressions.
+- R8 formal Pilot: initial 300-call / 150-pair sidecar run completed with 0 errors and 300/300 runtime evidence records. The selective remediation Pilot reran S1/S2 plus a reduced S1 hard-constraint slice: S2 rejection reduction reached 100% and raw-ID leakage was 0/140 post-fix calls. The final S1 guard selectively reran the three remaining failing framings; combined S1 B-group evidence is 10/10 compliant, with final SSE guard observability confirmed by a real-model smoke. Combined per-Gate evidence passes 7/7. See `project-memory-v1-ab-pilot-report.md` and `project-memory-v1-ab-selective-rerun-report.md`.
 
 ## GitHub Issue Status
 
@@ -70,7 +71,7 @@ Remaining V1 closure gaps (remediation plan `project-memory-v1-remediation-plan.
 5. ~~**R5 — 历史记忆展示**~~：**已修复（Batch C）**。JSON/Markdown 展示允许 active + superseded + archived（AD-3 展示语义）；Agent 注入仅 active + 未过期；两者复用同一 `can_view_memory` 授权谓词；私有历史记忆仍只对 subject/owner 可见。
 6. ~~**R6 — ProjectMemorySync 状态闭环**~~：**已修复（Batch C）**。FTS 索引成功 → `synced` + `backend_memory_id` + `last_synced_at`；FTS 不可用、真实 INSERT 失败或 supersede DELETE 失败 → `failed` + 仅含错误类型的安全文本；日志不记录异常正文；业务提交不因索引失败回滚。
 7. **R7 — optional vector 完整化**：只有依赖护栏和底层组件，没有生产索引与 Agent 使用闭环。vector scaffold/guardrails 已实现，end-to-end 未完成。
-8. ~~**R8 — Agent 效果评估**~~：**已完成**。初始 150 paired / 300-call 正式 Pilot 后，按失败项选择性复验 S1/S2。S2 重复拒绝率由 A 80% 降至 B 0%；S1 维持 +80pp lift；修复后 140/140 正式调用无 raw-ID 泄露。结合未受影响的旧 S3-S5 证据，7/7 Gate 通过。S1 B 组绝对服从率稳定为 80%，记录为模型残余风险。
+8. ~~**R8 — Agent 效果评估**~~：**已完成**。初始 150 paired / 300-call 正式 Pilot 后，按失败项选择性复验 S1/S2。S2 重复拒绝率由 A 80% 降至 B 0%；修复后 140/140 正式调用无 raw-ID 泄露。S1 的 Prompt-only 方案停在 80%-90%，最终通过结构化成员约束信号、独立审查/修复/复审和确定性 fallback 将 B 组组合证据提升到 10/10。结合未受影响的旧 S3-S5 证据，7/7 Gate 通过。
 
 Accepted V1 limitation:
 
@@ -78,7 +79,7 @@ Accepted V1 limitation:
 
 ## Recommended Next Issue
 
-R8 无需继续重复调用。后续若更换模型或调整 memory prompt，应把 S1 B 组 80% 绝对服从率作为回归基线。R7（optional vector V1.1）仍是需要数据库 schema 变更审批的独立项目。
+R8 无需继续重复调用。后续若更换模型、调整 memory prompt 或输出守卫，应把 S1 B 组 100% 终局合规作为回归门槛，并单独监控 fallback 率、守卫调用数和端到端延迟。R7（optional vector V1.1）仍是需要数据库 schema 变更审批的独立项目。
 
 ## Product Smoke Checklist
 
@@ -100,6 +101,7 @@ Before closing T42 V1:
 - Superseded/archived memories are visible in JSON list and Markdown export; Agent retrieval only returns active memories.
 - FTS5 sync status is `synced` after successful indexing; unavailable/write/delete failures become `failed` with content-free error text; business commits are not blocked by index failures.
 - R8 harness covers 5 scenarios and 7 gates；Mock/Direct 不具备隐私 release 资格；最终 sidecar Pilot 使用专用项目、FastAPI viewer 裁决和独立盲化人工复核。
+- 成员约束分工请求的最终 SSE 必须包含 `output_guard_status` 和 `output_guard_model_calls`；受约束成员不得出现在主责、辅助、备选或条件性分工中。
 
 ## Worktree Cleanup Candidates
 

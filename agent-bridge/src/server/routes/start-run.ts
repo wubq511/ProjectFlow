@@ -7,6 +7,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { parseRunStartRequest } from "@/types/wire.js";
 import { createRunState } from "@/types/run-state.js";
 import { executeRun } from "@/runtime/pi-runtime.js";
+import type { MemoryContext } from "@/runtime/context-builder.js";
 import type { StreamEventType } from "@/events/stream.js";
 import type { RuntimeEvent } from "@/types/runtime-event.js";
 import type { RunContext } from "./utils.js";
@@ -50,10 +51,12 @@ export async function handleStartRun(
   };
   const fastapiRunResp = await ctx.fastapiClient.startRun(fastapiRequestBody as any);
   const fastapiRunId = fastapiRunResp.run_id;
-  const memoryContext = fastapiRunResp.memory_context
+  const memoryContext: MemoryContext | null = fastapiRunResp.memory_context
     ? {
         text: fastapiRunResp.memory_context.text,
         usedMemoryIds: fastapiRunResp.memory_context.used_memory_ids,
+        usedMemoryTypes: fastapiRunResp.memory_context.used_memory_types ?? [],
+        guardedMemberNames: fastapiRunResp.memory_context.guarded_member_names ?? [],
         memoryBackend: fastapiRunResp.memory_context.memory_backend,
         retrievalCount: fastapiRunResp.memory_context.retrieval_count,
         injectedCount: fastapiRunResp.memory_context.injected_count,

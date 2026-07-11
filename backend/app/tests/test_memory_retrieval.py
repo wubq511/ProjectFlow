@@ -414,6 +414,10 @@ def test_memory_context_marks_member_availability_as_cross_task_hard_constraint(
     assert "[成员约束]" in ctx.text
     assert "跨任务硬约束" in ctx.text
     assert "不得通过改派到另一项同样冲突的任务来规避" in ctx.text
+    assert ctx.used_memory_types == ["member_constraint"]
+    assert ctx.to_dict()["used_memory_types"] == ["member_constraint"]
+    assert ctx.guarded_member_names == [member["display_name"]]
+    assert ctx.to_dict()["guarded_member_names"] == [member["display_name"]]
 
 
 # ─── AgentEvent metadata tests ───────────────────────────────────────────────

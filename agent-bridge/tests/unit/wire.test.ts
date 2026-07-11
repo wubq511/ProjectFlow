@@ -90,6 +90,8 @@ describe("wire format", () => {
         memory_context: {
           text: "历史记忆内容",
           used_memory_ids: ["mem-1", "mem-2"],
+          used_memory_types: ["member_constraint", "assignment"],
+          guarded_member_names: ["小林"],
           memory_backend: "fts5",
           retrieval_count: 10,
           injected_count: 2,
@@ -100,6 +102,8 @@ describe("wire format", () => {
       expect(resp.memory_context).not.toBeNull();
       expect(resp.memory_context!.text).toBe("历史记忆内容");
       expect(resp.memory_context!.used_memory_ids).toEqual(["mem-1", "mem-2"]);
+      expect(resp.memory_context!.used_memory_types).toEqual(["member_constraint", "assignment"]);
+      expect(resp.memory_context!.guarded_member_names).toEqual(["小林"]);
       expect(resp.memory_context!.memory_backend).toBe("fts5");
       expect(resp.memory_context!.injected_count).toBe(2);
     });
