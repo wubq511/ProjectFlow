@@ -28,7 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { AgentArtifact, AgentConversation, AgentEvent, AgentSuggestion, ProjectState, ThinkingLevel, ModelConfigEntry } from "@/lib/types";
+import type { AgentArtifact, AgentConversation, AgentConversationMessage, AgentEvent, AgentSuggestion, AgentStreamTurn, ArchivedAgentStreamTurn, ProjectState, ThinkingLevel, ModelConfigEntry } from "@/lib/types";
 import {
   ChatMessage,
   StreamingText,
@@ -54,6 +54,7 @@ const SIDEBAR_MIN_WIDTH = 280; // 最小宽度 280px (17.5rem)
 const SIDEBAR_MAX_WIDTH = 600; // 最大宽度 600px (37.5rem)
 const SIDEBAR_DEFAULT_WIDTH = 352; // 默认宽度 22rem
 const SIDEBAR_WIDTH_STORAGE_KEY = "agent-sidebar-width";
+const OPTIMISTIC_MESSAGE_MATCH_WINDOW_MS = 2 * 60 * 1000;
 
 const ALL_AGENT_ACTIONS: {
   id: AgentAction;
@@ -106,6 +107,26 @@ function isValidArtifact(value: unknown): value is AgentArtifact {
   );
 }
 
+type ConversationTimelineEntry =
+  | { key: string; sortAt: number; message: AgentConversationMessage; turn?: undefined }
+  | { key: string; sortAt: number; message: AgentConversationMessage; turn: AgentStreamTurn };
+
+function archivedAssistantMessage(turn: AgentStreamTurn): AgentConversationMessage {
+  const answer = turn.finalContent ?? Object.values(turn.blocks)
+    .filter((block) => block.kind === "text")
+    .sort((a, b) => a.order - b.order)
+    .map((block) => block.content)
+    .join("");
+  return {
+    id: `${turn.clientTurnId}-assistant`,
+    conversation_id: turn.userMessage?.conversation_id ?? "",
+    role: "assistant",
+    content: answer,
+    structured_payload: {},
+    created_at: turn.userMessage?.created_at ?? new Date().toISOString(),
+  };
+}
+
 interface AgentSidebarProps {
   state: ProjectState;
   selectedProjectId?: string | null;
@@ -121,11 +142,15 @@ interface AgentSidebarProps {
   conversationError?: string | null;
   onRunAgent: (action: AgentAction, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => void;
   onSendMessage?: (content: string) => void | Promise<void>;
-  streamingBuffer?: string;
+  streamTurn?: AgentStreamTurn | null;
+  archivedStreamTurns?: ArchivedAgentStreamTurn[];
   streamStatus?: AgentStreamStatus | null;
   onStopStreaming?: () => void;
+  onToggleThinking?: () => void;
   onConfirmArtifact?: (artifact: AgentArtifact) => void | Promise<void>;
   onResetDemo?: () => void | Promise<void>;
+  /** Explicit completion announcement token — renders one-time aria-live "回答已完成". */
+  completedAnnouncement?: string | null;
 }
 
 export function AgentSidebar({
@@ -143,11 +168,14 @@ export function AgentSidebar({
   conversationError = null,
   onRunAgent,
   onSendMessage,
-  streamingBuffer = "",
+  streamTurn = null,
+  archivedStreamTurns = [],
   streamStatus = null,
   onStopStreaming,
+  onToggleThinking,
   onConfirmArtifact,
   onResetDemo,
+  completedAnnouncement,
 }: AgentSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -272,6 +300,37 @@ export function AgentSidebar({
   const pendingProposalCount = state.agent_proposals?.filter((proposal) => proposal.status === "pending").length ?? 0;
   const focus = conversation?.current_focus || inferFocus(state);
   const messages = useMemo(() => conversation?.messages ?? [], [conversation]);
+  const timelineEntries = useMemo<ConversationTimelineEntry[]>(() => {
+    const entries: ConversationTimelineEntry[] = messages.map((message, index) => ({
+      key: message.id,
+      sortAt: Date.parse(message.created_at) + index / 1000,
+      message,
+    }));
+
+    for (const archived of archivedStreamTurns) {
+      const userMessage = archived.turn.userMessage;
+      if (!userMessage) continue;
+      const optimisticTime = Date.parse(userMessage.created_at);
+      const matchingPersistedUser = messages
+        .filter((message) => message.role === "user" && message.content === userMessage.content)
+        .map((message) => ({ message, distance: Math.abs(Date.parse(message.created_at) - optimisticTime) }))
+        .filter(({ distance }) => distance <= OPTIMISTIC_MESSAGE_MATCH_WINDOW_MS)
+        .sort((a, b) => a.distance - b.distance)[0]?.message;
+      const userSortAt = matchingPersistedUser ? Date.parse(matchingPersistedUser.created_at) : optimisticTime;
+
+      if (!matchingPersistedUser) {
+        entries.push({ key: `${archived.turn.clientTurnId}-user`, sortAt: userSortAt, message: userMessage });
+      }
+      entries.push({
+        key: `${archived.turn.clientTurnId}-assistant`,
+        sortAt: userSortAt + 0.5,
+        message: archivedAssistantMessage(archived.turn),
+        turn: archived.turn,
+      });
+    }
+
+    return entries.sort((a, b) => a.sortAt - b.sortAt);
+  }, [archivedStreamTurns, messages]);
   const normalizedSuggestions = normalizeSuggestions(conversationSuggestions);
   const suggestions = normalizedSuggestions.length > 0 ? normalizedSuggestions : inferStructuredSuggestions(focus);
 
@@ -499,12 +558,13 @@ export function AgentSidebar({
                           />
                         </div>
                       )}
-                      {messages.map((message, index) => (
+                      {timelineEntries.map((entry, index) => (
                         <ChatMessage
-                          key={message.id}
-                          message={message}
-                          isLast={index === messages.length - 1}
+                          key={entry.key}
+                          message={entry.message}
+                          isLast={index === timelineEntries.length - 1}
                           index={index}
+                          streamTurn={entry.turn}
                           onRetry={pendingConversationInstruction ? () => void submitMessage(pendingConversationInstruction) : undefined}
                           onAction={(instruction) => void submitMessage(instruction)}
                         />
@@ -545,7 +605,14 @@ export function AgentSidebar({
                         </div>
                       )}
 
-                      {pendingConversationInstruction && !streamingBuffer && (
+                      {/* Optimistic user message from turn (stable, never disappears) */}
+                      {streamTurn?.userMessage && streamTurn.status !== "idle" && (
+                        <ChatMessage
+                          message={streamTurn.userMessage}
+                        />
+                      )}
+                      {/* Fallback: pending user message when turn not yet created */}
+                      {pendingConversationInstruction && !streamTurn?.userMessage && (
                         <ChatMessage
                           message={{
                             id: "pending",
@@ -558,16 +625,36 @@ export function AgentSidebar({
                         />
                       )}
 
-                      {streamingBuffer && (
-                        <div className="mr-0 rounded-md border border-neutral-200 bg-neutral-50 p-3">
-                          <div className="mb-1 text-[10px] font-semibold text-neutral-400">Agent</div>
-                          <StreamingText buffer={streamingBuffer} />
-                        </div>
+                      {/* Live streaming assistant turn */}
+                      {streamTurn && streamTurn.status !== "idle" && (
+                        <ChatMessage
+                          message={{
+                            id: streamTurn.clientTurnId,
+                            conversation_id: "",
+                            role: "assistant",
+                            content: streamTurn.finalContent ?? Object.values(streamTurn.blocks).filter(b => b.kind === "text").sort((a, b) => a.order - b.order).map(b => b.content).join(""),
+                            structured_payload: {
+                              thinking_content: Object.values(streamTurn.blocks).filter(b => b.kind === "thinking").sort((a, b) => a.order - b.order).map(b => b.content).join(""),
+                              execution_steps: streamTurn.executionSteps,
+                            },
+                            created_at: new Date().toISOString(),
+                          }}
+                          isLast={true}
+                          streamTurn={streamTurn}
+                          onToggleThinking={onToggleThinking}
+                        />
                       )}
                     </div>
 
-                    {streamStatus && <AgentStepIndicator status={streamStatus} />}
+                    {streamStatus && <AgentStepIndicator status={streamStatus} executionSteps={streamTurn?.executionSteps} />}
                     {pendingConversation && !streamStatus && <AgentRunStatusCard />}
+
+                    {/* ARIA completion announcement — visual:hidden, one-time per turn */}
+                    {completedAnnouncement && (
+                      <div role="status" aria-live="polite" className="sr-only">
+                        回答已完成
+                      </div>
+                    )}
 
                     {conversationError && (
                       <AgentErrorCard
@@ -590,7 +677,7 @@ export function AgentSidebar({
                         onSubmit={(text) => void submitMessage(text)}
                         onStop={onStopStreaming}
                         disabled={Boolean(pendingConversation)}
-                        isStreaming={Boolean(streamingBuffer)}
+                        isStreaming={Boolean(streamTurn && streamTurn.status !== "idle" && streamTurn.status !== "completed" && streamTurn.status !== "failed" && streamTurn.status !== "cancelled" && streamTurn.status !== "disconnected")}
                       />
                     </div>
                   </div>
@@ -804,7 +891,7 @@ export function AgentSidebar({
         </div>
 
         {!isExpanded && hasProject && (
-          <CollapsedSidebarIcons focus={focus} pendingCount={pendingProposalCount} isStreaming={Boolean(streamingBuffer)} onToggle={toggle} />
+          <CollapsedSidebarIcons focus={focus} pendingCount={pendingProposalCount} isStreaming={Boolean(streamTurn && streamTurn.status !== "idle" && streamTurn.status !== "completed" && streamTurn.status !== "failed" && streamTurn.status !== "cancelled" && streamTurn.status !== "disconnected")} onToggle={toggle} />
         )}
       </div>
     </motion.aside>

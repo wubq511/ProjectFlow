@@ -2,24 +2,23 @@
 
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AgentConversationMessage } from "@/lib/types";
+import type { AgentConversationMessage, AgentStreamTurn, ExecutionStep } from "@/lib/types";
 import { MarkdownContent } from "./MarkdownContent";
+import { StreamingText } from "./StreamingText";
 import { MessageActions } from "./MessageActions";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
-
-interface ExecutionStep {
-  tool_name: string;
-  status: string;
-  label: string;
-}
+import { executionStepStatusIcon } from "./stream-display";
 
 interface ChatMessageProps {
   message: AgentConversationMessage;
   isLast?: boolean;
   onRetry?: () => void;
   onAction?: (instruction: string) => void;
+  onToggleThinking?: () => void;
+  /** Live streaming turn data — when present, render from turn state instead of persisted payload */
+  streamTurn?: AgentStreamTurn | null;
   index?: number;
 }
 
@@ -36,37 +35,81 @@ function displayContent(message: AgentConversationMessage): string {
   return message.content.length > 50 ? message.content.slice(0, 50) + "…" : message.content;
 }
 
-/** Status icon for execution steps. */
-function stepStatusIcon(status: string): string {
-  switch (status) {
-    case "completed": return "✅";
-    case "failed": return "❌";
-    case "blocked": return "🚫";
-    default: return "⏳";
-  }
-}
-
-export const ChatMessage = React.memo(function ChatMessage({ message, isLast, onRetry, onAction, index = 0 }: ChatMessageProps) {
+export const ChatMessage = React.memo(function ChatMessage({
+  message,
+  isLast,
+  onRetry,
+  onAction,
+  onToggleThinking,
+  streamTurn,
+  index = 0,
+}: ChatMessageProps) {
   const isUser = message.role === "user";
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [stepsOpen, setStepsOpen] = useState(false);
 
-  // Extract thinking_content from structured_payload (persisted by backend)
-  const thinkingContent = typeof message.structured_payload?.thinking_content === "string"
-    ? message.structured_payload.thinking_content
-    : "";
+  // When streamTurn is present, use live data; otherwise use persisted payload
+  const isLive = !!streamTurn && streamTurn.status !== "idle";
+  const isActivelyStreaming = isLive && !["completed", "failed", "cancelled", "disconnected"].includes(streamTurn!.status);
+
+  // Thinking content: live from turn blocks, or persisted from structured_payload
+  const thinkingContent = isLive
+    ? Object.values(streamTurn!.blocks)
+        .filter((b) => b.kind === "thinking")
+        .sort((a, b) => a.order - b.order)
+        .map((b) => b.content)
+        .join("")
+    : typeof message.structured_payload?.thinking_content === "string"
+      ? message.structured_payload.thinking_content
+      : "";
   const hasThinking = thinkingContent.length > 0;
 
-  // Extract execution_steps from structured_payload (persisted by backend)
-  // Runtime validation: gracefully degrade if shape is unexpected
-  const rawSteps = message.structured_payload?.execution_steps;
-  const executionSteps: ExecutionStep[] = Array.isArray(rawSteps)
-    ? rawSteps.filter(
-        (s): s is ExecutionStep =>
-          s != null && typeof s === "object" && typeof s.tool_name === "string" && typeof s.status === "string" && typeof s.label === "string",
-      )
-    : [];
+  // Answer content: live from turn blocks, or persisted from message.content
+  const streamedAnswerContent = isLive
+    ? Object.values(streamTurn!.blocks)
+        .filter((b) => b.kind === "text")
+        .sort((a, b) => a.order - b.order)
+        .map((b) => b.content)
+        .join("")
+    : "";
+  const answerContent = isLive
+    ? streamTurn!.finalContent ?? (streamedAnswerContent || message.content)
+    : message.content;
+
+  // Execution steps: live from turn, or persisted from structured_payload
+  const executionSteps: ExecutionStep[] = isLive
+    ? streamTurn!.executionSteps
+    : Array.isArray(message.structured_payload?.execution_steps)
+      ? (message.structured_payload!.execution_steps as unknown[]).filter(
+          (s): s is ExecutionStep =>
+            s != null && typeof s === "object" && typeof (s as Record<string, unknown>).tool_name === "string" && typeof (s as Record<string, unknown>).status === "string" && typeof (s as Record<string, unknown>).label === "string",
+        )
+      : [];
   const hasExecutionSteps = executionSteps.length > 0;
+
+  // Thinking open state: live from turn (controlled by reducer), or local state for persisted
+  const effectiveThinkingOpen = isActivelyStreaming ? streamTurn!.thinkingOpen : thinkingOpen;
+  const handleThinkingToggle = isActivelyStreaming && onToggleThinking ? onToggleThinking : () => setThinkingOpen(!thinkingOpen);
+
+  // Thinking section title: "正在思考" during streaming, "思考过程" after completion
+  const thinkingTitle = isLive && streamTurn!.status !== "completed" && streamTurn!.status !== "failed" && streamTurn!.status !== "cancelled"
+    ? "正在思考"
+    : "思考过程";
+
+  // Is answer still streaming?
+  const isAnswerStreaming = isLive && streamTurn!.status === "answering";
+
+  // Turn status label for error/cancel/disconnect
+  const turnStatusLabel = isLive
+    ? streamTurn!.status === "cancelled" ? "已停止生成"
+      : streamTurn!.status === "disconnected" ? "连接中断"
+      : streamTurn!.status === "failed" ? "生成失败"
+      : null
+    : null;
+
+  // Unique ID for ARIA association
+  const thinkingContentId = `thinking-content-${message.id}`;
+  const stepsContentId = `steps-content-${message.id}`;
 
   return (
     <motion.div
@@ -93,12 +136,16 @@ export const ChatMessage = React.memo(function ChatMessage({ message, isLast, on
         <>
           {/* Collapsible thinking section */}
           {hasThinking && (
-            <Collapsible open={thinkingOpen} onOpenChange={setThinkingOpen} className="mb-2">
-              <CollapsibleTrigger className="flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600">
-                <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform duration-200", thinkingOpen && "rotate-90")} />
-                <span>思考过程</span>
+            <Collapsible open={effectiveThinkingOpen} onOpenChange={handleThinkingToggle} className="mb-2">
+              <CollapsibleTrigger
+                className="flex w-full items-center gap-1 rounded-md px-1.5 py-2 text-[11px] text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 min-h-[44px]"
+                aria-expanded={effectiveThinkingOpen}
+                aria-controls={thinkingContentId}
+              >
+                <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform duration-200", effectiveThinkingOpen && "rotate-90")} />
+                <span>{thinkingTitle}</span>
               </CollapsibleTrigger>
-              <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2">
+              <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2" id={thinkingContentId}>
                 <p className="whitespace-pre-wrap text-[11px] leading-5 text-neutral-500">{thinkingContent}</p>
               </CollapsibleContent>
             </Collapsible>
@@ -106,17 +153,21 @@ export const ChatMessage = React.memo(function ChatMessage({ message, isLast, on
           {/* Collapsible execution steps section */}
           {hasExecutionSteps && (
             <Collapsible open={stepsOpen} onOpenChange={setStepsOpen} className="mb-2">
-              <CollapsibleTrigger className="flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600">
+              <CollapsibleTrigger
+                className="flex min-h-[44px] w-full items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600"
+                aria-expanded={stepsOpen}
+                aria-controls={stepsContentId}
+              >
                 <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform duration-200", stepsOpen && "rotate-90")} />
                 <span>执行过程</span>
                 <span className="text-neutral-300">·</span>
                 <span className="text-neutral-300">{executionSteps.length} 步</span>
               </CollapsibleTrigger>
-              <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2">
+              <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2" id={stepsContentId}>
                 <ul className="space-y-1">
                   {executionSteps.map((step, i) => (
                     <li key={i} className="flex items-center gap-1.5 text-[11px] text-neutral-500">
-                      <span>{stepStatusIcon(step.status)}</span>
+                      <span>{executionStepStatusIcon(step.status)}</span>
                       <span>{step.label}</span>
                     </li>
                   ))}
@@ -124,11 +175,26 @@ export const ChatMessage = React.memo(function ChatMessage({ message, isLast, on
               </CollapsibleContent>
             </Collapsible>
           )}
-          {/* Final answer */}
-          <MarkdownContent content={message.content} />
+          {/* Answer content: streaming or persisted — NOT aria-live (announcement is separate) */}
+          {isAnswerStreaming && answerContent.length > 0 ? (
+            <StreamingText buffer={answerContent} isStreaming={true} />
+          ) : answerContent ? (
+            <div>
+              <MarkdownContent content={answerContent} />
+            </div>
+          ) : isLive && !hasThinking ? (
+            <div className="flex items-center gap-1.5 text-[11px] text-neutral-400">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              <span>正在生成回复...</span>
+            </div>
+          ) : null}
+          {/* Turn status label (cancelled/disconnected/failed) */}
+          {turnStatusLabel && (
+            <p className="mt-1.5 text-[10px] text-neutral-400">{turnStatusLabel}</p>
+          )}
         </>
       )}
-      {!isUser && isLast && (
+      {!isUser && isLast && !isLive && (
         <MessageActions
           message={message}
           onCopy={() => navigator.clipboard.writeText(message.content)}

@@ -16,12 +16,14 @@ function CollapsibleTrigger({ ...props }: CollapsiblePrimitive.Trigger.Props) {
 interface CollapsibleContentProps {
   children?: ReactNode
   className?: string
+  id?: string
 }
 
-function CollapsibleContent({ children, className }: CollapsibleContentProps) {
+function CollapsibleContent({ children, className, id }: CollapsibleContentProps) {
   return (
     <CollapsiblePrimitive.Panel
       data-slot="collapsible-content"
+      id={id}
       className="grid transition-[grid-template-rows_200ms_ease-out] [&[data-closed]]:grid-rows-[0fr] [&[data-open]]:grid-rows-[1fr] [&>div]:overflow-hidden"
     >
       <div className={className}>{children}</div>

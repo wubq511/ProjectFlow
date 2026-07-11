@@ -33,6 +33,8 @@ import type {
   DemoResetResult,
   ModelConfigEntry,
   ProviderCatalogModel,
+  StreamContentEvent,
+  StreamToolEvent,
 } from "./types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
@@ -613,37 +615,33 @@ export async function sendAgentConversationMessage(
 
 export type AgentStreamCallbacks = {
   onStatus: (status: { phase: string; module?: string; message: string }) => void;
-  onToken: (token: string) => void;
+  /** Typed content event from the streaming contract. Replaces onToken. */
+  onContent: (event: StreamContentEvent) => void;
+  /** Typed tool lifecycle event from the streaming contract. */
+  onToolEvent?: (event: StreamToolEvent) => void;
   onDone: (turn: AgentConversationTurn) => void;
   onError: (error: string) => void;
+  /** Network-level disconnection (distinct from model/policy errors). */
+  onDisconnect?: (reason?: string) => void;
 };
 
-export async function sendAgentConversationMessageStream(
-  conversationId: string,
-  content: string,
-  viewerUserId: string,
+function agentStreamHttpErrorMessage(status: number): string {
+  if (status === 400) return "请求参数无效，请检查输入。";
+  if (status === 401 || status === 403) return "Agent 服务认证失败。";
+  if (status === 404) return "对话不存在或你无权访问。";
+  if (status === 429) return "Agent 服务请求过频，请稍后重试。";
+  return "Agent 服务暂时不可用，请稍后重试。";
+}
+
+/** Consume the production SSE wire format from an already-open response body. */
+export async function consumeAgentConversationSSE(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
   callbacks: AgentStreamCallbacks,
-  signal?: AbortSignal,
 ): Promise<void> {
-  const viewer_user_id = typeof window !== "undefined" && window.localStorage ? localStorage.getItem("projectflow:current-user-id") || undefined : undefined;
-  const response = await fetch(`${API_BASE_URL}/agent/conversations/${conversationId}/messages/stream`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content, viewer_user_id: viewerUserId }),
-    signal,
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`请求失败：${response.status} ${body}`);
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("无法读取响应流");
-
   const decoder = new TextDecoder();
   let buffer = "";
   let currentEvent = "";
+  let receivedTerminal = false;
 
   try {
     while (true) {
@@ -657,34 +655,95 @@ export async function sendAgentConversationMessageStream(
       for (const line of lines) {
         if (line.startsWith("event: ")) {
           currentEvent = line.slice(7).trim();
-        } else if (line.startsWith("data: ")) {
-          const dataStr = line.slice(6);
-          try {
-            const data = JSON.parse(dataStr);
-            switch (currentEvent) {
-              case "status":
-                callbacks.onStatus(data);
-                break;
-              case "token":
-                callbacks.onToken(data.content);
-                break;
-              case "done":
-                callbacks.onDone(normalizeAgentConversationTurn(data));
-                break;
-              case "error":
-                callbacks.onError(data.message);
-                break;
-            }
-          } catch {
-            // skip malformed JSON
+          continue;
+        }
+        if (!line.startsWith("data: ")) continue;
+
+        const dataStr = line.slice(6);
+        let data: unknown;
+        try {
+          data = JSON.parse(dataStr);
+        } catch {
+          if (dataStr.length > 0) {
+            console.warn("Malformed SSE data: event=%s length=%d", currentEvent || "unknown", dataStr.length);
           }
           currentEvent = "";
+          continue;
         }
+
+        try {
+          switch (currentEvent) {
+            case "status":
+              callbacks.onStatus(data as { phase: string; module?: string; message: string });
+              break;
+            case "content":
+              callbacks.onContent(data as StreamContentEvent);
+              break;
+            case "tool":
+              callbacks.onToolEvent?.(data as StreamToolEvent);
+              break;
+            case "done":
+              callbacks.onDone(normalizeAgentConversationTurn(data as BackendAgentConversationTurn));
+              receivedTerminal = true;
+              break;
+            case "error":
+              callbacks.onError((data as { message: string }).message);
+              receivedTerminal = true;
+              break;
+            case "disconnect":
+              callbacks.onDisconnect?.((data as { reason?: string }).reason);
+              receivedTerminal = true;
+              break;
+          }
+        } catch (dispatchErr) {
+          const isTerminal = currentEvent === "done" || currentEvent === "error" || currentEvent === "disconnect";
+          console.warn(
+            "SSE event dispatch failed: event=%s err=%s",
+            currentEvent || "unknown",
+            dispatchErr instanceof Error ? dispatchErr.message : "unknown",
+          );
+          if (isTerminal) {
+            receivedTerminal = true;
+            try {
+              callbacks.onError("处理完成事件失败，请重试");
+            } catch {
+              throw new Error("处理完成事件失败，请重试");
+            }
+          }
+        }
+        currentEvent = "";
       }
+    }
+
+    if (!receivedTerminal) {
+      callbacks.onDisconnect?.("连接意外中断，可重试");
     }
   } finally {
     reader.releaseLock();
   }
+}
+
+export async function sendAgentConversationMessageStream(
+  conversationId: string,
+  content: string,
+  viewerUserId: string,
+  callbacks: AgentStreamCallbacks,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/agent/conversations/${conversationId}/messages/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content, viewer_user_id: viewerUserId }),
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(agentStreamHttpErrorMessage(response.status));
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("无法读取响应流");
+  await consumeAgentConversationSSE(reader, callbacks);
 }
 
 /**

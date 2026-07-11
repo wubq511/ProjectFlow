@@ -1,0 +1,52 @@
+{
+  "description": "Cross-layer shared fixture: complete SSE event sequence for streaming contract tests",
+  "events": [
+    {"event": "status", "data": {"phase": "planning", "message": "正在理解你的需求..."}},
+    {"event": "content", "data": {"kind": "thinking", "phase": "start", "content_index": 0, "message_seq": 1}},
+    {"event": "content", "data": {"kind": "thinking", "phase": "delta", "content_index": 0, "message_seq": 1, "content": "让我分析一下项目状态..."}},
+    {"event": "tool", "data": {"phase": "started", "tool_call_id": "tc1", "tool_name": "get_project_state", "label": "获取项目状态"}},
+    {"event": "status", "data": {"phase": "executing", "message": "正在获取项目状态..."}},
+    {"event": "tool", "data": {"phase": "completed", "tool_call_id": "tc1", "tool_name": "get_project_state"}},
+    {"event": "content", "data": {"kind": "thinking", "phase": "end", "content_index": 0, "message_seq": 1}},
+    {"event": "status", "data": {"phase": "generating", "message": "正在整理结果..."}},
+    {"event": "content", "data": {"kind": "thinking", "phase": "start", "content_index": 0, "message_seq": 2}},
+    {"event": "content", "data": {"kind": "thinking", "phase": "delta", "content_index": 0, "message_seq": 2, "content": "根据项目状态，我需要生成阶段规划..."}},
+    {"event": "tool", "data": {"phase": "started", "tool_call_id": "tc2", "tool_name": "generate_stage_plan_proposal", "label": "生成阶段规划"}},
+    {"event": "status", "data": {"phase": "executing", "message": "正在生成阶段规划..."}},
+    {"event": "tool", "data": {"phase": "completed", "tool_call_id": "tc2", "tool_name": "generate_stage_plan_proposal"}},
+    {"event": "content", "data": {"kind": "thinking", "phase": "end", "content_index": 0, "message_seq": 2}},
+    {"event": "status", "data": {"phase": "generating", "message": "正在整理结果..."}},
+    {"event": "content", "data": {"kind": "text", "phase": "start", "content_index": 1, "message_seq": 3}},
+    {"event": "content", "data": {"kind": "text", "phase": "delta", "content_index": 1, "message_seq": 3, "content": "我已经为你生成了阶段规划提案，"}},
+    {"event": "content", "data": {"kind": "text", "phase": "delta", "content_index": 1, "message_seq": 3, "content": "请查看并确认。"}},
+    {"event": "content", "data": {"kind": "text", "phase": "end", "content_index": 1, "message_seq": 3}},
+    {"event": "done", "data": {"run_id": "run-1", "status": "completed", "final_content": "我已经为你生成了阶段规划提案，请查看并确认。", "thinking_content": "让我分析一下项目状态...根据项目状态，我需要生成阶段规划..."}}
+  ],
+  "edge_cases": {
+    "tool_failed": [
+      {"event": "tool", "data": {"phase": "started", "tool_call_id": "tc-fail", "tool_name": "get_project_state", "label": "获取项目状态"}},
+      {"event": "tool", "data": {"phase": "failed", "tool_call_id": "tc-fail", "tool_name": "get_project_state"}}
+    ],
+    "tool_blocked_no_call_id": [
+      {"event": "tool", "data": {"phase": "blocked", "label": "策略拦截", "event_id": "ev-blocked-1"}}
+    ],
+    "missing_start_marker": [
+      {"event": "content", "data": {"kind": "text", "phase": "delta", "content_index": 0, "message_seq": 1, "content": "没有start的直接回答"}}
+    ],
+    "high_message_seq": [
+      {"event": "content", "data": {"kind": "thinking", "phase": "start", "content_index": 0, "message_seq": 10}},
+      {"event": "content", "data": {"kind": "thinking", "phase": "delta", "content_index": 0, "message_seq": 10, "content": "第10轮思考"}},
+      {"event": "content", "data": {"kind": "text", "phase": "start", "content_index": 1, "message_seq": 11}},
+      {"event": "content", "data": {"kind": "text", "phase": "delta", "content_index": 1, "message_seq": 11, "content": "第11轮回答"}}
+    ],
+    "disconnect": [
+      {"event": "disconnect", "data": {"reason": "连接意外中断，可重试"}}
+    ],
+    "consecutive_same_tool": [
+      {"event": "tool", "data": {"phase": "started", "tool_call_id": "tc-a", "tool_name": "get_project_state", "label": "获取项目状态"}},
+      {"event": "tool", "data": {"phase": "completed", "tool_call_id": "tc-a", "tool_name": "get_project_state"}},
+      {"event": "tool", "data": {"phase": "started", "tool_call_id": "tc-b", "tool_name": "get_project_state", "label": "获取项目状态"}},
+      {"event": "tool", "data": {"phase": "completed", "tool_call_id": "tc-b", "tool_name": "get_project_state"}}
+    ]
+  }
+}

@@ -106,20 +106,39 @@ export function mapPiEvent(piEvent: PiEvent, runId: string): MappedEvent {
     case "message_update": {
       // Extract incremental content from assistantMessageEvent.
       // Do NOT pass the full assistantMessageEvent object — it causes DB bloat.
-      // text_delta and thinking_delta both become visible streaming text.
-      // toolcall_delta is intentionally discarded (tool args JSON not shown to user).
+      //
+      // Typed streaming contract (方案 A):
+      // - text_start/thinking_start → structural marker with kind + phase + contentIndex
+      // - text_delta/thinking_delta → visible content with kind + phase + contentIndex + content
+      // - text_end/thinking_end → structural marker with kind + phase + contentIndex
+      // - toolcall_start/delta/end → intentionally discarded (tool args not shown to user)
+      //
+      // The downstream SSE layer uses delta_type, content_index, and phase to emit
+      // typed StreamContentEvent to the frontend. This replaces the old tool-boundary
+      // heuristic for thinking/answer separation.
       const ame = piEvent.assistantMessageEvent as Record<string, unknown> | undefined;
       let deltaContent: string | undefined;
       let deltaType: string | undefined;
+      let contentIndex: number | undefined;
       if (ame && typeof ame.type === "string") {
-        // text_end, thinking_end, text_start, thinking_start are structural markers
-        // but NOT reliable signals for thinking/answer boundary in non-reasoning models.
-        // Thinking/answer separation happens at agent.completed using tool boundaries.
-        if (typeof ame.delta === "string" && (ame.type === "text_delta" || ame.type === "thinking_delta")) {
-          deltaContent = ame.delta;
-          deltaType = ame.type;
+        const ameType = ame.type as string;
+        // All content block types: start, delta, end for both text and thinking
+        if (
+          ameType === "text_delta" || ameType === "thinking_delta" ||
+          ameType === "text_start" || ameType === "thinking_start" ||
+          ameType === "text_end" || ameType === "thinking_end"
+        ) {
+          deltaType = ameType;
+          // delta content only for *_delta events
+          if (ameType.endsWith("_delta") && typeof ame.delta === "string") {
+            deltaContent = ame.delta;
+          }
+          // contentIndex from Pi runtime
+          if (typeof ame.contentIndex === "number") {
+            contentIndex = ame.contentIndex;
+          }
         }
-        // toolcall_delta, thinking_start, text_end, toolcall_start, etc. → no content
+        // toolcall_start, toolcall_delta, toolcall_end → no visible content
       }
       return {
         type: "agent.delta",
@@ -127,7 +146,7 @@ export function mapPiEvent(piEvent: PiEvent, runId: string): MappedEvent {
           run_id: runId,
           ...(deltaContent !== undefined ? { content: deltaContent } : {}),
           ...(deltaType !== undefined ? { delta_type: deltaType } : {}),
-          ...piEvent.data,
+          ...(contentIndex !== undefined ? { content_index: contentIndex } : {}),
         },
         newStatus: "model_streaming",
       };
@@ -225,7 +244,6 @@ export function mapPiEvent(piEvent: PiEvent, runId: string): MappedEvent {
           ...(stopReason === "error" ? { reason: "模型返回错误" } : {}),
           ...(stopReason === "aborted" ? { reason: "模型返回中止" } : {}),
           ...(finalContent ? { final_content: finalContent } : {}),
-          ...piEvent.data,
         },
         newStatus,
       };

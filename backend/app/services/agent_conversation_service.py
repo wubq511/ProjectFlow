@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import Any, Iterator
 
 import httpx
+from pydantic import ValidationError
 from sqlmodel import Session, desc, select
 
 from app.core.config import settings
@@ -23,6 +24,11 @@ from app.schemas.agent_conversation import (
     AgentConversationTurnRead,
     AgentMessageRead,
     AgentSuggestionRead,
+    StreamContentEventSchema,
+    StreamDonePayloadSchema,
+    StreamErrorEventSchema,
+    StreamStatusEventSchema,
+    StreamToolEventSchema,
 )
 from app.services.workspace_state_service import get_workspace_state
 
@@ -160,17 +166,12 @@ def process_conversation_message_stream(
         ) as sidecar_resp:
             if sidecar_resp.status_code != 200:
                 error_body = sidecar_resp.read().decode("utf-8", errors="replace")[:500]
-                logger.error("Sidecar stream failed: %d %s", sidecar_resp.status_code, error_body)
-                # Try to extract a specific error message from the sidecar response
-                try:
-                    error_data = json.loads(error_body)
-                    detail = error_data.get("detail") or error_data.get("message") or error_data.get("error")
-                    if isinstance(detail, str) and detail:
-                        yield _sse_event("error", {"message": detail})
-                        return
-                except (json.JSONDecodeError, AttributeError):
-                    pass
-                # Fallback: status-based message
+                logger.error(
+                    "Sidecar stream failed: status=%d body_length=%d",
+                    sidecar_resp.status_code,
+                    len(error_body),
+                )
+                # Always use fixed Chinese messages — never forward sidecar detail/error to frontend
                 if sidecar_resp.status_code == 400:
                     yield _sse_event("error", {"message": "请求参数无效，请检查输入。"})
                 elif sidecar_resp.status_code == 401:
@@ -184,6 +185,7 @@ def process_conversation_message_stream(
             # Parse SSE from sidecar and map to frontend events
             buffer = ""
             current_event = ""
+            received_terminal = False  # Track whether we got done/error
             for chunk in sidecar_resp.iter_text():
                 buffer += chunk
                 lines = buffer.split("\n")
@@ -201,22 +203,68 @@ def process_conversation_message_stream(
                         try:
                             data = json.loads(data_str)
                         except json.JSONDecodeError:
+                            logger.warning("Malformed SSE data from sidecar: event=%s length=%d", current_event or "unknown", len(data_str))
                             continue
 
                         # Map sidecar events to frontend events
                         if current_event == "status":
-                            yield _sse_event("status", data)
+                            try:
+                                validated_status = StreamStatusEventSchema.model_validate(data)
+                                yield _sse_event("status", validated_status.model_dump(mode="json"))
+                            except ValidationError as exc:
+                                logger.warning(
+                                    "Invalid status event (skipped): len=%d err=%s",
+                                    len(data_str),
+                                    type(exc).__name__,
+                                )
+                        elif current_event == "content":
+                            # Typed streaming contract: validate with Pydantic, then proxy to frontend.
+                            try:
+                                validated = StreamContentEventSchema.model_validate(data)
+                                # Only accumulate text_delta content for final_content fallback.
+                                if validated.kind == "text" and validated.phase == "delta":
+                                    accumulated_content += validated.content or ""
+                                yield _sse_event("content", validated.model_dump(mode="json"))
+                            except ValidationError as exc:
+                                _safe_data = data if isinstance(data, dict) else {}
+                                logger.warning("Invalid content event (skipped): kind=%s phase=%s len=%d err=%s", _safe_data.get("kind"), _safe_data.get("phase"), len(data_str), type(exc).__name__)
+                        elif current_event == "tool":
+                            # Typed tool lifecycle event: validate with Pydantic, then proxy.
+                            try:
+                                validated = StreamToolEventSchema.model_validate(data)
+                                yield _sse_event("tool", validated.model_dump(mode="json"))
+                            except ValidationError as exc:
+                                _safe_data = data if isinstance(data, dict) else {}
+                                logger.warning("Invalid tool event (skipped): phase=%s len=%d err=%s", _safe_data.get("phase"), len(data_str), type(exc).__name__)
                         elif current_event == "token":
-                            token_content = data.get("content", "")
-                            accumulated_content += token_content
-                            yield _sse_event("token", data)
+                            # The repository is deployed atomically. Untyped legacy tokens are
+                            # deliberately ignored so they cannot bypass the typed content contract.
+                            logger.warning("Legacy token event ignored: len=%d", len(data_str))
                         elif current_event == "done":
-                            # Final content from sidecar — prefer the terminal answer text.
-                            # Fallback to accumulated_content (already filtered by sidecar
-                            # to text_delta only) if final_content is empty.
-                            final_content = data.get("final_content", "") or accumulated_content
-                            execution_steps = data.get("execution_steps")
-                            thinking_content = data.get("thinking_content", "")
+                            received_terminal = True
+                            # Validate done payload with Pydantic before persisting.
+                            # Fallback: if validation fails, use accumulated_content as final_content
+                            # and empty execution_steps/thinking_content.
+                            try:
+                                done_payload = StreamDonePayloadSchema.model_validate(data)
+                                final_content = (
+                                    done_payload.final_content
+                                    if done_payload.final_content.strip()
+                                    else accumulated_content
+                                )
+                                execution_steps = [s.model_dump() for s in done_payload.execution_steps]
+                                thinking_content = done_payload.thinking_content
+                            except ValidationError as exc:
+                                logger.warning("Invalid done payload (using safe fallback): len=%d err=%s", len(data_str), type(exc).__name__)
+                                # SAFE FALLBACK: never persist unvalidated fields.
+                                # Only use accumulated_content (from validated text_delta events).
+                                final_content = accumulated_content
+                                execution_steps = []
+                                thinking_content = ""
+                            # If there's no answer content at all, return error instead of saving empty message
+                            if not final_content.strip():
+                                yield _sse_event("error", {"message": "Agent 未生成有效回答，请重试。"})
+                                return
                             # 4. Save assistant message
                             assistant_message = _save_assistant_message(
                                 session, conversation, final_content,
@@ -230,11 +278,26 @@ def process_conversation_message_stream(
                             yield _sse_event("done", turn.model_dump(mode="json"))
                             return
                         elif current_event == "error":
-                            error_msg = data.get("message", "Agent 处理失败")
-                            yield _sse_event("error", {"message": error_msg})
+                            received_terminal = True
+                            try:
+                                validated_error = StreamErrorEventSchema.model_validate(data)
+                                yield _sse_event("error", validated_error.model_dump(mode="json"))
+                            except ValidationError as exc:
+                                logger.warning(
+                                    "Invalid error event (using safe fallback): len=%d err=%s",
+                                    len(data_str),
+                                    type(exc).__name__,
+                                )
+                                yield _sse_event("error", {"message": "Agent 处理失败，请稍后重试。"})
                             return
 
                         current_event = ""
+
+            # SSE terminal guard: if the stream ended without done/error,
+            # the frontend would be stuck in loading forever.
+            if not received_terminal:
+                logger.warning("Sidecar SSE stream ended without terminal event")
+                yield _sse_event("disconnect", {"reason": "连接意外中断，可重试"})
 
     except httpx.ConnectError:
         logger.error("Cannot reach sidecar at %s", sidecar_url)
@@ -250,19 +313,23 @@ def process_conversation_message_stream(
         # Persist assistant message so the response survives page refresh
         assistant_message = _save_assistant_message(session, conversation, guidance)
         session.refresh(user_message)
-        # Stream the guidance as a normal response so the user sees it in chat
+        # Stream the guidance as typed content events (not legacy token events)
         yield _sse_event("status", {"phase": "answering", "message": "正在生成回复..."})
-        for char in guidance:
-            yield _sse_event("token", {"content": char})
+        yield _sse_event("content", {"kind": "text", "phase": "start", "content_index": 0, "message_seq": 1})
+        yield _sse_event("content", {"kind": "text", "phase": "delta", "content_index": 0, "message_seq": 1, "content": guidance})
+        yield _sse_event("content", {"kind": "text", "phase": "end", "content_index": 0, "message_seq": 1})
         turn = _build_done_turn(session, conversation, user_message, assistant_message)
         yield _sse_event("done", turn.model_dump(mode="json"))
         return
     except httpx.TimeoutException:
         logger.error("Sidecar stream timed out")
         yield _sse_event("error", {"message": "Agent 响应超时，请稍后重试。"})
-    except Exception as exc:
+    except (httpx.ReadError, httpx.RemoteProtocolError) as exc:
+        logger.error("Sidecar stream disconnected: %s", exc)
+        yield _sse_event("disconnect", {"reason": "连接意外中断，可重试"})
+    except Exception:
         logger.exception("Sidecar stream proxy failed")
-        yield _sse_event("error", {"message": f"处理失败：{exc}"})
+        yield _sse_event("error", {"message": "Agent 处理失败，请稍后重试。"})
 
 
 # ---------------------------------------------------------------------------

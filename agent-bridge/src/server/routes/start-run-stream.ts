@@ -3,6 +3,12 @@
  *
  * Same as POST /runs but returns an SSE stream instead of JSON.
  * The SSE stream stays open until the run completes, fails, or is cancelled.
+ *
+ * SSE event types emitted:
+ * - `status`  — phase/module/message for UI step indicator
+ * - `content` — typed StreamContentEvent (thinking/text × start/delta/end + contentIndex)
+ * - `done`    — final_content, thinking_content, execution_steps
+ * - `error`   — error message
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -13,10 +19,94 @@ import type { StreamEventType } from "@/events/stream.js";
 import type { RuntimeEvent } from "@/types/runtime-event.js";
 import type { RunContext } from "./utils.js";
 import { readJsonBody } from "./utils.js";
+import type { StreamContentEvent } from "@/types/stream-content.js";
 
 /** Write a single SSE event to the response. */
 function writeSSE(res: ServerResponse, event: string, data: unknown): void {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+/** Tool name → Chinese label mapping for execution steps. */
+const TOOL_LABELS: Record<string, string> = {
+  get_project_state: "获取项目状态",
+  get_workspace_state: "获取工作区状态",
+  generate_stage_plan_proposal: "生成阶段规划",
+  generate_task_breakdown_proposal: "生成任务分解",
+  recommend_assignment: "推荐分工方案",
+  generate_replan_proposal: "生成调整方案",
+  analyze_checkins_and_risks: "分析进展与风险",
+  generate_direction_card_proposal: "生成方向卡",
+  create_risk: "创建风险记录",
+  create_checkin: "创建进展记录",
+};
+
+/** Unknown tool fallback — never return raw tool name to frontend. */
+const UNKNOWN_TOOL_LABEL = "执行项目操作";
+
+/** Exported for testing — maps tool name to Chinese label. */
+export function toolLabel(toolName: string): string {
+  return TOOL_LABELS[toolName] ?? UNKNOWN_TOOL_LABEL;
+}
+
+/**
+ * Compare composite block keys by numeric tuple [messageSeq, contentIndex].
+ * localeCompare would sort "10:0" before "2:0" — numeric tuple sort is correct.
+ * Exported for testing.
+ */
+export function compareCompositeKeys(a: string, b: string): number {
+  const aParts = a.split(":").map(Number);
+  const bParts = b.split(":").map(Number);
+  const aSeq = aParts[0] ?? 0;
+  const aIdx = aParts[1] ?? 0;
+  const bSeq = bParts[0] ?? 0;
+  const bIdx = bParts[1] ?? 0;
+  if (aSeq !== bSeq) return aSeq - bSeq;
+  return aIdx - bIdx;
+}
+
+/**
+ * Build the `done` event payload: final_content, thinking_content, execution_steps.
+ *
+ * thinking_content is aggregated from all thinking block deltas.
+ * final_content prefers the runtime's final_content (from last assistant message TextContent),
+ * falls back to aggregated text block deltas, then to accumulatedContent.
+ */
+export function buildDonePayload(
+  runId: string,
+  finalAnswerFromRuntime: string,
+  thinkingBlocks: Map<string, string>,
+  textBlocks: Map<string, string>,
+  accumulatedContent: string,
+  executionSteps: Array<{ tool_name: string; tool_call_id?: string; status: string; label: string }>,
+): Record<string, unknown> {
+  // Aggregate thinking from all blocks (ordered by composite key: message_seq:contentIndex)
+  const thinkingContent = Array.from(thinkingBlocks.entries())
+    .sort(([a], [b]) => compareCompositeKeys(a, b))
+    .map(([, content]) => content)
+    .join("");
+
+  // Aggregate text from all blocks (ordered by composite key)
+  const textContent = Array.from(textBlocks.entries())
+    .sort(([a], [b]) => compareCompositeKeys(a, b))
+    .map(([, content]) => content)
+    .join("");
+
+  let finalAnswer: string;
+  if (finalAnswerFromRuntime) {
+    finalAnswer = finalAnswerFromRuntime;
+  } else if (textContent) {
+    finalAnswer = textContent;
+  } else {
+    finalAnswer = accumulatedContent;
+  }
+
+  return {
+    run_id: runId,
+    status: "completed",
+    final_content: finalAnswer,
+    ...(thinkingContent ? { thinking_content: thinkingContent } : {}),
+    execution_steps: executionSteps.length > 0 ? executionSteps : undefined,
+  };
 }
 
 export async function handleStartRunStream(
@@ -88,19 +178,27 @@ export async function handleStartRunStream(
 
   // Step 4: Subscribe to EventStream and forward as SSE
   let runCompleted = false;
+  /** Accumulated content from text_delta only (for final_content fallback). */
   let accumulatedContent = "";
   /** Final answer text extracted from the last assistant message at agent_end. */
   let finalAnswerFromRuntime = "";
-  /** Thinking text separated from answer at completion. */
-  let thinkingContent = "";
   /**
-   * Ordered content chunks with their delta type.
-   * At completion, separated into thinking (before last tool boundary) and answer (after).
+   * Assistant message sequence counter. Incremented on each `message_start` event.
+   * Used to form composite block keys: `${messageSeq}:${contentIndex}`.
+   * This prevents contentIndex collision across assistant messages (Pi scopes
+   * contentIndex per message, so after a tool call a new message may restart from 0).
    */
-  const contentChunks: Array<{ type: "text" | "thinking"; content: string }> = [];
-  /** Index in contentChunks of the last chunk before a tool.started event.
-   *  Used at completion to separate thinking (before boundary) from answer (after). */
-  let lastToolBoundaryIdx = -1;
+  let messageSeq = 0;
+  /**
+   * Thinking block content aggregated by composite key.
+   * Key = `${messageSeq}:${contentIndex}`, Value = concatenated delta content.
+   */
+  const thinkingBlocks = new Map<string, string>();
+  /**
+   * Text block content aggregated by composite key.
+   * Key = `${messageSeq}:${contentIndex}`, Value = concatenated delta content.
+   */
+  const textBlocks = new Map<string, string>();
   /** Bounded execution steps collected from tool lifecycle events. */
   const executionSteps: Array<{ tool_name: string; tool_call_id?: string; status: string; label: string }> = [];
 
@@ -124,25 +222,58 @@ export async function handleStartRunStream(
       case "agent.started":
         writeSSE(res, "status", { phase: "planning", message: "正在理解你的需求..." });
         break;
-      case "agent.delta":
-        // event-mapper filters: content is from text_delta or thinking_delta.
-        // toolcall_delta never reaches here.
-        // Both types are streamed to the client for real-time visibility.
-        {
-          const tokenText = typeof data.payload?.content === "string" ? data.payload.content : "";
+      case "agent.delta": {
+        // Typed streaming contract: emit `content` SSE events with kind/phase/contentIndex/message_seq.
+        // The event-mapper now provides delta_type, content_index for all content block types.
+        const deltaType = data.payload?.delta_type as string | undefined;
+        const contentIndex = typeof data.payload?.content_index === "number"
+          ? data.payload.content_index as number
+          : 0;
+        const tokenText = typeof data.payload?.content === "string" ? data.payload.content as string : "";
+        const blockKey = `${messageSeq}:${contentIndex}`;
+
+        if (!deltaType) break;
+
+        // Map delta_type to StreamContentEvent kind + phase
+        if (deltaType === "thinking_start") {
+          const evt: StreamContentEvent = { kind: "thinking", phase: "start", content_index: contentIndex, message_seq: messageSeq };
+          writeSSE(res, "content", evt);
+        } else if (deltaType === "thinking_delta") {
+          if (tokenText) {
+            // Aggregate for thinking_content at completion
+            const existing = thinkingBlocks.get(blockKey) ?? "";
+            thinkingBlocks.set(blockKey, existing + tokenText);
+            const evt: StreamContentEvent = { kind: "thinking", phase: "delta", content_index: contentIndex, message_seq: messageSeq, content: tokenText };
+            writeSSE(res, "content", evt);
+          }
+        } else if (deltaType === "thinking_end") {
+          const evt: StreamContentEvent = { kind: "thinking", phase: "end", content_index: contentIndex, message_seq: messageSeq };
+          writeSSE(res, "content", evt);
+        } else if (deltaType === "text_start") {
+          const evt: StreamContentEvent = { kind: "text", phase: "start", content_index: contentIndex, message_seq: messageSeq };
+          writeSSE(res, "content", evt);
+        } else if (deltaType === "text_delta") {
           if (tokenText) {
             accumulatedContent += tokenText;
-            const deltaType = data.payload?.delta_type;
-            contentChunks.push({
-              type: deltaType === "thinking_delta" ? "thinking" : "text",
-              content: tokenText,
-            });
-            writeSSE(res, "token", { content: tokenText });
+            // Aggregate for text content at completion
+            const existing = textBlocks.get(blockKey) ?? "";
+            textBlocks.set(blockKey, existing + tokenText);
+            const evt: StreamContentEvent = { kind: "text", phase: "delta", content_index: contentIndex, message_seq: messageSeq, content: tokenText };
+            writeSSE(res, "content", evt);
           }
+        } else if (deltaType === "text_end") {
+          const evt: StreamContentEvent = { kind: "text", phase: "end", content_index: contentIndex, message_seq: messageSeq };
+          writeSSE(res, "content", evt);
         }
+        // toolcall_start, toolcall_delta, toolcall_end → never reach here (filtered by event-mapper)
         break;
+      }
       case "agent.status":
-        writeSSE(res, "status", data.payload);
+        // Internal runtime status is used only for block correlation. Never
+        // forward the raw payload because it can contain provider data or IDs.
+        if (data.payload?.phase === "message_start") {
+          messageSeq++;
+        }
         break;
       case "run.status":
       case "state.changed":
@@ -158,26 +289,29 @@ export async function handleStartRunStream(
         }
         break;
       case "tool.started":
-        writeSSE(res, "status", {
-          phase: "executing",
-          module: data.payload?.tool_name ?? "unknown",
-          message: `正在执行 ${data.payload?.tool_name ?? "工具"}...`,
-        });
-        // Record tool boundary: text before this point is thinking, text after is answer
-        lastToolBoundaryIdx = contentChunks.length;
-        // Collect execution step (started)
         {
           const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "工具";
+          const label = toolLabel(toolName);
           const toolCallId = typeof data.payload?.tool_call_id === "string" ? data.payload.tool_call_id : undefined;
-          executionSteps.push({ tool_name: toolName, tool_call_id: toolCallId, status: "started", label: `调用${toolName}` });
+          // Send typed tool SSE event (frontend dispatches directly to reducer)
+          writeSSE(res, "tool", { phase: "started", tool_call_id: toolCallId ?? toolName, tool_name: toolName, label });
+          // Also send status event for UI phase indicator
+          writeSSE(res, "status", {
+            phase: "executing",
+            message: `正在${label}...`,
+          });
+          // Collect execution step (started)
+          executionSteps.push({ tool_name: toolName, tool_call_id: toolCallId, status: "started", label });
         }
         break;
       case "tool.completed":
-        writeSSE(res, "status", { phase: "generating", message: "正在整理结果..." });
-        // Update matching step to completed (prefer tool_call_id for precision)
         {
           const toolCallId = typeof data.payload?.tool_call_id === "string" ? data.payload.tool_call_id : undefined;
-          const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "";
+          const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "工具";
+          // Send typed tool SSE event
+          writeSSE(res, "tool", { phase: "completed", tool_call_id: toolCallId ?? toolName, tool_name: toolName });
+          writeSSE(res, "status", { phase: "generating", message: "正在整理结果..." });
+          // Update matching step to completed (prefer tool_call_id for precision)
           const step = toolCallId
             ? executionSteps.find((s) => s.tool_call_id === toolCallId && s.status === "started")
             : [...executionSteps].reverse().find((s) => s.tool_name === toolName && s.status === "started");
@@ -185,10 +319,12 @@ export async function handleStartRunStream(
         }
         break;
       case "tool.failed":
-        // Update matching step to failed (prefer tool_call_id for precision)
         {
           const toolCallId = typeof data.payload?.tool_call_id === "string" ? data.payload.tool_call_id : undefined;
-          const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "";
+          const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "工具";
+          // Send typed tool SSE event
+          writeSSE(res, "tool", { phase: "failed", tool_call_id: toolCallId ?? toolName, tool_name: toolName });
+          // Update matching step to failed (prefer tool_call_id for precision)
           const step = toolCallId
             ? executionSteps.find((s) => s.tool_call_id === toolCallId && s.status === "started")
             : [...executionSteps].reverse().find((s) => s.tool_name === toolName && s.status === "started");
@@ -196,21 +332,41 @@ export async function handleStartRunStream(
         }
         break;
       case "tool.blocked":
-        // Update matching step to blocked (policy gate rejection, distinct from execution failure)
         {
           const toolCallId = typeof data.payload?.tool_call_id === "string" ? data.payload.tool_call_id : undefined;
           const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "";
+          const label = toolLabel(toolName || "工具");
+          const eventId = typeof data.payload?.event_id === "string" ? data.payload.event_id : `blocked-${executionSteps.length}`;
+          // Send typed tool SSE event (blocked has optional tool_call_id)
+          writeSSE(res, "tool", {
+            phase: "blocked",
+            ...(toolCallId ? { tool_call_id: toolCallId } : {}),
+            ...(toolName ? { tool_name: toolName } : {}),
+            label,
+            event_id: eventId,
+          });
+          // Update matching step to blocked (policy gate rejection, distinct from execution failure)
           const step = toolCallId
             ? executionSteps.find((s) => s.tool_call_id === toolCallId && s.status === "started")
             : [...executionSteps].reverse().find((s) => s.tool_name === toolName && s.status === "started");
-          if (step) step.status = "blocked";
+          if (step) {
+            step.status = "blocked";
+          } else {
+            // No matching started step — append standalone blocked entry so it
+            // survives in executionSteps and is persisted in the done payload.
+            executionSteps.push({
+              tool_name: toolName || "工具",
+              tool_call_id: toolCallId,
+              status: "blocked",
+              label,
+            });
+          }
         }
         break;
       case "tool.progress":
-        // Tool progress updates — forward as status for UI feedback
-        if (data.payload?.message) {
-          writeSSE(res, "status", { phase: "executing", message: String(data.payload.message) });
-        }
+        // Tool progress updates — do NOT forward raw message to avoid leaking
+        // English/internal IDs. Use a controlled Chinese status instead.
+        writeSSE(res, "status", { phase: "executing", message: "正在执行任务..." });
         break;
       case "proposal.created":
         writeSSE(res, "status", { phase: "generating", message: "提案已生成，等待确认" });
@@ -229,10 +385,21 @@ export async function handleStartRunStream(
         break;
       case "runtime.error": {
         // Runtime-level errors (budget exceeded, policy violation, etc.)
-        const errorMsg = data.payload?.error ?? data.payload?.code ?? data.payload?.reason ?? "运行时错误";
+        // Use fixed Chinese category messages — never leak raw error/reason to frontend
+        const errorCode = data.payload?.code;
+        let userMessage: string;
+        if (errorCode === "budget_exceeded") {
+          userMessage = "Agent 预算已用尽，请稍后重试。";
+        } else if (errorCode === "policy_violation") {
+          userMessage = "操作被策略拦截，请检查后重试。";
+        } else if (errorCode === "timeout") {
+          userMessage = "Agent 响应超时，请稍后重试。";
+        } else {
+          userMessage = "Agent 运行时错误，请稍后重试。";
+        }
         if (!runCompleted) {
           runCompleted = true;
-          writeSSE(res, "error", { message: `运行时错误：${errorMsg}` });
+          writeSSE(res, "error", { message: userMessage });
           res.end();
         }
         break;
@@ -241,46 +408,22 @@ export async function handleStartRunStream(
       case "run.completed": {
         runCompleted = true;
         // Capture final_content from the runtime (extracted from last assistant message's TextContent).
-        // This only contains text_delta, not thinking_delta.
         finalAnswerFromRuntime = typeof data.payload?.final_content === "string"
           ? data.payload.final_content
           : "";
-        // Separate thinking from answer using tool boundaries.
-        // Text before the last tool.started = thinking/analysis.
-        // Text after the last tool.started = final answer.
-        const thinkingChunks = lastToolBoundaryIdx >= 0
-          ? contentChunks.slice(0, lastToolBoundaryIdx)
-          : [];  // No tools = no separation (all text is answer)
-        const answerChunks = lastToolBoundaryIdx >= 0
-          ? contentChunks.slice(lastToolBoundaryIdx)
-          : contentChunks;
-        const accumulatedThinking = thinkingChunks.map((c) => c.content).join("");
-        const answerText = answerChunks.map((c) => c.content).join("");
-        let finalAnswer: string;
-        if (finalAnswerFromRuntime) {
-          finalAnswer = finalAnswerFromRuntime;
-        } else if (answerText) {
-          finalAnswer = answerText;
-        } else {
-          finalAnswer = accumulatedContent;
-        }
-        thinkingContent = accumulatedThinking;
-        writeSSE(res, "done", {
-          run_id: runState.runId,
-          status: "completed",
-          final_content: finalAnswer,
-          ...(thinkingContent ? { thinking_content: thinkingContent } : {}),
-          execution_steps: executionSteps.length > 0 ? executionSteps : undefined,
-        });
+        const donePayload = buildDonePayload(
+          runState.runId, finalAnswerFromRuntime,
+          thinkingBlocks, textBlocks, accumulatedContent, executionSteps,
+        );
+        writeSSE(res, "done", donePayload);
         res.end();
         break;
       }
       case "agent.failed":
       case "run.failed": {
         runCompleted = true;
-        writeSSE(res, "error", {
-          message: data.payload?.error ?? data.payload?.reason ?? "Agent 处理失败",
-        });
+        // Fixed Chinese message — never leak raw error/reason
+        writeSSE(res, "error", { message: "Agent 处理失败，请稍后重试。" });
         res.end();
         break;
       }
@@ -326,48 +469,30 @@ export async function handleStartRunStream(
           ctx.sessionStore.clearAbortController(state.runId);
           if (!runCompleted) {
             runCompleted = true;
-            const thinkingChunks = lastToolBoundaryIdx >= 0
-              ? contentChunks.slice(0, lastToolBoundaryIdx)
-              : [];
-            const answerChunks = lastToolBoundaryIdx >= 0
-              ? contentChunks.slice(lastToolBoundaryIdx)
-              : contentChunks;
-            const accumulatedThinking = thinkingChunks.map((c) => c.content).join("");
-            const answerText = answerChunks.map((c) => c.content).join("");
-            let finalAnswer: string;
-            if (finalAnswerFromRuntime) {
-              finalAnswer = finalAnswerFromRuntime;
-            } else if (answerText) {
-              finalAnswer = answerText;
-            } else {
-              finalAnswer = accumulatedContent;
-            }
-            thinkingContent = accumulatedThinking;
-            writeSSE(res, "done", {
-              run_id: state.runId,
-              status: "completed",
-              final_content: finalAnswer,
-              ...(thinkingContent ? { thinking_content: thinkingContent } : {}),
-              execution_steps: executionSteps.length > 0 ? executionSteps : undefined,
-            });
+            const donePayload = buildDonePayload(
+              state.runId, finalAnswerFromRuntime,
+              thinkingBlocks, textBlocks, accumulatedContent, executionSteps,
+            );
+            writeSSE(res, "done", donePayload);
             res.end();
           }
         },
-        onError: (error, state) => {
+        onError: (_error, state) => {
           ctx.sessionStore.clearAbortController(state.runId);
           if (!runCompleted) {
             runCompleted = true;
-            writeSSE(res, "error", { message: error.message });
+            // Fixed Chinese message — never leak raw error.message
+            writeSSE(res, "error", { message: "Agent 执行出错，请稍后重试。" });
             res.end();
           }
         },
       },
     );
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
+  } catch (_err) {
     if (!runCompleted) {
       runCompleted = true;
-      writeSSE(res, "error", { message: error.message });
+      // Fixed Chinese message — never leak raw error.message
+      writeSSE(res, "error", { message: "Agent 执行出错，请稍后重试。" });
       res.end();
     }
   } finally {

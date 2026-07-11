@@ -82,13 +82,13 @@ describe("output-channel fix: event-mapper", () => {
       expect(result.payload.content).toBeUndefined();
     });
 
-    it("preserves explicit data.content if present", () => {
+    it("discards explicit data.content outside the typed assistant event", () => {
       const piEvent: PiEvent = {
         type: "message_update",
         data: { content: "explicit delta text" },
       };
       const result = mapPiEvent(piEvent, runId);
-      expect(result.payload.content).toBe("explicit delta text");
+      expect(result.payload.content).toBeUndefined();
     });
   });
 

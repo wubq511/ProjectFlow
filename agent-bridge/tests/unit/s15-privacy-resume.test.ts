@@ -129,7 +129,7 @@ describe("S15 privacy: trace defaults exclude sensitive data", () => {
       { orderingHint: 3 },
     );
     expect(eventWithTextDelta.payload.content).toBe("安全的文本增量");
-    // Verify data.content is passed through when present
+    // Untrusted data.content must not bypass the typed assistant event channel.
     const eventWithContent = buildRuntimeEventFromPiEvent(
       {
         type: "message_update",
@@ -138,7 +138,7 @@ describe("S15 privacy: trace defaults exclude sensitive data", () => {
       runState,
       { orderingHint: 4 },
     );
-    expect(eventWithContent.payload.content).toBe("安全的增量文本");
+    expect(eventWithContent.payload.content).toBeUndefined();
   });
 
   it("trace from run state does not include API key or provider headers", () => {

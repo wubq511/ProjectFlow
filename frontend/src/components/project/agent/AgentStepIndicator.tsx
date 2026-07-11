@@ -1,9 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, Loader2, Circle } from "lucide-react";
-import type { AgentStreamPhase } from "@/lib/types";
+import { Loader2, ChevronRight } from "lucide-react";
+import type { AgentStreamPhase, ExecutionStep } from "@/lib/types";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { executionStepStatusIcon } from "./stream-display";
 
 export type AgentStreamStatus = {
   phase: AgentStreamPhase;
@@ -13,6 +15,8 @@ export type AgentStreamStatus = {
 
 interface AgentStepIndicatorProps {
   status: AgentStreamStatus | null;
+  /** Live execution steps from the streaming turn */
+  executionSteps?: ExecutionStep[];
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -23,26 +27,13 @@ const PHASE_LABELS: Record<string, string> = {
   answering: "整理回复",
 };
 
-const ALL_PHASES = ["planning", "executing", "generating", "streaming"] as const;
+export const AgentStepIndicator = React.memo(function AgentStepIndicator({ status, executionSteps = [] }: AgentStepIndicatorProps) {
+  const [stepsOpen, setStepsOpen] = useState(false);
 
-function getSteps(status: AgentStreamStatus | null) {
-  const currentIdx = status ? ALL_PHASES.indexOf(status.phase as (typeof ALL_PHASES)[number]) : -1;
-
-  return ALL_PHASES.map((phase, idx) => {
-    let state: "done" | "active" | "pending" = "pending";
-    if (idx < currentIdx) state = "done";
-    else if (idx === currentIdx) state = "active";
-
-    const label = PHASE_LABELS[phase] ?? phase;
-    return { phase, label, state };
-  });
-}
-
-export const AgentStepIndicator = React.memo(function AgentStepIndicator({ status }: AgentStepIndicatorProps) {
   if (!status) return null;
 
-  const steps = getSteps(status);
-  const statusMessage = status.message;
+  const currentLabel = PHASE_LABELS[status.phase] ?? "处理中";
+  const hasSteps = executionSteps.length > 0;
 
   return (
     <motion.div
@@ -51,38 +42,37 @@ export const AgentStepIndicator = React.memo(function AgentStepIndicator({ statu
       exit={{ opacity: 0, y: -4 }}
       className="mb-3 rounded-md border border-neutral-200 bg-neutral-50 p-3"
     >
-      <div className="flex items-center gap-1.5 text-xs font-semibold text-neutral-600">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-neutral-700">
         <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-500" />
-        Agent 正在处理
-        {status.module && (
-          <span className="font-normal text-neutral-400">· {status.module}</span>
-        )}
+        <span>{status.message || currentLabel}</span>
       </div>
-      <ul className="mt-2 space-y-1">
-        <AnimatePresence>
-          {steps.map((step) => (
-            <motion.li
-              key={step.phase}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex items-center gap-1.5 text-xs"
-            >
-              {step.state === "done" ? (
-                <CheckCircle2 className="h-3 w-3 shrink-0 text-neutral-500" />
-              ) : step.state === "active" ? (
-                <Loader2 className="h-3 w-3 shrink-0 animate-spin text-neutral-600" />
-              ) : (
-                <Circle className="h-3 w-3 shrink-0 text-neutral-300" />
-              )}
-              <span className={step.state === "active" ? "text-neutral-700 font-medium" : "text-neutral-400"}>
-                {step.label}
-              </span>
-            </motion.li>
-          ))}
-        </AnimatePresence>
-      </ul>
-      {statusMessage && (
-        <p className="mt-1.5 text-[11px] text-neutral-500">{statusMessage}</p>
+      {/* Collapsible execution timeline */}
+      {hasSteps && (
+        <Collapsible open={stepsOpen} onOpenChange={setStepsOpen} className="mt-2">
+          <CollapsibleTrigger className="flex min-h-[44px] w-full items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600">
+            <ChevronRight className={`h-3 w-3 shrink-0 transition-transform duration-200 ${stepsOpen ? "rotate-90" : ""}`} />
+            <span>执行过程</span>
+            <span className="text-neutral-300">·</span>
+            <span className="text-neutral-300">{executionSteps.length} 步</span>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2">
+            <ul className="space-y-1">
+              <AnimatePresence>
+                {executionSteps.map((step, i) => (
+                  <motion.li
+                    key={`${step.tool_name}-${i}`}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex items-center gap-1.5 text-[11px] text-neutral-500"
+                  >
+                    <span>{executionStepStatusIcon(step.status)}</span>
+                    <span>{step.label}</span>
+                  </motion.li>
+                ))}
+              </AnimatePresence>
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
       )}
     </motion.div>
   );

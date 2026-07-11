@@ -317,7 +317,7 @@ describe("event-mapper", () => {
     expect(event.payload.content).toBeUndefined();
   });
 
-  it("message_update with data.content passes content through correctly", () => {
+  it("message_update ignores untrusted data.content", () => {
     const runState = createRunState({
       runId,
       conversationId: "conv_1",
@@ -340,7 +340,7 @@ describe("event-mapper", () => {
     );
 
     expect(event.type).toBe("agent.delta");
-    expect(event.payload.content).toBe("增量文本");
+    expect(event.payload.content).toBeUndefined();
     expect(event.payload).not.toHaveProperty("assistantMessageEvent");
   });
 });

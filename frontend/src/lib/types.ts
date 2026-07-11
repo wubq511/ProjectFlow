@@ -508,6 +508,41 @@ export type AgentStreamStatusEvent = {
   data: { phase: AgentStreamPhase; module?: string; message: string };
 };
 
+/**
+ * Typed streaming content event — replaces untyped `token { content }`.
+ * Preserves text/thinking channel, start/delta/end lifecycle, and contentIndex
+ * from the Pi runtime, enabling the frontend to distinguish thinking from answer
+ * during streaming.
+ */
+export type StreamContentEvent =
+  | { kind: "thinking"; phase: "start"; content_index: number; message_seq: number }
+  | { kind: "thinking"; phase: "delta"; content_index: number; message_seq: number; content: string }
+  | { kind: "thinking"; phase: "end"; content_index: number; message_seq: number }
+  | { kind: "text"; phase: "start"; content_index: number; message_seq: number }
+  | { kind: "text"; phase: "delta"; content_index: number; message_seq: number; content: string }
+  | { kind: "text"; phase: "end"; content_index: number; message_seq: number };
+
+/**
+ * Typed tool lifecycle event — sent as SSE `tool` event.
+ * Discriminated union: blocked has optional tool_call_id (policy_block events don't carry it).
+ */
+export type StreamToolEvent =
+  | { phase: "started"; tool_call_id: string; tool_name: string; label: string }
+  | { phase: "completed"; tool_call_id: string; tool_name: string }
+  | { phase: "failed"; tool_call_id: string; tool_name: string }
+  | { phase: "blocked"; tool_call_id?: string; tool_name?: string; label: string; event_id: string };
+
+export type AgentStreamContentEvent = {
+  event: "content";
+  data: StreamContentEvent;
+};
+
+export type AgentStreamToolEvent = {
+  event: "tool";
+  data: StreamToolEvent;
+};
+
+/** @deprecated Use AgentStreamContentEvent instead. Kept for backward compat only. */
 export type AgentStreamTokenEvent = {
   event: "token";
   data: { content: string };
@@ -523,11 +558,66 @@ export type AgentStreamErrorEvent = {
   data: { message: string };
 };
 
+export type AgentStreamDisconnectEvent = {
+  event: "disconnect";
+  data: { reason?: string };
+};
+
 export type AgentStreamEvent =
   | AgentStreamStatusEvent
+  | AgentStreamContentEvent
+  | AgentStreamToolEvent
   | AgentStreamTokenEvent
   | AgentStreamDoneEvent
-  | AgentStreamErrorEvent;
+  | AgentStreamErrorEvent
+  | AgentStreamDisconnectEvent;
+
+// --- Stream Turn State ---
+
+export type StreamTurnStatus =
+  | "idle"
+  | "connecting"
+  | "thinking"
+  | "executing"
+  | "answering"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "disconnected";
+
+export type StreamBlock = {
+  kind: "thinking" | "text";
+  contentIndex: number;
+  messageSeq: number;
+  content: string;
+  completed: boolean;
+  order: number;
+};
+
+export type ExecutionStep = {
+  tool_name: string;
+  tool_call_id?: string;
+  status: "started" | "completed" | "failed" | "blocked";
+  label: string;
+};
+
+export type AgentStreamTurn = {
+  clientTurnId: string;
+  status: StreamTurnStatus;
+  userMessage: AgentConversationMessage | null;
+  blocks: Record<string, StreamBlock>;
+  blockOrder: number;
+  thinkingOpen: boolean;
+  thinkingWasAutoFolded: boolean;
+  thinkingWasManuallyToggled: boolean;
+  executionSteps: ExecutionStep[];
+  error: string | null;
+  finalContent: string | null;
+};
+
+export type ArchivedAgentStreamTurn = {
+  turn: AgentStreamTurn;
+};
 
 /** Thinking/reasoning level for models that support it. */
 export type ThinkingLevel = "low" | "medium" | "high" | "xhigh" | "max";

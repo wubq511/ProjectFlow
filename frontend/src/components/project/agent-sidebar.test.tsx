@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   AgentArtifact,
   AgentConversation,
+  ArchivedAgentStreamTurn,
   AgentSuggestion,
   ProjectState,
 } from "@/lib/types";
@@ -158,6 +159,72 @@ const artifactsFixture: AgentArtifact[] = [
 // ---------------------------------------------------------------------------
 
 describe("AgentSidebar", () => {
+  it("keeps a cancelled partial turn visible after the next turn starts", async () => {
+    const archivedTurn: ArchivedAgentStreamTurn = {
+      turn: {
+        clientTurnId: "turn-local-1",
+        status: "cancelled",
+        userMessage: {
+          id: "turn-local-1", conversation_id: "conv-1", role: "user",
+          content: "上一轮问题", structured_payload: {}, created_at: "2026-06-07T10:01:00Z",
+        },
+        blocks: {
+          "1:0": { kind: "text", contentIndex: 0, messageSeq: 1, content: "上一轮部分回答", completed: false, order: 0 },
+        },
+        blockOrder: 1,
+        thinkingOpen: false,
+        thinkingWasAutoFolded: false,
+        thinkingWasManuallyToggled: false,
+        executionSteps: [],
+        error: "已停止生成",
+        finalContent: null,
+      },
+    };
+
+    render(
+      <AgentSidebar
+        state={baseProjectState}
+        conversation={conversationFixture}
+        archivedStreamTurns={[archivedTurn]}
+        onRunAgent={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("上一轮问题")).toBeTruthy();
+    expect(await screen.findByText("上一轮部分回答")).toBeTruthy();
+    expect(screen.getByText("已停止生成")).toBeTruthy();
+  });
+
+  it("does not duplicate an archived optimistic user message once the server message exists", () => {
+    const userMessage = {
+      id: "turn-local-1", conversation_id: "conv-1", role: "user" as const,
+      content: "上一轮问题", structured_payload: {}, created_at: "2026-06-07T10:01:00Z",
+    };
+    const archivedTurn: ArchivedAgentStreamTurn = {
+      turn: {
+        clientTurnId: "turn-local-1", status: "failed", userMessage,
+        blocks: {}, blockOrder: 0, thinkingOpen: false,
+        thinkingWasAutoFolded: false, thinkingWasManuallyToggled: false,
+        executionSteps: [], error: "生成失败", finalContent: null,
+      },
+    };
+    const conversation = {
+      ...conversationFixture,
+      messages: [...conversationFixture.messages, { ...userMessage, id: "server-user-1" }],
+    };
+
+    render(
+      <AgentSidebar
+        state={baseProjectState}
+        conversation={conversation}
+        archivedStreamTurns={[archivedTurn]}
+        onRunAgent={vi.fn()}
+      />
+    );
+
+    expect(screen.getAllByText("上一轮问题")).toHaveLength(1);
+  });
+
   it("sends suggestion clicks as user instructions", () => {
     const onSendMessage = vi.fn();
 

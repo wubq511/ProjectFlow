@@ -30,7 +30,6 @@ import {
   runReplan,
   runRiskAnalysis,
   sendAgentConversationMessage,
-  sendAgentConversationMessageStream,
   startNegotiation,
   submitCheckinResponse,
   updateActionCardStatus,
@@ -43,11 +42,13 @@ import type {
   AgentConversation,
   AgentFlowResult,
   AgentStreamPhase,
+  AgentStreamTurn,
   AgentSuggestion,
   ProjectState,
   WorkspaceState,
   ThinkingLevel,
 } from "@/lib/types";
+import { useAgentConversationStream, useAgentStreamNavigationReset } from "@/lib/useAgentConversationStream";
 
 	const AGENT_RUNNERS: Record<AgentAction, (projectId: string, state?: ProjectState, viewerUserId?: string, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => Promise<unknown>> = {
 	  clarify: (projectId, _state, vuid, tl, m) => runClarification(projectId, vuid!, tl, m),
@@ -124,22 +125,56 @@ export default function WorkspaceDashboardPage() {
     showWorkspaceRef.current = showWorkspace;
   }, [showWorkspace]);
 
-  // Abort streaming on unmount
-  useEffect(() => {
-    return () => {
-      abortRef.current?.abort();
-    };
-  }, []);
-
   const [pendingAction, setPendingAction] = useState<AgentAction | null>(null);
   const [pendingAgentConversation, setPendingAgentConversation] = useState(false);
-  const [streamingBuffer, setStreamingBuffer] = useState("");
-  const [streamStatus, setStreamStatus] = useState<{ phase: AgentStreamPhase; module?: string; message: string } | null>(null);
-  const streamingBufferRef = useRef("");
-  const streamingClearTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  // Unified streaming hook (composes useAgentStreamTurn + transport + abort)
+  const {
+    streamTurn,
+    streamStatus,
+    send: sendStream,
+    stop: stopStream,
+    reset: resetStream,
+    toggleThinking,
+    streamThinkingContent,
+    streamAnswerContent,
+    streamHasThinking,
+    archivedStreamTurns,
+    completedAnnouncement,
+    cleanup: streamCleanup,
+  } = useAgentConversationStream({
+    onPersistedTurn: (turn) => {
+      setAgentConversation(turn.conversation);
+      setAgentConversationSuggestions(turn.suggestions ?? []);
+      setAgentConversationArtifacts(turn.artifacts ?? []);
+      setPendingAgentInstruction(null);
+      reloadProject();
+      const hasPendingArtifact = (turn.artifacts ?? []).some(
+        (a) => a.status === "pending_confirmation",
+      );
+      if (!hasPendingArtifact && turn.run?.proposal_id) {
+        setActionSuccess("Agent 已生成提案，等待你确认后应用");
+      }
+    },
+    onError: (msg) => {
+      setAgentConversationError(msg);
+    },
+    onDisconnect: (reason) => {
+      setAgentConversationError(reason ?? "连接意外中断，可重试");
+    },
+  });
+
+  // Abort streaming on unmount
+  useEffect(() => {
+    return streamCleanup;
+  }, [streamCleanup]);
+
+  // The URL identity is the single stream-cleanup boundary. Click navigation
+  // updates the ref immediately; browser navigation is caught by the effect.
+  const navigationIdentity = `${workspaceId}:${projectParam ?? "workspace"}`;
+  const resetForNavigation = useAgentStreamNavigationReset(navigationIdentity, resetStream);
 
   // Load workspace and optionally project
   useEffect(() => {
@@ -197,6 +232,7 @@ export default function WorkspaceDashboardPage() {
   }, [workspaceId, projectParam]);
 
   const handleSelectProject = useCallback(async (projectId: string) => {
+    resetForNavigation(`${workspaceId}:${projectId}`);
     setSelectedProjectId(projectId);
     setShowWorkspace(false);
     setLoading(true);
@@ -223,11 +259,12 @@ export default function WorkspaceDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, searchParams, router]);
+  }, [workspaceId, searchParams, router, resetForNavigation]);
 
   const handleShowWorkspace = useCallback((show: boolean) => {
     setShowWorkspace(show);
     if (show) {
+      resetForNavigation(`${workspaceId}:workspace`);
       setSelectedProjectId(null);
       setProjectState(null);
       setAgentConversation(null);
@@ -241,7 +278,7 @@ export default function WorkspaceDashboardPage() {
       params.delete("view");
       router.replace(`/workspaces/${workspaceId}?${params.toString()}`, { scroll: false });
     }
-  }, [workspaceId, searchParams, router]);
+  }, [workspaceId, searchParams, router, resetForNavigation]);
 
   const handleNavigateView = useCallback((view: import("@/components/project/project-sidebar").ProjectView) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -350,89 +387,21 @@ export default function WorkspaceDashboardPage() {
 
   const handleSendAgentMessage = async (content: string) => {
     if (!agentConversation) return;
-    // Cancel any pending streaming buffer clear from previous run
-    if (streamingClearTimeoutRef.current) {
-      clearTimeout(streamingClearTimeoutRef.current);
-      streamingClearTimeoutRef.current = null;
-    }
-    // Reset streaming state from any previous request
-    streamingBufferRef.current = "";
-    setStreamingBuffer("");
-    setStreamStatus(null);
     setPendingAgentConversation(true);
     setPendingAgentInstruction(content);
     setAgentConversationError(null);
     setActionError(null);
     setActionSuccess(null);
 
-    // eslint-disable-next-line react-hooks/immutability -- abortRef assignment is a standard React pattern for managing abort controllers
-    abortRef.current = new AbortController();
-
     try {
-      await sendAgentConversationMessageStream(
-        agentConversation.id,
-        content,
-        currentUserId ?? "",
-        {
-          onStatus: (status) => {
-            setStreamStatus(status as { phase: AgentStreamPhase; module?: string; message: string });
-          },
-          onToken: (token) => {
-            streamingBufferRef.current += token;
-            // Show tokens in streaming UI (preserves typing effect)
-            setStreamingBuffer((prev) => prev + token);
-          },
-          onDone: (turn) => {
-            setAgentConversation(turn.conversation);
-            setAgentConversationSuggestions(turn.suggestions ?? []);
-            setAgentConversationArtifacts(turn.artifacts ?? []);
-            setPendingAgentInstruction(null);
-            // Delay clearing streaming buffer for smooth transition
-            // (new ChatMessage mounts with thinking fold, old streaming text stays visible briefly)
-            streamingClearTimeoutRef.current = setTimeout(() => {
-              streamingBufferRef.current = "";
-              setStreamingBuffer("");
-              setStreamStatus(null);
-              streamingClearTimeoutRef.current = null;
-            }, 300);
-            reloadProject();
-            const hasPendingArtifact = (turn.artifacts ?? []).some(
-              (a) => a.status === "pending_confirmation",
-            );
-            if (!hasPendingArtifact && turn.run?.proposal_id) {
-              setActionSuccess("Agent 已生成提案，等待你确认后应用");
-            }
-          },
-          onError: (msg) => {
-            streamingBufferRef.current = "";
-            setStreamingBuffer("");
-            setStreamStatus(null);
-            setAgentConversationError(msg || "这次没有生成可用结果，我保留了你的请求。");
-          },
-        },
-        abortRef.current.signal,
-      );
-    } catch {
-      if (!abortRef.current?.signal.aborted) {
-        setAgentConversationError("这次没有生成可用结果，我保留了你的请求。你可以重新发送或换一种说法。");
-      }
-      setStreamingBuffer("");
-      setStreamStatus(null);
+      await sendStream(agentConversation.id, content, currentUserId ?? "");
     } finally {
       setPendingAgentConversation(false);
-      abortRef.current = null;
     }
   };
 
   const handleStopStreaming = () => {
-    abortRef.current?.abort();
-    if (streamingClearTimeoutRef.current) {
-      clearTimeout(streamingClearTimeoutRef.current);
-      streamingClearTimeoutRef.current = null;
-    }
-    streamingBufferRef.current = "";
-    setStreamingBuffer("");
-    setStreamStatus(null);
+    stopStream();
   };
 
   const handleAssignmentResponse = async (
@@ -708,9 +677,12 @@ export default function WorkspaceDashboardPage() {
       pendingAgentInstruction={pendingAgentInstruction}
       agentConversationError={agentConversationError}
       pendingAgentConversation={pendingAgentConversation}
-      streamingBuffer={streamingBuffer}
+      streamTurn={streamTurn.status !== "idle" && streamTurn.status !== "completed" ? streamTurn : null}
+      archivedStreamTurns={archivedStreamTurns}
       streamStatus={streamStatus}
       onStopStreaming={handleStopStreaming}
+      onToggleThinking={toggleThinking}
+      completedAnnouncement={completedAnnouncement}
       actionError={actionError}
       actionSuccess={actionSuccess}
       viewParam={viewParam}

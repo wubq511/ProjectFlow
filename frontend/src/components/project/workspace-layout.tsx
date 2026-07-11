@@ -6,7 +6,7 @@ import { ProjectSidebar, type ProjectView } from "./project-sidebar";
 import { AgentSidebar } from "./agent-sidebar";
 import { ProjectContent } from "./project-content";
 import { WorkspaceContent } from "./workspace-content";
-import type { AddResourceRequest, AgentArtifact, AgentConversation, AgentStreamPhase, AgentSuggestion, ProjectState, WorkspaceState, ThinkingLevel } from "@/lib/types";
+import type { AddResourceRequest, AgentArtifact, AgentConversation, AgentStreamPhase, AgentStreamTurn, ArchivedAgentStreamTurn, AgentSuggestion, ProjectState, WorkspaceState, ThinkingLevel } from "@/lib/types";
 import type { AgentAction } from "./project-actions";
 
 interface WorkspaceLayoutProps {
@@ -23,9 +23,11 @@ interface WorkspaceLayoutProps {
   pendingAgentInstruction?: string | null;
   agentConversationError?: string | null;
   pendingAgentConversation?: boolean;
-  streamingBuffer?: string;
+  streamTurn?: AgentStreamTurn | null;
+  archivedStreamTurns?: ArchivedAgentStreamTurn[];
   streamStatus?: { phase: AgentStreamPhase; module?: string; message: string } | null;
   onStopStreaming?: () => void;
+  onToggleThinking?: () => void;
   actionError?: string | null;
   actionSuccess?: string | null;
   viewParam?: ProjectView | null;
@@ -80,6 +82,7 @@ interface WorkspaceLayoutProps {
   onDeleteResource?: (resourceId: string) => void | Promise<void>;
   onResetDemo?: () => void | Promise<void>;
   onRefresh?: () => void;
+  completedAnnouncement?: string | null;
 }
 
 export function WorkspaceLayout({
@@ -96,9 +99,11 @@ export function WorkspaceLayout({
   pendingAgentInstruction,
   agentConversationError,
   pendingAgentConversation,
-  streamingBuffer = "",
+  streamTurn = null,
+  archivedStreamTurns = [],
   streamStatus = null,
   onStopStreaming,
+  onToggleThinking,
   actionError,
   actionSuccess,
   viewParam,
@@ -126,6 +131,7 @@ export function WorkspaceLayout({
   onDeleteResource,
   onResetDemo,
   onRefresh,
+  completedAnnouncement,
 }: WorkspaceLayoutProps) {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
@@ -229,11 +235,14 @@ export function WorkspaceLayout({
         actionSuccess={actionSuccess}
         onRunAgent={onRunAgent ?? (() => {})}
         onSendMessage={onSendAgentMessage}
-        streamingBuffer={streamingBuffer}
+        streamTurn={streamTurn}
+        archivedStreamTurns={archivedStreamTurns}
         streamStatus={streamStatus}
         onStopStreaming={onStopStreaming}
+        onToggleThinking={onToggleThinking}
         onConfirmArtifact={onConfirmAgentArtifact}
         onResetDemo={onResetDemo}
+        completedAnnouncement={completedAnnouncement}
       />
     </div>
   );

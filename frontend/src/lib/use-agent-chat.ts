@@ -8,7 +8,6 @@ export function useAgentChat(projectId: string | null) {
   const [conversation, setConversation] = useState<AgentConversation | null>(null);
   const [suggestions, setSuggestions] = useState<AgentSuggestion[]>([]);
   const [artifacts, setArtifacts] = useState<AgentArtifact[]>([]);
-  const [streamingBuffer, setStreamingBuffer] = useState("");
   const [streamStatus, setStreamStatus] = useState<{
     phase: AgentStreamPhase;
     module?: string;
@@ -29,7 +28,6 @@ export function useAgentChat(projectId: string | null) {
   }, [projectId]);
 
   const resetStream = useCallback(() => {
-    setStreamingBuffer("");
     setStreamStatus(null);
   }, []);
 
@@ -37,7 +35,6 @@ export function useAgentChat(projectId: string | null) {
     setConversation(null);
     setSuggestions([]);
     setArtifacts([]);
-    setStreamingBuffer("");
     setStreamStatus(null);
     setPendingInstruction(null);
     setConversationError(null);
@@ -50,8 +47,6 @@ export function useAgentChat(projectId: string | null) {
     setSuggestions,
     artifacts,
     setArtifacts,
-    streamingBuffer,
-    setStreamingBuffer,
     streamStatus,
     setStreamStatus,
     abortRef,

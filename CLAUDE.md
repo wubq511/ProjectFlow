@@ -151,7 +151,7 @@ npm audit --omit=dev
 - 已删除独立的 `/projects/new` 和 `/projects/[projectId]` 路由，所有项目操作统一在 `/workspaces/[workspaceId]` 内完成
 - 项目页采用三栏布局：左侧 workspace/project 导航(ProjectSidebar)、中间内容区(ProjectContent/WorkspaceContent)、右侧 Agent 面板(AgentSidebar)
 - 项目仪表盘 Agent 操作按状态机 4 阶段分组：规划 / 分工 / 执行 / 监控
-- Agent 流式输出与折叠：流式输出时显示 text_delta 可见文本（`message_update` 从 `assistantMessageEvent` 提取 `text_delta.delta`，`thinking_delta`/`toolcall_delta` 丢弃）；完成后从 `agent_end` 提取最终回答作为 `final_content`，思考文本（最终回答之前的 text_delta）分离为 `thinking_content` 并持久化到 `structured_payload`；执行步骤（tool.started/completed/failed/blocked）收集为 `execution_steps` 并持久化到 `structured_payload`；`message.content` 仅含最终回答；前端渲染：思考过程折叠区（默认收起）→ 执行过程折叠区（默认收起）→ 最终回答
+- Agent 流式输出与折叠：流式输出时按 typed streaming contract 区分 thinking/text channel 和 start/delta/end lifecycle（`message_update` 按 `delta_type` 保留 `thinking_*`/`text_*` channel 和 `content_index`/`message_seq`，通过 `content` SSE event 传递 `StreamContentEvent`；`toolcall_*` 丢弃）；thinking 实时渲染到折叠区，text 实时渲染到回答区；完成后从 `agent_end` 提取最终回答作为 `final_content`，思考文本持久化到 `structured_payload.thinking_content`；执行步骤（tool.started/completed/failed/blocked）收集为 `execution_steps` 并持久化到 `structured_payload`；`message.content` 仅含最终回答；前端渲染：思考过程折叠区（默认收起）→ 执行过程折叠区（默认收起）→ 最终回答
 - 当前阶段高亮，自动推荐下一步操作
 - UI 语言统一中文
 - localStorage 读取必须用 `useSyncExternalStore` 避免 hydration mismatch
@@ -213,7 +213,7 @@ npm audit --omit=dev
 - **Tool Result Integrity**: Tool execution 的 result metadata（tool_use_id、is_error 等）必须在 runtime loop 各步骤间完整保留，不得被后续步骤覆盖或丢弃
 - **Proposal Uniqueness**: 同一 project 不得存在多条 pending 状态的 replan proposal；创建前必须检查并拒绝重复
 - **State Transition Validation**: AgentRunState 转换必须合法（running→completed/failed/cancelled；不得从 completed 跳回 failed 或反之）；ToolManifest 注册时必须校验 name 唯一且 schema 合法
-- **Output Channel Separation**: `message_update` 从 `assistantMessageEvent` 提取 `text_delta.delta` 作为 `payload.content`（流式可见文本），`thinking_delta` 和 `toolcall_delta` 丢弃，完整 `assistantMessageEvent` 对象不传递（防 DB 膨胀）；`agent_end` 从最后一条 assistant message 的 TextContent 提取 `final_content`；`execution_steps` 从 tool 生命周期事件收集并持久化到 `structured_payload`；`thinking_content`（最终回答之前的思考文本）持久化到 `structured_payload`；`AgentMessage.content` 仅含最终回答
+- **Output Channel Separation**: `message_update` 按 `delta_type` 保留 thinking/text channel 和 `content_index`/`message_seq`，通过 `content` SSE event 传递 `StreamContentEvent`（kind=thinking/text × phase=start/delta/end + content_index + message_seq）；`toolcall_delta` 丢弃，完整 `assistantMessageEvent` 对象不传递（防 DB 膨胀）；`message_seq` 从 `message_start` 事件递增，用于跨 assistant message 消歧 contentIndex（复合 block key `${messageSeq}:${contentIndex}`）；旧 `token` 事件不再进入可见输出或 fallback；`status`/`error` 只允许受控中文 wire schema，内部 runtime payload 不得透传；`agent_end` 从最后一条 assistant message 的 TextContent 提取 `final_content`；`execution_steps` 从 tool 生命周期事件收集并持久化到 `structured_payload`；`thinking_content` 持久化到 `structured_payload`；`AgentMessage.content` 仅含最终回答
 
 ## Agent Workflow (State Machine)
 
