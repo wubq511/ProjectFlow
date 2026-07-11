@@ -89,10 +89,16 @@ def build_memory_context(
     # Reserve budget for header/footer wrapping text
     _HEADER = "以下是与当前项目相关的历史记忆，供你参考：\n"
     _FOOTER = "\n请以上述记忆为依据，避免与团队已确认的方向、边界或分工冲突。"
-    wrap_chars = len(_HEADER) + len(_FOOTER)
+    _MEMBER_CONSTRAINT_FOOTER = (
+        _FOOTER
+        + "成员约束是跨任务硬约束；如果任务要求与成员可用时间冲突，"
+        "不得通过改派到另一项同样冲突的任务来规避。"
+    )
+    wrap_chars = len(_HEADER) + len(_MEMBER_CONSTRAINT_FOOTER)
 
     used_memory_ids: list[str] = []
     lines: list[str] = []
+    has_member_constraint = False
     char_budget = int(token_budget * _CHARACTERS_PER_TOKEN) - wrap_chars
     char_count = 0
 
@@ -109,9 +115,13 @@ def build_memory_context(
         lines.append(line)
         used_memory_ids.append(memory_id)
         char_count += line_chars
+        has_member_constraint = (
+            has_member_constraint or memory.memory_type == "member_constraint"
+        )
 
     if lines:
-        text = _HEADER + "\n".join(lines) + _FOOTER
+        footer = _MEMBER_CONSTRAINT_FOOTER if has_member_constraint else _FOOTER
+        text = _HEADER + "\n".join(lines) + footer
     else:
         text = ""
 

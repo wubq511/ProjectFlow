@@ -37,6 +37,8 @@ describe("context-builder", () => {
     });
     expect(context.systemPrompt).toContain("ProjectFlow");
     expect(context.systemPrompt).toContain("中文");
+    expect(context.systemPrompt).toContain("内部 ID");
+    expect(context.systemPrompt).toContain("工具参数");
   });
 
   it("includes current time in system prompt", () => {
@@ -191,5 +193,71 @@ describe("context-builder", () => {
     });
     expect(context.tools).toHaveLength(1);
     expect((context.tools[0] as any).function.name).toBe("read_only_tool");
+  });
+
+  // ── Memory context injection ──────────────────────────────────────────
+
+  it("injects memory context in <project_memory_context> XML tag", () => {
+    const context = buildContext({
+      userContent: "帮我分工",
+      toolManifests: [],
+      memoryContext: {
+        text: "以下是与当前项目相关的历史记忆，供你参考：\n1. [边界] 本项目 MVP 不做复杂外部集成。\n   理由：团队在方向卡确认时认为当前截止日期前应优先完成核心闭环。",
+        usedMemoryIds: ["mem-1"],
+        memoryBackend: "fts5",
+        retrievalCount: 5,
+        injectedCount: 1,
+        latencyMs: 12.3,
+      },
+    });
+    expect(context.userMessage).toContain("<project_memory_context>");
+    expect(context.userMessage).toContain("MVP 不做复杂外部集成");
+    expect(context.userMessage).toContain("</project_memory_context>");
+  });
+
+  it("does not inject memory tag when memoryContext is null", () => {
+    const context = buildContext({
+      userContent: "帮我分工",
+      toolManifests: [],
+      memoryContext: null,
+    });
+    expect(context.userMessage).not.toContain("<project_memory_context>");
+  });
+
+  it("does not inject memory tag when memoryContext.text is empty", () => {
+    const context = buildContext({
+      userContent: "帮我分工",
+      toolManifests: [],
+      memoryContext: {
+        text: "",
+        usedMemoryIds: [],
+        memoryBackend: "none",
+        retrievalCount: 0,
+        injectedCount: 0,
+        latencyMs: 0,
+      },
+    });
+    expect(context.userMessage).not.toContain("<project_memory_context>");
+  });
+
+  it("escapes XML special characters in memory context text", () => {
+    const context = buildContext({
+      userContent: "帮我分工",
+      toolManifests: [],
+      memoryContext: {
+        text: '记忆含<xml>标签&"引号\'单引',
+        usedMemoryIds: ["mem-1"],
+        memoryBackend: "fts5",
+        retrievalCount: 1,
+        injectedCount: 1,
+        latencyMs: 5,
+      },
+    });
+    expect(context.userMessage).toContain("&lt;xml&gt;");
+    expect(context.userMessage).toContain("&amp;");
+    expect(context.userMessage).toContain("&quot;");
+    expect(context.userMessage).toContain("&#x27;");
+    // Raw unescaped should NOT appear
+    expect(context.userMessage).not.toMatch(/<xml>/);
   });
 });

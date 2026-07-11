@@ -33,6 +33,8 @@ scripts/
 .codegraph/
 .playwright-mcp/
 backend/tmp-logs/
+backend/artifacts/
+backend/ab_sidecar_pilot_*.md
 vendor_imports/tools/
 vendor_imports/research/**/repos/
 vendor_imports/research/**/npm/

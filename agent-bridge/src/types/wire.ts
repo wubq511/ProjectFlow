@@ -63,6 +63,7 @@ export interface WireRunStartRequest {
   workspace_state?: unknown;
   recent_messages?: unknown[];
   pending_proposals?: unknown[];
+  memory_mode?: "enabled" | "disabled";
   runtime_config?: {
     model?: { provider: string; name: string };
     max_steps?: number;
@@ -73,9 +74,19 @@ export interface WireRunStartRequest {
   };
 }
 
+export interface WireMemoryContext {
+  text: string;
+  used_memory_ids: string[];
+  memory_backend: string;
+  retrieval_count: number;
+  injected_count: number;
+  latency_ms: number;
+}
+
 export interface WireRunStartResponse {
   run_id: string;
   status: string;
+  memory_context?: WireMemoryContext | null;
 }
 
 export interface WireRunStatusResponse {

@@ -403,6 +403,7 @@ class RunStartRequest(BaseModel):
     workspace_state: dict[str, Any] = Field(default_factory=dict)
     recent_messages: list[dict[str, Any]] = Field(default_factory=list)
     pending_proposals: list[dict[str, Any]] = Field(default_factory=list)
+    memory_mode: Literal["enabled", "disabled"] = "enabled"
     runtime_config: RuntimeConfig = Field(default_factory=RuntimeConfig)
 
 

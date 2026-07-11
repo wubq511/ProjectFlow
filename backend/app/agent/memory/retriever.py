@@ -3,6 +3,8 @@
 V1 retrieval returns candidate memory IDs only. Prompt text is built separately by
 context_builder so that visibility, expiry, and budget checks happen on the
 authoritative ProjectMemory rows.
+
+R4: Two-phase retrieval (strict AND → relaxed OR → merge with token coverage).
 """
 
 from __future__ import annotations
@@ -17,6 +19,13 @@ import jieba
 from sqlalchemy import text
 from sqlmodel import Session
 
+from app.agent.memory.query_normalizer import (
+    build_relaxed_fts_query,
+    build_strict_fts_query,
+    compute_substring_coverage,
+    compute_token_coverage,
+    normalize_query,
+)
 from app.models import ProjectMemory
 
 logger = logging.getLogger(__name__)
@@ -37,6 +46,10 @@ class RetrievalResult:
     backend: MemoryBackend
     retrieval_count: int
     latency_ms: float
+
+
+class MemoryIndexError(RuntimeError):
+    """Safe FTS5 indexing error that never includes memory content."""
 
 
 class MemoryRetriever:
@@ -83,9 +96,9 @@ class MemoryRetriever:
         return " ".join(f'"{t}"' for t in tokens.split() if t.strip())
 
     def index_memory(self, memory: ProjectMemory) -> None:
-        """Add or update a memory in the FTS5 index."""
+        """Add or update a memory, raising a safe error on failure."""
         if not self._fts_available:
-            return
+            raise MemoryIndexError("FTS5 backend unavailable")
         try:
             self.connection.execute(
                 text(f"DELETE FROM {self._FTS_TABLE} WHERE memory_id = :memory_id"),
@@ -102,8 +115,24 @@ class MemoryRetriever:
                     "rationale": self._tokenize(memory.rationale),
                 },
             )
-        except Exception:
-            logger.exception("Failed to index memory %s in FTS5", memory.id)
+        except Exception as exc:
+            raise MemoryIndexError(
+                f"FTS5 index failed ({type(exc).__name__})"
+            ) from None
+
+    def remove_memory(self, memory_id: str) -> None:
+        """Remove a memory from FTS5, raising a safe error on failure."""
+        if not self._fts_available:
+            raise MemoryIndexError("FTS5 backend unavailable")
+        try:
+            self.connection.execute(
+                text(f"DELETE FROM {self._FTS_TABLE} WHERE memory_id = :memory_id"),
+                {"memory_id": memory_id},
+            )
+        except Exception as exc:
+            raise MemoryIndexError(
+                f"FTS5 delete failed ({type(exc).__name__})"
+            ) from None
 
     def search(
         self,
@@ -142,21 +171,12 @@ class MemoryRetriever:
             except Exception as exc:
                 logger.warning("Vector retrieval unexpected error, falling back to FTS5: %s", exc)
 
-        # ── FTS5 path ──
+        # ── FTS5 path (R4: two-phase strict+relaxed) ──
         if self._fts_available and query.strip():
             try:
-                tokens = self._tokenize(query)
-                safe_query = self._safe_fts_query(tokens)
-                rows = self.connection.execute(
-                    text(
-                        f"SELECT memory_id, rank FROM {self._FTS_TABLE} "
-                        "WHERE project_memory_fts MATCH :query "
-                        "ORDER BY rank LIMIT :limit"
-                    ),
-                    {"query": safe_query, "limit": limit},
-                ).fetchall()
-                candidates = [(row[0], float(row[1])) for row in rows]
-                return candidates, MemoryBackend.fts5
+                candidates = self._fts_two_phase_search(project_id, query, limit=limit)
+                if candidates:
+                    return candidates, MemoryBackend.fts5
             except Exception as exc:
                 logger.warning("FTS5 search failed, falling back to sqlite_field: %s", exc)
 
@@ -169,6 +189,107 @@ class MemoryRetriever:
             logger.exception("sqlite_field fallback search failed")
 
         return [], MemoryBackend.none
+
+    def _fts_two_phase_search(
+        self,
+        project_id: str,
+        query: str,
+        *,
+        limit: int,
+    ) -> list[tuple[str, float]]:
+        """Two-phase FTS5 retrieval: strict AND → relaxed OR → merge.
+
+        Phase 1 (strict): All normalized tokens must match (implicit AND).
+        Phase 2 (relaxed): Any token may match (OR), only if strict yields
+        fewer than `limit` candidates.
+        Merge: strict hits first (by BM25 rank), then relaxed hits sorted
+        by combined score (coverage² × substring_coverage × BM25). Dedup by memory_id.
+        """
+        tokens = normalize_query(query)
+        if not tokens:
+            # Fallback to raw tokenization if normalizer strips everything
+            raw_tokens = self._tokenize(query)
+            if not raw_tokens.strip():
+                return []
+            strict_query = self._safe_fts_query(raw_tokens)
+            return self._run_fts_sql(project_id, strict_query, limit=limit)
+
+        # Phase 1: strict AND
+        strict_query = build_strict_fts_query(tokens)
+        strict_rows = self._run_fts_sql(project_id, strict_query, limit=limit)
+
+        if len(strict_rows) >= limit:
+            return strict_rows
+
+        # Phase 2: relaxed OR (only if strict was insufficient)
+        relaxed_query = build_relaxed_fts_query(tokens)
+        relaxed_rows = self._run_fts_sql(project_id, relaxed_query, limit=limit * 2)
+
+        # Merge: strict first, then relaxed not already in strict
+        strict_ids = {mid for mid, _ in strict_rows}
+        merged = list(strict_rows)
+
+        # For relaxed results not in strict, re-rank by combined score
+        # Load memory text for coverage computation
+        # Normalize BM25 scores: find max |score| for relative ranking
+        max_bm25 = max((abs(s) for _, s in relaxed_rows), default=1.0)
+        if max_bm25 == 0:
+            max_bm25 = 1.0
+
+        relaxed_new: list[tuple[str, float, float]] = []
+        for mid, score in relaxed_rows:
+            if mid in strict_ids:
+                continue
+            # Load memory text for coverage scoring
+            memory = self.connection.execute(
+                text("SELECT content, rationale FROM project_memories WHERE id = :id"),
+                {"id": mid},
+            ).fetchone()
+            if memory is None:
+                continue
+            mem_text = f"{memory[0] or ''} {memory[1] or ''}"
+            token_cov = compute_token_coverage(mem_text, tokens)
+            substr_cov = compute_substring_coverage(mem_text, query)
+            # Combined score: token_coverage² × substring_coverage × normalized_BM25
+            # token_coverage² gives strong advantage to high-coverage results
+            # substring_coverage captures phrase-level matching
+            # normalized_BM25 provides fine-grained ranking within same coverage
+            norm_bm25 = abs(score) / max_bm25
+            combined = (token_cov ** 2) * (0.3 + 0.7 * substr_cov) * (0.5 + 0.5 * norm_bm25)
+            relaxed_new.append((mid, score, combined))
+
+        # Sort by combined score descending (higher = better)
+        relaxed_new.sort(key=lambda x: x[2], reverse=True)
+
+        # Add relaxed results up to limit
+        for mid, score, _ in relaxed_new:
+            if len(merged) >= limit:
+                break
+            merged.append((mid, score))
+
+        return merged
+
+    def _run_fts_sql(
+        self,
+        project_id: str,
+        fts_query: str,
+        *,
+        limit: int,
+    ) -> list[tuple[str, float]]:
+        """Execute a single FTS5 SQL query with project-scoped JOIN."""
+        rows = self.connection.execute(
+            text(
+                f"SELECT f.memory_id, f.rank "
+                f"FROM {self._FTS_TABLE} AS f "
+                "JOIN project_memories AS pm ON pm.id = f.memory_id "
+                "WHERE project_memory_fts MATCH :query "
+                "AND pm.project_id = :project_id "
+                "AND pm.status = 'active' "
+                "ORDER BY f.rank LIMIT :limit"
+            ),
+            {"query": fts_query, "project_id": project_id, "limit": limit},
+        ).fetchall()
+        return [(row[0], float(row[1])) for row in rows]
 
     def _sqlite_field_search(
         self,

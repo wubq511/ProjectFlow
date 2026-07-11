@@ -9,6 +9,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { parseRunStartRequest } from "@/types/wire.js";
 import { createRunState } from "@/types/run-state.js";
 import { executeRun } from "@/runtime/pi-runtime.js";
+import { createOutputSanitizer } from "@/runtime/output-sanitizer.js";
 import type { StreamEventType } from "@/events/stream.js";
 import type { RuntimeEvent } from "@/types/runtime-event.js";
 import type { RunContext } from "./utils.js";
@@ -44,6 +45,7 @@ export async function handleStartRunStream(
     workspace_state: parsed.workspace_state,
     recent_messages: parsed.recent_messages,
     pending_proposals: parsed.pending_proposals,
+    memory_mode: parsed.memory_mode ?? "enabled",
     runtime_config: {
       model: modelName,
       max_steps: parsed.runtime_config?.max_steps ?? ctx.config.defaults.maxSteps,
@@ -54,6 +56,24 @@ export async function handleStartRunStream(
   };
   const fastapiRunResp = await ctx.fastapiClient.startRun(fastapiRequestBody as any);
   const fastapiRunId = fastapiRunResp.run_id;
+  const memoryContext = fastapiRunResp.memory_context
+    ? {
+        text: fastapiRunResp.memory_context.text,
+        usedMemoryIds: fastapiRunResp.memory_context.used_memory_ids,
+        memoryBackend: fastapiRunResp.memory_context.memory_backend,
+        retrievalCount: fastapiRunResp.memory_context.retrieval_count,
+        injectedCount: fastapiRunResp.memory_context.injected_count,
+        latencyMs: fastapiRunResp.memory_context.latency_ms,
+      }
+    : null;
+  const memoryEvidence = {
+    mode: parsed.memory_mode ?? "enabled",
+    backend: memoryContext?.memoryBackend ?? "none",
+    used_memory_ids: memoryContext?.usedMemoryIds ?? [],
+    retrieval_count: memoryContext?.retrievalCount ?? 0,
+    injected_count: memoryContext?.injectedCount ?? 0,
+    latency_ms: memoryContext?.latencyMs ?? 0,
+  };
 
   // Step 2: Create local run state
   const runState = createRunState({
@@ -89,6 +109,14 @@ export async function handleStartRunStream(
   // Step 4: Subscribe to EventStream and forward as SSE
   let runCompleted = false;
   let accumulatedContent = "";
+  const outputSanitizer = createOutputSanitizer(parsed.workspace_state);
+
+  const flushSanitizedTail = (): void => {
+    const tail = outputSanitizer.flush();
+    if (!tail) return;
+    accumulatedContent += tail;
+    writeSSE(res, "token", { content: tail });
+  };
 
   // Abort runtime when client disconnects mid-stream
   res.on("close", () => {
@@ -141,8 +169,11 @@ export async function handleStartRunStream(
             tokenText = (typeof obj.delta === "string" ? obj.delta : "") || (typeof obj.text === "string" ? obj.text : "");
           }
           if (tokenText) {
-            accumulatedContent += tokenText;
-            writeSSE(res, "token", { content: tokenText });
+            const safeText = outputSanitizer.push(tokenText);
+            if (safeText) {
+              accumulatedContent += safeText;
+              writeSSE(res, "token", { content: safeText });
+            }
           }
         }
         break;
@@ -210,10 +241,17 @@ export async function handleStartRunStream(
       case "agent.completed":
       case "run.completed": {
         runCompleted = true;
+        flushSanitizedTail();
+        const rawFinalContent = data.payload?.final_content ?? data.payload?.content;
+        const finalContent =
+          typeof rawFinalContent === "string"
+            ? outputSanitizer.sanitize(rawFinalContent)
+            : accumulatedContent;
         writeSSE(res, "done", {
           run_id: runState.runId,
           status: "completed",
-          final_content: data.payload?.final_content ?? data.payload?.content ?? accumulatedContent,
+          final_content: finalContent,
+          memory_evidence: memoryEvidence,
         });
         res.end();
         break;
@@ -252,6 +290,7 @@ export async function handleStartRunStream(
         recentMessages: parsed.recent_messages,
         pendingProposals: parsed.pending_proposals,
         viewerUserId: parsed.viewer_user_id,
+        memoryContext,
       },
       ctx.toolRegistry,
       ctx.modelRouter,
@@ -269,10 +308,12 @@ export async function handleStartRunStream(
           ctx.sessionStore.clearAbortController(state.runId);
           if (!runCompleted) {
             runCompleted = true;
+            flushSanitizedTail();
             writeSSE(res, "done", {
               run_id: state.runId,
               status: "completed",
               final_content: accumulatedContent,
+              memory_evidence: memoryEvidence,
             });
             res.end();
           }

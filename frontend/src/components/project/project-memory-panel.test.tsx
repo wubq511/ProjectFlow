@@ -98,6 +98,44 @@ describe("ProjectMemoryPanel", () => {
     });
   });
 
+  it("renders superseded memories only in the historical topic", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/projects/project-1/memories?viewer_user_id=user-1")) {
+        return jsonResponse([
+          {
+            ...baseMemory,
+            id: "memory-direction-active",
+            memory_type: "direction",
+            content: "当前方向",
+            status: "active",
+            visibility: "team",
+          },
+          {
+            ...baseMemory,
+            id: "memory-direction-old",
+            memory_type: "direction",
+            content: "旧方向",
+            status: "superseded",
+            visibility: "team",
+          },
+        ]);
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProjectMemoryPanel projectId="project-1" projectName="Demo" currentUserId="user-1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("旧方向")).toBeTruthy();
+    });
+
+    expect(screen.getAllByText("旧方向")).toHaveLength(1);
+    expect(screen.getByText("被替代或归档的历史判断")).toBeTruthy();
+    expect(screen.getByText("已被替代")).toBeTruthy();
+  });
+
   it("shows error state when fetch fails", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

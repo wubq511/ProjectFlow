@@ -577,3 +577,469 @@ def test_memories_md_non_member_returns_404(client: TestClient):
         params={"viewer_user_id": outsider["id"]},
     )
     assert resp.status_code == 404
+
+
+# ─── R5: History memory display semantics ────────────────────────────────────
+
+
+def test_superseded_memory_visible_in_json_list(client: TestClient):
+    """R5: superseded 记忆在 JSON 列表中可见（AD-3 展示语义）。"""
+    from app.agent.memory.extractor import ProjectMemoryCandidate
+    from app.services.memory_service import _write_candidates, get_memory_engine, EXTRACTOR_VERSION
+
+    workspace, project, owner, *_ = _create_full_fixture(client)
+
+    with Session(get_memory_engine()) as session:
+        # Write first direction memory
+        cand1 = ProjectMemoryCandidate(
+            memory_type="direction", scope="project",
+            content="方向内容 v1", rationale="理由 v1",
+            source_type="direction_card_confirmed", source_id="r5-proposal-1",
+            source_hash="r5-hash-v1", visibility="team",
+            subject_user_id=None, owner_user_id_snapshot=None,
+            related_stage_id=None, related_task_id=None, related_risk_id=None,
+            valid_until=None,
+        )
+        _write_candidates(session, workspace_id=workspace["id"], project_id=project["id"],
+                          candidates=[cand1], extractor_version=EXTRACTOR_VERSION)
+        session.commit()
+
+    # Verify only active memory in list
+    resp1 = client.get(
+        f"/api/projects/{project['id']}/memories",
+        params={"viewer_user_id": owner["id"]},
+    )
+    memories1 = resp1.json()
+    assert len(memories1) == 1
+    assert memories1[0]["status"] == "active"
+    assert memories1[0]["content"] == "方向内容 v1"
+
+    with Session(get_memory_engine()) as session:
+        # Write second direction memory with same source_id but different hash → supersede
+        cand2 = ProjectMemoryCandidate(
+            memory_type="direction", scope="project",
+            content="方向内容 v2", rationale="理由 v2",
+            source_type="direction_card_confirmed", source_id="r5-proposal-1",
+            source_hash="r5-hash-v2", visibility="team",
+            subject_user_id=None, owner_user_id_snapshot=None,
+            related_stage_id=None, related_task_id=None, related_risk_id=None,
+            valid_until=None,
+        )
+        _write_candidates(session, workspace_id=workspace["id"], project_id=project["id"],
+                          candidates=[cand2], extractor_version=EXTRACTOR_VERSION)
+        session.commit()
+
+    # R5: JSON list now includes both active and superseded
+    resp2 = client.get(
+        f"/api/projects/{project['id']}/memories",
+        params={"viewer_user_id": owner["id"]},
+    )
+    memories2 = resp2.json()
+    statuses = {m["status"] for m in memories2}
+    assert "active" in statuses
+    assert "superseded" in statuses
+
+    # Verify the content is correct
+    active_memories = [m for m in memories2 if m["status"] == "active"]
+    superseded_memories = [m for m in memories2 if m["status"] == "superseded"]
+    assert len(active_memories) == 1
+    assert active_memories[0]["content"] == "方向内容 v2"
+    assert len(superseded_memories) == 1
+    assert superseded_memories[0]["content"] == "方向内容 v1"
+
+
+def test_superseded_memory_visible_in_markdown(client: TestClient):
+    """R5: superseded 记忆在 Markdown 导出中可见（AD-3 展示语义）。"""
+    from app.agent.memory.extractor import ProjectMemoryCandidate
+    from app.services.memory_service import _write_candidates, get_memory_engine, EXTRACTOR_VERSION
+
+    workspace, project, owner, *_ = _create_full_fixture(client)
+
+    with Session(get_memory_engine()) as session:
+        cand1 = ProjectMemoryCandidate(
+            memory_type="direction", scope="project",
+            content="方向内容 v1", rationale="理由 v1",
+            source_type="direction_card_confirmed", source_id="r5-md-proposal-1",
+            source_hash="r5-md-hash-v1", visibility="team",
+            subject_user_id=None, owner_user_id_snapshot=None,
+            related_stage_id=None, related_task_id=None, related_risk_id=None,
+            valid_until=None,
+        )
+        _write_candidates(session, workspace_id=workspace["id"], project_id=project["id"],
+                          candidates=[cand1], extractor_version=EXTRACTOR_VERSION)
+        session.commit()
+
+        cand2 = ProjectMemoryCandidate(
+            memory_type="direction", scope="project",
+            content="方向内容 v2", rationale="理由 v2",
+            source_type="direction_card_confirmed", source_id="r5-md-proposal-1",
+            source_hash="r5-md-hash-v2", visibility="team",
+            subject_user_id=None, owner_user_id_snapshot=None,
+            related_stage_id=None, related_task_id=None, related_risk_id=None,
+            valid_until=None,
+        )
+        _write_candidates(session, workspace_id=workspace["id"], project_id=project["id"],
+                          candidates=[cand2], extractor_version=EXTRACTOR_VERSION)
+        session.commit()
+
+    # Markdown export should contain both versions
+    md_resp = client.get(
+        f"/api/projects/{project['id']}/memories.md",
+        params={"viewer_user_id": owner["id"]},
+    )
+    assert md_resp.status_code == 200
+    markdown = md_resp.text
+    assert "方向内容 v1" in markdown
+    assert "方向内容 v2" in markdown
+    assert "已被替代" in markdown
+
+
+def test_private_superseded_memory_still_respects_visibility(client: TestClient):
+    """R5: 私有 superseded 记忆仍只对 subject/owner 可见。"""
+    from app.agent.memory.extractor import ProjectMemoryCandidate
+    from app.services.memory_service import _write_candidates, get_memory_engine, EXTRACTOR_VERSION
+
+    workspace, project, owner, member, outsider = _create_full_fixture(client)
+
+    with Session(get_memory_engine()) as session:
+        # Write a member_constraint memory (subject_and_owner visibility)
+        cand1 = ProjectMemoryCandidate(
+            memory_type="member_constraint", scope="member",
+            content="成员约束 v1", rationale="理由 v1",
+            source_type="assignment_confirmed", source_id="r5-priv-proposal-1",
+            source_hash="r5-priv-hash-v1", visibility="subject_and_owner",
+            subject_user_id=member["id"], owner_user_id_snapshot=owner["id"],
+            related_stage_id=None, related_task_id=None, related_risk_id=None,
+            valid_until=None,
+        )
+        _write_candidates(session, workspace_id=workspace["id"], project_id=project["id"],
+                          candidates=[cand1], extractor_version=EXTRACTOR_VERSION)
+        session.commit()
+
+        # Supersede it
+        cand2 = ProjectMemoryCandidate(
+            memory_type="member_constraint", scope="member",
+            content="成员约束 v2", rationale="理由 v2",
+            source_type="assignment_confirmed", source_id="r5-priv-proposal-1",
+            source_hash="r5-priv-hash-v2", visibility="subject_and_owner",
+            subject_user_id=member["id"], owner_user_id_snapshot=owner["id"],
+            related_stage_id=None, related_task_id=None, related_risk_id=None,
+            valid_until=None,
+        )
+        _write_candidates(session, workspace_id=workspace["id"], project_id=project["id"],
+                          candidates=[cand2], extractor_version=EXTRACTOR_VERSION)
+        session.commit()
+
+    # Owner can see both active and superseded private memories
+    owner_resp = client.get(
+        f"/api/projects/{project['id']}/memories",
+        params={"viewer_user_id": owner["id"]},
+    )
+    owner_memories = owner_resp.json()
+    assert len(owner_memories) == 2
+
+    # Subject (member) can also see both
+    member_resp = client.get(
+        f"/api/projects/{project['id']}/memories",
+        params={"viewer_user_id": member["id"]},
+    )
+    member_memories = member_resp.json()
+    assert len(member_memories) == 2
+
+    # Outsider cannot see any
+    outsider_resp = client.get(
+        f"/api/projects/{project['id']}/memories",
+        params={"viewer_user_id": outsider["id"]},
+    )
+    assert outsider_resp.status_code == 404
+
+
+def test_agent_retrieval_only_returns_active(client: TestClient):
+    """R5: Agent retrieval (retrieve_memory_ids) 只返回 active 记忆。"""
+    from app.agent.memory.extractor import ProjectMemoryCandidate
+    from app.agent.memory.retriever import retrieve_memory_ids
+    from app.services.memory_service import _write_candidates, get_memory_engine, EXTRACTOR_VERSION
+
+    workspace, project, owner, *_ = _create_full_fixture(client)
+
+    with Session(get_memory_engine()) as session:
+        cand1 = ProjectMemoryCandidate(
+            memory_type="direction", scope="project",
+            content="方向内容 v1", rationale="理由 v1",
+            source_type="direction_card_confirmed", source_id="r5-agent-proposal-1",
+            source_hash="r5-agent-hash-v1", visibility="team",
+            subject_user_id=None, owner_user_id_snapshot=None,
+            related_stage_id=None, related_task_id=None, related_risk_id=None,
+            valid_until=None,
+        )
+        _write_candidates(session, workspace_id=workspace["id"], project_id=project["id"],
+                          candidates=[cand1], extractor_version=EXTRACTOR_VERSION)
+        session.commit()
+
+        cand2 = ProjectMemoryCandidate(
+            memory_type="direction", scope="project",
+            content="方向内容 v2", rationale="理由 v2",
+            source_type="direction_card_confirmed", source_id="r5-agent-proposal-1",
+            source_hash="r5-agent-hash-v2", visibility="team",
+            subject_user_id=None, owner_user_id_snapshot=None,
+            related_stage_id=None, related_task_id=None, related_risk_id=None,
+            valid_until=None,
+        )
+        _write_candidates(session, workspace_id=workspace["id"], project_id=project["id"],
+                          candidates=[cand2], extractor_version=EXTRACTOR_VERSION)
+        session.commit()
+
+        # Agent retrieval should only return the active memory
+        result = retrieve_memory_ids(
+            session, project_id=project["id"], query="方向内容",
+            viewer_user_id=owner["id"],
+        )
+        assert len(result.memory_ids) == 1
+        # The active memory should be v2
+        from app.models import ProjectMemory as PM
+        active_memory = session.get(PM, result.memory_ids[0])
+        assert active_memory.content == "方向内容 v2"
+
+
+# ─── R6: ProjectMemorySync status closure ────────────────────────────────────
+
+
+def test_sync_status_synced_after_normal_write(client: TestClient):
+    """R6: 正常写入后 sync 状态为 synced。"""
+    from app.agent.memory.extractor import ProjectMemoryCandidate
+    from app.services.memory_service import _write_candidates, get_memory_engine, EXTRACTOR_VERSION
+
+    workspace, project, owner, *_ = _create_full_fixture(client)
+
+    with Session(get_memory_engine()) as session:
+        cand = ProjectMemoryCandidate(
+            memory_type="direction", scope="project",
+            content="方向内容", rationale="理由",
+            source_type="direction_card_confirmed", source_id="r6-proposal-1",
+            source_hash="r6-hash-1", visibility="team",
+            subject_user_id=None, owner_user_id_snapshot=None,
+            related_stage_id=None, related_task_id=None, related_risk_id=None,
+            valid_until=None,
+        )
+        written = _write_candidates(session, workspace_id=workspace["id"], project_id=project["id"],
+                                    candidates=[cand], extractor_version=EXTRACTOR_VERSION)
+        session.commit()
+        assert len(written) == 1
+        memory_id = written[0].id
+
+        # Check sync record
+        from app.models import ProjectMemorySync
+        sync = session.get(ProjectMemorySync, memory_id)
+        assert sync is not None
+        assert sync.sync_status == "synced"
+        assert sync.backend_memory_id == memory_id
+        assert sync.last_synced_at is not None
+        assert sync.last_error is None
+
+
+def test_sync_status_failed_on_fts_error(client: TestClient):
+    """R6: FTS 不可用时 sync 为 failed，ProjectMemory 仍提交。"""
+    from app.agent.memory.extractor import ProjectMemoryCandidate
+    from app.agent.memory.retriever import MemoryRetriever
+    from app.services.memory_service import _write_candidates, get_memory_engine, EXTRACTOR_VERSION
+
+    workspace, project, owner, *_ = _create_full_fixture(client)
+
+    with Session(get_memory_engine()) as session:
+        cand = ProjectMemoryCandidate(
+            memory_type="direction", scope="project",
+            content="方向内容", rationale="理由",
+            source_type="direction_card_confirmed", source_id="r6-fail-proposal-1",
+            source_hash="r6-fail-hash-1", visibility="team",
+            subject_user_id=None, owner_user_id_snapshot=None,
+            related_stage_id=None, related_task_id=None, related_risk_id=None,
+            valid_until=None,
+        )
+
+        # Exercise the real index_memory unavailable path. It must report
+        # failure instead of silently returning and being marked synced.
+        from unittest.mock import patch
+        with patch.object(MemoryRetriever, "_ensure_table", return_value=False):
+            written = _write_candidates(
+                session, workspace_id=workspace["id"], project_id=project["id"],
+                candidates=[cand], extractor_version=EXTRACTOR_VERSION,
+            )
+
+        session.commit()
+        assert len(written) == 1
+        memory_id = written[0].id
+
+        # ProjectMemory should still be committed
+        from app.models import ProjectMemory
+        memory = session.get(ProjectMemory, memory_id)
+        assert memory is not None
+        assert memory.status == "active"
+
+        # Sync record should be failed
+        from app.models import ProjectMemorySync
+        sync = session.get(ProjectMemorySync, memory_id)
+        assert sync is not None
+        assert sync.sync_status == "failed"
+        assert sync.backend_memory_id is None
+        assert sync.last_error is not None
+        assert "FTS5" in sync.last_error
+
+
+def test_sync_status_failed_on_real_fts_write_error(
+    client: TestClient,
+    caplog: pytest.LogCaptureFixture,
+):
+    """R6: 真实 FTS INSERT 失败时保留 memory，并安全记录 failed。"""
+    from app.agent.memory.extractor import ProjectMemoryCandidate
+    from app.models import ProjectMemory, ProjectMemorySync
+    from app.services.memory_service import _write_candidates, get_memory_engine, EXTRACTOR_VERSION
+    from unittest.mock import patch
+
+    workspace, project, owner, *_ = _create_full_fixture(client)
+    sensitive_content = "绝密索引正文"
+
+    with Session(get_memory_engine()) as session:
+        candidate = ProjectMemoryCandidate(
+            memory_type="direction", scope="project",
+            content=sensitive_content, rationale="绝密索引理由",
+            source_type="direction_card_confirmed", source_id="r6-write-fail-proposal",
+            source_hash="r6-write-fail-hash", visibility="team",
+            subject_user_id=None, owner_user_id_snapshot=None,
+            related_stage_id=None, related_task_id=None, related_risk_id=None,
+            valid_until=None,
+        )
+        connection = session.connection()
+        original_execute = connection.execute
+
+        def fail_fts_insert(statement, parameters=None, *args, **kwargs):
+            if str(statement).startswith("INSERT INTO project_memory_fts"):
+                raise RuntimeError(f"insert failed: {sensitive_content}")
+            return original_execute(statement, parameters, *args, **kwargs)
+
+        with patch.object(connection, "execute", side_effect=fail_fts_insert):
+            written = _write_candidates(
+                session, workspace_id=workspace["id"], project_id=project["id"],
+                candidates=[candidate], extractor_version=EXTRACTOR_VERSION,
+            )
+        session.commit()
+
+        memory_id = written[0].id
+        assert session.get(ProjectMemory, memory_id) is not None
+        sync = session.get(ProjectMemorySync, memory_id)
+        assert sync is not None
+        assert sync.sync_status == "failed"
+        assert sync.backend_memory_id is None
+        assert sync.last_error is not None
+        assert sensitive_content not in sync.last_error
+        assert sensitive_content not in caplog.text
+
+
+def test_sync_error_does_not_contain_memory_content(client: TestClient):
+    """R6: sync error 不包含 memory 正文内容。"""
+    from app.services.memory_service import _truncate_safe_error
+
+    sensitive_content = "绝密成员约束正文"
+    raw_error = f"OperationalError params=({sensitive_content!r}, '理由')"
+    sanitized = _truncate_safe_error(raw_error)
+    assert sensitive_content not in sanitized
+    assert "理由" not in sanitized
+    assert "OperationalError" in sanitized
+
+    content_leading_error = _truncate_safe_error(f"{sensitive_content}: index failed")
+    assert sensitive_content not in content_leading_error
+
+    # Error with newlines should be cleaned
+    newline_error = "Error\nline2\nline3"
+    cleaned = _truncate_safe_error(newline_error)
+    assert "\n" not in cleaned
+    assert "\r" not in cleaned
+
+
+def test_business_confirm_not_blocked_by_index_failure(client: TestClient):
+    """R6: 业务 proposal confirm 不因索引失败回滚。"""
+    workspace, project, owner, *_ = _create_full_fixture(client)
+
+    # Confirm direction card proposal — this triggers memory extraction
+    # Even if FTS indexing fails, the proposal should be confirmed
+    data = _call_direction_card_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
+
+    from app.agent.memory.retriever import MemoryRetriever
+    from unittest.mock import patch
+
+    with patch.object(MemoryRetriever, "_ensure_table", return_value=False):
+        confirm_resp = client.post(
+            f"/api/agent-proposals/{proposal_id}/confirm",
+            json={"confirmed_by": owner["id"]},
+        )
+    # Business confirm should succeed regardless of FTS status
+    assert confirm_resp.status_code == 200
+
+    from app.models import ProjectMemory, ProjectMemorySync
+    from app.services.memory_service import get_memory_engine
+    from sqlmodel import select
+
+    with Session(get_memory_engine()) as session:
+        memories = session.exec(
+            select(ProjectMemory).where(ProjectMemory.project_id == project["id"])
+        ).all()
+        assert memories
+        sync_records = [session.get(ProjectMemorySync, memory.id) for memory in memories]
+        assert all(sync is not None and sync.sync_status == "failed" for sync in sync_records)
+
+
+def test_supersede_delete_failure_marks_sync_failed_and_redacts_error(
+    client: TestClient,
+    caplog: pytest.LogCaptureFixture,
+):
+    """R6: supersede 删除 FTS 失败可观测，且日志/状态不泄露正文。"""
+    from app.agent.memory.extractor import ProjectMemoryCandidate
+    from app.models import ProjectMemorySync
+    from app.services.memory_service import _write_candidates, get_memory_engine, EXTRACTOR_VERSION
+    from unittest.mock import patch
+
+    workspace, project, owner, *_ = _create_full_fixture(client)
+
+    def candidate(version: str) -> ProjectMemoryCandidate:
+        return ProjectMemoryCandidate(
+            memory_type="direction", scope="project",
+            content=f"绝密方向正文 {version}", rationale=f"绝密理由 {version}",
+            source_type="direction_card_confirmed", source_id="r6-delete-proposal",
+            source_hash=f"r6-delete-{version}", visibility="team",
+            subject_user_id=None, owner_user_id_snapshot=None,
+            related_stage_id=None, related_task_id=None, related_risk_id=None,
+            valid_until=None,
+        )
+
+    with Session(get_memory_engine()) as session:
+        first = _write_candidates(
+            session, workspace_id=workspace["id"], project_id=project["id"],
+            candidates=[candidate("v1")], extractor_version=EXTRACTOR_VERSION,
+        )[0]
+        session.commit()
+
+        connection = session.connection()
+        original_execute = connection.execute
+
+        def fail_old_fts_delete(statement, parameters=None, *args, **kwargs):
+            if (
+                str(statement).startswith("DELETE FROM project_memory_fts")
+                and parameters
+                and parameters.get("memory_id") == first.id
+            ):
+                raise RuntimeError("delete failed: 绝密方向正文 v1")
+            return original_execute(statement, parameters, *args, **kwargs)
+
+        with patch.object(connection, "execute", side_effect=fail_old_fts_delete):
+            _write_candidates(
+                session, workspace_id=workspace["id"], project_id=project["id"],
+                candidates=[candidate("v2")], extractor_version=EXTRACTOR_VERSION,
+            )
+        session.commit()
+
+        old_sync = session.get(ProjectMemorySync, first.id)
+        assert old_sync is not None
+        assert old_sync.sync_status == "failed"
+        assert old_sync.last_error is not None
+        assert "绝密方向正文" not in old_sync.last_error
+        assert "绝密方向正文" not in caplog.text

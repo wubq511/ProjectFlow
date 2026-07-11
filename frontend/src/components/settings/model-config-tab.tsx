@@ -49,8 +49,23 @@ export function ModelConfigTab() {
   }, []);
 
   useEffect(() => {
-    loadModels();
-  }, [loadModels]);
+    let cancelled = false;
+    getModelConfigs()
+      .then((data) => {
+        if (cancelled) return;
+        setModels(data);
+        setError(null);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // When provider changes in form, load catalog models
   const handleProviderChange = useCallback(async (provider: string | null) => {

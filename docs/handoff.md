@@ -1,6 +1,6 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-10.
+Status: current as of 2026-07-11.
 
 ## Latest Architecture Handoff
 
@@ -50,19 +50,20 @@ Implemented multi-model, multi-provider configuration and runtime switching for 
 
 **Key files:** `agent-bridge/model-configs.json`, `agent-bridge/src/types/model-config.ts`, `agent-bridge/src/config/model-config-store.ts`, `agent-bridge/src/config/dotenv-writer.ts`, `agent-bridge/src/config/file-watcher.ts`, `agent-bridge/src/runtime/model-router.ts`, `agent-bridge/src/runtime/pi-runtime.ts`, `agent-bridge/src/server/routes/config-models.ts`, `agent-bridge/src/server/routes/config-api-key.ts`, `agent-bridge/src/server/routes/config-reload.ts`, `agent-bridge/src/server/routes/config-providers.ts`, `agent-bridge/src/server/app.ts`, `agent-bridge/src/index.ts`, `frontend/src/components/settings/settings-dialog.tsx`, `frontend/src/components/settings/model-config-tab.tsx`, `frontend/src/components/project/agent-sidebar.tsx`, `frontend/src/lib/api.ts`, `frontend/src/lib/types.ts`
 
-### T42 — ProjectMemory V1 Closure Review (2026-07-07)
+### T42 — ProjectMemory V1 Remediation Closure (2026-07-11)
 
-Issues #71-#80 are closed and merged to `main`. The ProjectMemory V1 backend/runtime/evaluation/vector-guardrail/frontend slices are complete. No remaining V1 closure gaps.
+The merged #71-#80 implementation is now followed by completed remediation slices R1-R6 and R8. The selective R8 Pilot passes 7/7 release gates; R7 remains a separately approved V1.1 vector project.
 
 **Closure result:**
 
-- Backend/runtime V1 path is implemented: governed persistence, deterministic extractor, source hooks, idempotency/supersede, visibility, JSON list, Markdown export API, default FTS5+jieba retrieval, Agent context injection, retrieval evaluation, and optional vector guardrails.
-- Frontend V1 path is implemented: `ProjectMemoryPanel` with topic-grouped read-only list, loading/error/empty states, and Markdown export/copy/download using the current viewer identity (issue #80, commit `0a25690`).
-- Verification after #80: backend `ruff check app` passed; backend tests `519 passed, 4 skipped; frontend tests `55 passed`; frontend lint passed with 2 existing React hook warnings; frontend production build passed; frontend production dependency audit reported 0 vulnerabilities; agent-bridge tests/typecheck/build passed.
-- GitHub issues #71, #72, #73, #74, #75, #76, #77, and #80 are closed.
+- FastAPI-built memory context reaches the sidecar model prompt on both run routes; runtime evidence is emitted in `agent.started`.
+- Retrieval is project-scoped and uses two-phase natural-language matching; the 50-query eval reaches Recall@10/Recall@3 100%, MRR@10 0.97, and 2% bad-first rate.
+- Viewer authorization is shared by list/export/injection, history display is lifecycle-aware, and FTS synchronization reaches terminal `synced` or `failed` states.
+- The initial 150-pair/300-call sidecar Pilot plus selective S1/S2 remediation evidence passes 7/7 gates. Post-fix raw-ID leakage is 0/140 calls; S2 rejection reduction is 100%; S1 lift is +80pp with B-group absolute compliance of 80% retained as a model residual-risk baseline.
+- Verification: backend `641 passed, 4 skipped` and Ruff pass; agent bridge `558 passed` across 20 files plus typecheck/build pass; frontend `57 passed` across 10 files plus lint/build pass.
 - Accepted V1 limitation: alternate `/api/replans/confirm` path still does not produce ProjectMemory; current frontend does not use this endpoint.
 
-**Canonical closure record:** `docs/T42/project-memory-v1-closure.md`
+**Canonical closure record:** `docs/T42/project-memory-v1-closure.md`. Final Pilot evidence: `docs/T42/project-memory-v1-ab-selective-rerun-report.md`.
 
 ### T42 — ProjectMemory V1 Optional Vector Extra & Dependency Guardrails (2026-07-07, issue #77)
 
@@ -993,9 +994,15 @@ Implemented scope:
 - Confirming an agent proposal persists the payload to `Project.direction_card`, `Stage`, or `Task` records depending on proposal type.
 - Confirmation updates the source `AgentEvent.user_confirmed` and creates timeline evidence.
 
+### T42 — ProjectMemory V1 Remediation (Bat A–D, 2026-07-10)
+
+All 6 remediation slices (R1–R6, R8) completed. R7 (optional vector) remains separate project. See `docs/T42/project-memory-v1-closure.md` and `docs/T42/project-memory-v1-remediation-plan.md`.
+
+**Key files:** `backend/app/agent/memory/ab_eval.py`, `backend/app/agent/memory/query_normalizer.py`, `backend/app/agent/memory/retrieval_eval.py`, `backend/app/services/memory_service.py`, `backend/app/api/routes_memories.py`, `backend/app/tests/test_ab_eval.py`
+
 ## Verification Baseline
 
-Latest verification baseline after T42 ProjectMemory V1 stabilization (issues #71-#77):
+Latest verification baseline after T42 ProjectMemory V1 remediation (Batch D, 2026-07-10):
 
 ```bash
 cd backend
@@ -1012,9 +1019,9 @@ npm audit --omit=dev
 
 Results:
 
-- Backend: 519 tests passed, 4 skipped.
-- Agent-bridge: 540 tests passed across 18 files.
-- Frontend tests: 55 passed across 10 files (API layer, project dashboard, home page, app shell, action card, task status update, error boundaries, assignment flow panel, agent sidebar, project memory panel).
+- Backend: 641 tests passed, 4 skipped.
+- Agent-bridge: 558 tests passed across 20 files.
+- Frontend tests: 57 passed across 10 files (API layer, project dashboard, home page, app shell, action card, task status update, error boundaries, assignment flow panel, agent sidebar, project memory panel).
 - Frontend lint passed with 2 existing React hook warnings.
 - Frontend build passed.
 - Frontend production dependency audit reported 0 vulnerabilities.
@@ -1201,7 +1208,7 @@ Verification: backend 218/218 tests pass; frontend 24/24 tests pass; frontend li
 
 ## Next Work
 
-All MVP phases (0-41) are complete. T41 Agent Runtime sidecar (S3-S16) and T42 ProjectMemory V1 (issues #71-#80) are merged to `main` as of 2026-07-07. No remaining V1 closure gaps.
+All MVP phases (0-41) are complete. T41 Agent Runtime sidecar (S3-S16) and T42 ProjectMemory V1 (issues #71-#80 + remediation R1-R6/R8) are merged to `main` as of 2026-07-10. R8 A/B eval harness is built; 150-run real-model pilot requires existing provider credentials.
 
 T23.D full mock + real-LLM manual rerun of D1-D17 is the only documented pending verification item. Post-MVP backlog includes auth, deployment, collaboration permissions, and broader UI hardening (tracked in `.trae/documents/code-review-unfixed-issues.md`).
 

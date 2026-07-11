@@ -176,55 +176,318 @@ EVAL_FIXTURE_SET: list[dict[str, Any]] = [
 # recall@10 is computed as |retrieved ∩ expected| / |expected|.
 
 DEFAULT_QUERY_SET: list[dict[str, Any]] = [
+    # ── exact keyword (10) ──
     {
         "query_id": "q-direction",
         "query": "项目核心方向",
         "expected_fixture_ids": {"dir-core", "dir-value"},
+        "slice": "exact_keyword",
     },
     {
         "query_id": "q-boundary-mvp",
         "query": "MVP 范围边界",
         "expected_fixture_ids": {"bnd-mvp"},
+        "slice": "exact_keyword",
     },
     {
         "query_id": "q-boundary-replan",
         "query": "范围调整 任务砍掉",
         "expected_fixture_ids": {"bnd-replan1"},
+        "slice": "exact_keyword",
     },
     {
         "query_id": "q-rejection-plan",
         "query": "方案未被采纳 拒绝理由",
         "expected_fixture_ids": {"rej-plan", "rej-replan"},
+        "slice": "exact_keyword",
     },
     {
         "query_id": "q-assignment-backend",
         "query": "小林 后端 API 分工",
         "expected_fixture_ids": {"asn-backend"},
+        "slice": "exact_keyword",
     },
     {
         "query_id": "q-assignment-frontend",
         "query": "小王 前端 课表展示",
         "expected_fixture_ids": {"asn-frontend"},
+        "slice": "exact_keyword",
     },
     {
         "query_id": "q-constraint",
         "query": "小林 约束 只能晚上",
         "expected_fixture_ids": {"mc-lin-night"},
+        "slice": "exact_keyword",
     },
     {
         "query_id": "q-replan-plan",
         "query": "计划调整 延期 重排",
         "expected_fixture_ids": {"plan-replan1"},
+        "slice": "exact_keyword",
     },
     {
         "query_id": "q-tradeoff",
         "query": "重排权衡 schema 延期",
         "expected_fixture_ids": {"to-replan1"},
+        "slice": "exact_keyword",
     },
     {
         "query_id": "q-value",
         "query": "核心价值 五分钟 无冲突",
         "expected_fixture_ids": {"dir-value"},
+        "slice": "exact_keyword",
+    },
+    # ── paraphrase (10) ──
+    {
+        "query_id": "q-para-direction",
+        "query": "我们项目到底要做什么方向",
+        "expected_fixture_ids": {"dir-core", "dir-value"},
+        "slice": "paraphrase",
+    },
+    {
+        "query_id": "q-para-boundary",
+        "query": "我们是不是决定不接学校系统",
+        "expected_fixture_ids": {"bnd-mvp"},
+        "slice": "paraphrase",
+    },
+    {
+        "query_id": "q-para-rejection",
+        "query": "之前那个方案为什么没通过",
+        "expected_fixture_ids": {"rej-plan", "rej-replan"},
+        "slice": "paraphrase",
+    },
+    {
+        "query_id": "q-para-assign-backend",
+        "query": "后端那块谁负责的",
+        "expected_fixture_ids": {"asn-backend"},
+        "slice": "paraphrase",
+    },
+    {
+        "query_id": "q-para-assign-frontend",
+        "query": "前端页面分给谁了",
+        "expected_fixture_ids": {"asn-frontend"},
+        "slice": "paraphrase",
+    },
+    {
+        "query_id": "q-para-constraint",
+        "query": "小林什么时候有空做",
+        "expected_fixture_ids": {"mc-lin-night"},
+        "slice": "paraphrase",
+    },
+    {
+        "query_id": "q-para-replan",
+        "query": "后来计划怎么改的",
+        "expected_fixture_ids": {"plan-replan1"},
+        "slice": "paraphrase",
+    },
+    {
+        "query_id": "q-para-tradeoff",
+        "query": "重排的时候怎么权衡的",
+        "expected_fixture_ids": {"to-replan1"},
+        "slice": "paraphrase",
+    },
+    {
+        "query_id": "q-para-value",
+        "query": "这个课表工具到底有什么用",
+        "expected_fixture_ids": {"dir-value"},
+        "slice": "paraphrase",
+    },
+    {
+        "query_id": "q-para-boundary-replan",
+        "query": "重排之后砍了哪些功能",
+        "expected_fixture_ids": {"bnd-replan1"},
+        "slice": "paraphrase",
+    },
+    # ── short/elliptical (5) ──
+    {
+        "query_id": "q-short-assign",
+        "query": "后端 API 负责",
+        "expected_fixture_ids": {"asn-backend"},
+        "slice": "short_elliptical",
+    },
+    {
+        "query_id": "q-short-boundary",
+        "query": "MVP 边界",
+        "expected_fixture_ids": {"bnd-mvp"},
+        "slice": "short_elliptical",
+    },
+    {
+        "query_id": "q-short-replan",
+        "query": "重排原因",
+        "expected_fixture_ids": {"plan-replan1"},
+        "slice": "short_elliptical",
+    },
+    {
+        "query_id": "q-short-constraint",
+        "query": "小林时间",
+        "expected_fixture_ids": {"mc-lin-night"},
+        "slice": "short_elliptical",
+    },
+    {
+        "query_id": "q-short-rejection",
+        "query": "被拒方案",
+        "expected_fixture_ids": {"rej-plan", "rej-replan"},
+        "slice": "short_elliptical",
+    },
+    # ── typo/noisy (5) ──
+    {
+        "query_id": "q-typo-boundary",
+        "query": "MVP 边届",
+        "expected_fixture_ids": {"bnd-mvp"},
+        "slice": "typo_noisy",
+    },
+    {
+        "query_id": "q-typo-assign",
+        "query": "小林 后瑞 分工",
+        "expected_fixture_ids": {"asn-backend"},
+        "slice": "typo_noisy",
+    },
+    {
+        "query_id": "q-typo-replan",
+        "query": "重牌 延期",
+        "expected_fixture_ids": {"plan-replan1"},
+        "slice": "typo_noisy",
+    },
+    {
+        "query_id": "q-typo-tradeoff",
+        "query": "权衡 shema",
+        "expected_fixture_ids": {"to-replan1"},
+        "slice": "typo_noisy",
+    },
+    {
+        "query_id": "q-typo-value",
+        "query": "核心价植 课表",
+        "expected_fixture_ids": {"dir-value"},
+        "slice": "typo_noisy",
+    },
+    # ── mixed Chinese/English (5) ──
+    {
+        "query_id": "q-mix-api-owner",
+        "query": "backend API 负责人",
+        "expected_fixture_ids": {"asn-backend"},
+        "slice": "mixed_chinese_english",
+    },
+    {
+        "query_id": "q-mix-react-frontend",
+        "query": "React 前端 分工",
+        "expected_fixture_ids": {"asn-frontend"},
+        "slice": "mixed_chinese_english",
+    },
+    {
+        "query_id": "q-mix-schema-tradeoff",
+        "query": "schema 难题 权衡",
+        "expected_fixture_ids": {"to-replan1"},
+        "slice": "mixed_chinese_english",
+    },
+    {
+        "query_id": "q-mix-fts5-boundary",
+        "query": "MVP 不做 移动端",
+        "expected_fixture_ids": {"bnd-mvp"},
+        "slice": "mixed_chinese_english",
+    },
+    {
+        "query_id": "q-mix-fastapi-backend",
+        "query": "FastAPI 经验 后端",
+        "expected_fixture_ids": {"asn-backend"},
+        "slice": "mixed_chinese_english",
+    },
+    # ── conflict/lifecycle (5) ──
+    {
+        "query_id": "q-lifecycle-new-direction",
+        "query": "最新方向 课表冲突",
+        "expected_fixture_ids": {"dir-core"},
+        "slice": "conflict_lifecycle",
+    },
+    {
+        "query_id": "q-lifecycle-replan-overrides",
+        "query": "重排后 延期一周",
+        "expected_fixture_ids": {"plan-replan1"},
+        "slice": "conflict_lifecycle",
+    },
+    {
+        "query_id": "q-lifecycle-superseded-not-retrieved",
+        "query": "旧方向 单学期",
+        "expected_fixture_ids": set(),  # dir-expired is expired, should NOT be retrieved
+        "slice": "conflict_lifecycle",
+    },
+    {
+        "query_id": "q-lifecycle-active-boundary",
+        "query": "当前范围 国际化",
+        "expected_fixture_ids": {"bnd-replan1"},
+        "slice": "conflict_lifecycle",
+    },
+    {
+        "query_id": "q-lifecycle-rejection-reason",
+        "query": "拒绝 砍掉测试 风险",
+        "expected_fixture_ids": {"rej-replan"},
+        "slice": "conflict_lifecycle",
+    },
+    # ── project/workspace distractor (5) ──
+    # These queries use terms that appear in multiple memories;
+    # the correct project-scoped results should still be returned.
+    {
+        "query_id": "q-distractor-direction-same-name",
+        "query": "智慧课表 方向",
+        "expected_fixture_ids": {"dir-core", "dir-value"},
+        "slice": "project_distractor",
+    },
+    {
+        "query_id": "q-distractor-assign-same-member",
+        "query": "小林 分工",
+        "expected_fixture_ids": {"asn-backend"},
+        "slice": "project_distractor",
+    },
+    {
+        "query_id": "q-distractor-boundary-same-task",
+        "query": "前端 提前启动",
+        "expected_fixture_ids": {"plan-replan1"},
+        "slice": "project_distractor",
+    },
+    {
+        "query_id": "q-distractor-replan-same-reason",
+        "query": "schema 难题",
+        "expected_fixture_ids": {"to-replan1"},
+        "slice": "project_distractor",
+    },
+    {
+        "query_id": "q-distractor-value-same-deliverable",
+        "query": "冲突检测 课表",
+        "expected_fixture_ids": {"dir-core"},
+        "slice": "project_distractor",
+    },
+    # ── privacy negative (5) ──
+    # These queries target subject_and_owner memories;
+    # the owner/subject CAN see them, but outsiders cannot.
+    # For the owner viewer, these should return the constraint.
+    {
+        "query_id": "q-privacy-constraint-owner",
+        "query": "小林 晚上工作 约束",
+        "expected_fixture_ids": {"mc-lin-night"},
+        "slice": "privacy_negative",
+    },
+    {
+        "query_id": "q-privacy-constraint-time",
+        "query": "成员可用性 周末",
+        "expected_fixture_ids": {"mc-lin-night"},
+        "slice": "privacy_negative",
+    },
+    {
+        "query_id": "q-privacy-no-leak-broad",
+        "query": "约束 偏好",
+        "expected_fixture_ids": {"mc-lin-night"},
+        "slice": "privacy_negative",
+    },
+    {
+        "query_id": "q-privacy-no-leak-specific",
+        "query": "小林只能晚上",
+        "expected_fixture_ids": {"mc-lin-night"},
+        "slice": "privacy_negative",
+    },
+    {
+        "query_id": "q-privacy-constraint-assignment",
+        "query": "分工确认 约束",
+        "expected_fixture_ids": {"mc-lin-night"},
+        "slice": "privacy_negative",
     },
 ]
 
@@ -239,11 +502,16 @@ class QueryEvalResult:
     query_id: str
     query: str
     expected_fixture_ids: set[str]
+    retrieved_memory_ids: list[str]
     retrieved_fixture_ids: set[str]
     recall: float  # |retrieved ∩ expected| / |expected|
+    recall_at_3: float  # recall using only top-3 results
+    mrr: float  # reciprocal rank of first relevant result (0 if none)
     latency_ms: float
     backend: MemoryBackend
     irrelevant_fixture_ids: set[str]  # retrieved but not expected
+    is_bad_first: bool  # True if rank-1 result is irrelevant
+    slice: str  # query slice category
 
 
 @dataclass
@@ -253,6 +521,9 @@ class EvalResult:
     query_results: list[QueryEvalResult]
     mean_recall_at_10: float
     min_recall_at_10: float
+    mean_recall_at_3: float
+    mean_mrr_at_10: float
+    bad_first_rate: float  # fraction of queries where rank-1 is irrelevant
     max_latency_ms: float
     total_queries: int
     fixture_count: int
@@ -328,6 +599,100 @@ def write_eval_fixtures(
     return fixture_id_to_db_id
 
 
+# ─── Cross-project distractor fixtures ──────────────────────────────────────────
+# These are written to a DIFFERENT project in the same workspace to verify
+# that FTS5 project-scoped JOIN prevents cross-project contamination.
+
+CROSS_PROJECT_DISTRACTORS: list[dict[str, Any]] = [
+    {
+        "fixture_id": "distractor-dir",
+        "memory_type": "direction",
+        "scope": "project",
+        "content": "项目「智慧课表」的核心方向：解决大学生课表冲突问题。",
+        "rationale": "干扰方向记忆，与目标项目内容高度相似。",
+        "source_type": "direction_card_confirmed",
+        "visibility": "team",
+    },
+    {
+        "fixture_id": "distractor-bnd",
+        "memory_type": "boundary",
+        "scope": "project",
+        "content": "项目「智慧课表」的范围边界：MVP 不包含第三方教务系统对接。",
+        "rationale": "干扰边界记忆。",
+        "source_type": "direction_card_confirmed",
+        "visibility": "team",
+    },
+    {
+        "fixture_id": "distractor-asn",
+        "memory_type": "assignment",
+        "scope": "task",
+        "content": "项目「智慧课表」的「后端 API 与数据模型」任务由小林负责。分工理由：小林有 FastAPI 经验。",
+        "rationale": "干扰分工记忆，与目标项目分工内容几乎相同。",
+        "source_type": "assignment_confirmed",
+        "visibility": "team",
+    },
+    {
+        "fixture_id": "distractor-rej",
+        "memory_type": "rejection",
+        "scope": "project",
+        "content": "项目「智慧课表」的阶段计划方案未被采纳。拒绝理由：范围过大。",
+        "rationale": "干扰拒绝记忆。",
+        "source_type": "proposal_rejected",
+        "visibility": "team",
+    },
+    {
+        "fixture_id": "distractor-plan",
+        "memory_type": "plan",
+        "scope": "project",
+        "content": "项目「智慧课表」的计划已调整：第二阶段延期一周，前端任务提前启动。",
+        "rationale": "干扰重排计划记忆。",
+        "source_type": "replan_confirmed",
+        "visibility": "team",
+    },
+]
+
+
+def write_cross_project_distractors(
+    session: Session,
+    *,
+    workspace_id: str,
+    distractor_project_id: str,
+    owner_user_id: str,
+) -> list[str]:
+    """Write distractor memories to a different project in the same workspace.
+
+    Returns list of written memory IDs. These should NOT appear in retrieval
+    results for the target project.
+    """
+    written_ids: list[str] = []
+
+    for dist in CROSS_PROJECT_DISTRACTORS:
+        candidate = ProjectMemoryCandidate(
+            memory_type=dist["memory_type"],
+            scope=dist["scope"],
+            content=dist["content"],
+            rationale=dist["rationale"],
+            source_type=dist["source_type"],
+            source_id=str(uuid.uuid4()),
+            source_hash="distractor-" + dist["fixture_id"] + "-" + str(uuid.uuid4()),
+            visibility=dist["visibility"],
+        )
+
+        result = _write_candidates(
+            session,
+            workspace_id=workspace_id,
+            project_id=distractor_project_id,
+            candidates=[candidate],
+            extractor_version=EXTRACTOR_VERSION,
+        )
+        session.commit()
+
+        if result:
+            written_ids.append(result[0].id)
+
+    return written_ids
+
+
 def run_retrieval_eval(
     session: Session,
     *,
@@ -364,6 +729,7 @@ def run_retrieval_eval(
 
     for q in queries:
         expected_fids = set(q["expected_fixture_ids"])
+        q_slice = q.get("slice", "unknown")
 
         start = time.perf_counter()
         result: RetrievalResult = retrieve_memory_ids(
@@ -375,46 +741,83 @@ def run_retrieval_eval(
         )
         latency_ms = (time.perf_counter() - start) * 1000
 
-        # Map retrieved DB IDs back to fixture IDs
-        retrieved_fids: set[str] = set()
+        # Map retrieved DB IDs back to fixture IDs (preserving order)
+        retrieved_fids_list: list[str] = []
         for db_id in result.memory_ids:
             fid = db_id_to_fixture_id.get(db_id)
             if fid is not None:
-                retrieved_fids.add(fid)
+                retrieved_fids_list.append(fid)
+        retrieved_fids = set(retrieved_fids_list)
 
-        # Compute recall
+        # Compute recall@10
         if expected_fids:
             hit_count = len(retrieved_fids & expected_fids)
             recall = hit_count / len(expected_fids)
         else:
             recall = 1.0  # no expectations → vacuously correct
 
+        # Compute recall@3 (using only top-3 results)
+        top3_fids = set(retrieved_fids_list[:3])
+        if expected_fids:
+            hit3 = len(top3_fids & expected_fids)
+            recall_at_3 = hit3 / len(expected_fids)
+        else:
+            recall_at_3 = 1.0
+
+        # Compute MRR@10 (reciprocal rank of first relevant result)
+        mrr = 0.0
+        for rank, fid in enumerate(retrieved_fids_list, start=1):
+            if fid in expected_fids:
+                mrr = 1.0 / rank
+                break
+
         # Irrelevant = retrieved but not in expected
         irrelevant = retrieved_fids - expected_fids
+
+        # Bad-first: rank-1 result is irrelevant (and there were expected results)
+        is_bad_first = (
+            len(retrieved_fids_list) > 0
+            and len(expected_fids) > 0
+            and retrieved_fids_list[0] not in expected_fids
+        )
 
         query_results.append(
             QueryEvalResult(
                 query_id=q["query_id"],
                 query=q["query"],
                 expected_fixture_ids=expected_fids,
+                retrieved_memory_ids=list(result.memory_ids),
                 retrieved_fixture_ids=retrieved_fids,
                 recall=recall,
+                recall_at_3=recall_at_3,
+                mrr=mrr,
                 latency_ms=round(latency_ms, 2),
                 backend=result.backend,
                 irrelevant_fixture_ids=irrelevant,
+                is_bad_first=is_bad_first,
+                slice=q_slice,
             )
         )
 
     # Aggregate
     recalls = [qr.recall for qr in query_results]
+    recalls_at_3 = [qr.recall_at_3 for qr in query_results]
+    mrrs = [qr.mrr for qr in query_results]
+    bad_firsts = [qr.is_bad_first for qr in query_results]
     mean_recall = sum(recalls) / len(recalls) if recalls else 0.0
     min_recall = min(recalls) if recalls else 0.0
+    mean_recall_at_3 = sum(recalls_at_3) / len(recalls_at_3) if recalls_at_3 else 0.0
+    mean_mrr = sum(mrrs) / len(mrrs) if mrrs else 0.0
+    bad_first_rate = sum(bad_firsts) / len(bad_firsts) if bad_firsts else 0.0
     max_latency = max(qr.latency_ms for qr in query_results) if query_results else 0.0
 
     return EvalResult(
         query_results=query_results,
         mean_recall_at_10=round(mean_recall, 4),
         min_recall_at_10=round(min_recall, 4),
+        mean_recall_at_3=round(mean_recall_at_3, 4),
+        mean_mrr_at_10=round(mean_mrr, 4),
+        bad_first_rate=round(bad_first_rate, 4),
         max_latency_ms=round(max_latency, 2),
         total_queries=len(query_results),
         fixture_count=len(fixture_id_to_db_id),

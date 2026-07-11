@@ -132,7 +132,7 @@ cd backend
 .venv\Scripts\python -m ruff check app
 ```
 
-预期：后端测试全部通过，ruff 无问题。当前测试基线为 `519 passed, 4 skipped`。
+预期：后端测试全部通过，ruff 无问题。2026-07-11 的测试基线为 `641 passed, 4 skipped`。
 
 ### 前端验证
 
@@ -143,7 +143,7 @@ npm run lint
 npm run build
 ```
 
-预期：55 个前端测试通过，lint 无错误（有 2 个既有 React hook warnings），build 成功。`npm run test` / `npm run lint` / `npm run build` 会先或后归一 `next-env.d.ts`，避免 Next.js dev/build 类型路径切换污染 git diff。
+预期：57 个前端测试通过，lint 无错误（有 2 个既有 React hook warnings），build 成功。`npm run test` / `npm run lint` / `npm run build` 会先或后归一 `next-env.d.ts`，避免 Next.js dev/build 类型路径切换污染 git diff。
 
 ### Agent Bridge 测试
 
@@ -153,7 +153,7 @@ npx vitest run
 npx tsc --noEmit
 ```
 
-预期：540 个 agent-bridge 测试通过（18 文件），typecheck 通过。
+预期：552 个 agent-bridge 测试通过（19 文件），typecheck 通过。
 
 ## 第五步：启动 Agent Bridge Sidecar
 
@@ -175,13 +175,16 @@ Sidecar 使用 `agent-bridge/model-configs.json` 管理多模型配置。默认 
 | mimo-v2.5 | Xiaomi | mimo-v2.5 | |
 | mimo-v2.5-cn | Xiaomi (国内 Token 计费) | mimo-v2.5 | |
 
-API Key 通过 `.env` 文件配置（与 backend 共享同一 `.env`），不在 JSON 中存储：
+API Key 通过 agent-bridge 自己的 `.env` 文件配置（`agent-bridge/.env`，不是 backend 的 `.env`），不在 JSON 中存储：
 
 ```bash
 DEEPSEEK_API_KEY=sk-你的key
 XIAOMI_API_KEY=你的key
 XIAOMI_TOKEN_PLAN_CN_API_KEY=你的key
+INTERNAL_SERVICE_TOKEN=change-me
 ```
+
+> `INTERNAL_SERVICE_TOKEN` 必须与 `backend/.env` 中的值一致，sidecar 通过它认证后端内部 API。
 
 也可以在前端设置对话框中管理模型配置（点击导航栏齿轮按钮）。
 

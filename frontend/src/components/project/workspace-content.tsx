@@ -103,7 +103,6 @@ interface WorkspaceContentProps {
 export function WorkspaceContent({ state, currentUserId, onNavigateToProject, onRefresh }: WorkspaceContentProps) {
   const workspace = state.workspace;
   const memberships = state.memberships ?? [];
-  const projects = state.projects ?? [];
   const members = state.members;
   const profiles = state.member_profiles;
 
@@ -117,10 +116,11 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject, on
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const localProjects = React.useMemo(() => {
+    const projects = state.projects ?? [];
     if (deletedProjectIds.length === 0) return projects;
     const hiddenIds = new Set(deletedProjectIds);
     return projects.filter((project) => !hiddenIds.has(project.id));
-  }, [deletedProjectIds, projects]);
+  }, [deletedProjectIds, state.projects]);
 
   const activeProjects = localProjects.filter((p) => p.status === "active");
   const completedProjects = localProjects.filter((p) => p.status === "completed");

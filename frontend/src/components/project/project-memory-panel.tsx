@@ -58,7 +58,7 @@ function memoryMatchesTopic(memory: ProjectMemory, topic: MemoryTopic): boolean 
   if (topic.historical) {
     return memory.status === "superseded" || memory.status === "archived";
   }
-  return topic.typeSet.has(memory.memory_type);
+  return memory.status === "active" && topic.typeSet.has(memory.memory_type);
 }
 
 function formatDateTime(iso: string | null): string {

@@ -18,7 +18,7 @@
  */
 
 import type { AgentRunState } from "@/types/run-state.js";
-import type { ContextBuildInput, SkillContext } from "./context-builder.js";
+import type { ContextBuildInput, MemoryContext, SkillContext } from "./context-builder.js";
 import { buildContext, filterModelCallableManifests } from "./context-builder.js";
 import type { ModelRouter } from "./model-router.js";
 import type { FastapiClient } from "@/tools/fastapi-client.js";
@@ -70,6 +70,8 @@ export interface RunInput {
   skillContext?: SkillContext;
   /** Viewer identity for visibility/auth enforcement in tool execution. */
   viewerUserId?: string;
+  /** ProjectMemory context built by FastAPI (already visibility-filtered and budget-truncated). */
+  memoryContext?: MemoryContext | null;
 }
 
 export interface RunCallbacks {
@@ -223,6 +225,7 @@ async function handlePiEvent(
   stream: EventStream,
   callbacks: RunCallbacks,
   traceIncludeSensitiveData: boolean,
+  memoryMetadata?: Record<string, unknown>,
 ): Promise<void> {
   applyPiEventToRunState(event, runState);
   const pfEvent = buildRuntimeEventFromPiEvent(
@@ -231,6 +234,8 @@ async function handlePiEvent(
     {
       orderingHint: runState.lastEventSeq + 1,
       includeSensitiveData: traceIncludeSensitiveData,
+      // R2: Inject _memory metadata into agent.started event payload
+      payload: event.type === "agent_start" && memoryMetadata ? memoryMetadata : undefined,
     },
   );
   const appendResponse = await fastapiClient.appendEvents(runState.runId, {
@@ -356,8 +361,41 @@ export async function executeRun(
       toolManifests: toolRegistry.getManifests(),
       skillContext: input.skillContext,
       currentTime: new Date().toISOString(),
+      memoryContext: input.memoryContext,
     };
     const builtContext = buildContext(contextInput);
+
+    // R2: Build memory observability metadata for the agent.started event.
+    // Mirrors legacy workflow.py _memory_metadata() structure.
+    const memoryMetadata: Record<string, unknown> = input.memoryContext
+      ? {
+          _memory: {
+            used: !!input.memoryContext.text,
+            backend: input.memoryContext.memoryBackend,
+            used_memory_ids: input.memoryContext.usedMemoryIds,
+            retrieval_count: input.memoryContext.retrievalCount,
+            injected_count: input.memoryContext.injectedCount,
+            latency_ms: input.memoryContext.latencyMs,
+          },
+        }
+      : {
+          _memory: {
+            used: false,
+            backend: "none",
+            used_memory_ids: [],
+            retrieval_count: 0,
+            injected_count: 0,
+            latency_ms: 0,
+          },
+        };
+
+    // Store full memory text in debug payload (only accessible with sensitive data enabled)
+    if (input.memoryContext?.text) {
+      debugPayloadStore.store(
+        { runId: runState.runId, toolName: "_memory" },
+        { input: { memory_text_length: input.memoryContext.text.length }, output: traceIncludeSensitiveData ? { memory_text: input.memoryContext.text } : { memory_text: "[redacted]" } },
+      );
+    }
 
     // Step 2: Build Pi tools from registry
     const exposedManifests = filterModelCallableManifests(toolRegistry.getManifests(), input.skillContext);
@@ -435,7 +473,7 @@ export async function executeRun(
       if (event.type === "agent_end") {
         agentEndProcessed = true;
       }
-      await handlePiEvent(event, runState, fastapiClient, stream, callbacks, traceIncludeSensitiveData);
+      await handlePiEvent(event, runState, fastapiClient, stream, callbacks, traceIncludeSensitiveData, memoryMetadata);
     };
 
     const promptMessage = {
