@@ -380,4 +380,120 @@ describe("pi-runtime", () => {
       calls.some((call) => call.events?.some((event) => event.type === "agent.completed")),
     ).toBe(false);
   });
+
+  it("injects _memory metadata into agent.started event payload (R2 observability)", async () => {
+    const calls: WireAppendRequest[] = [];
+    const registry = new ToolRegistry();
+    registerMockTools(registry);
+
+    await executeRun(
+      createState(),
+      {
+        conversationId: "conv_1",
+        workspaceId: "ws_1",
+        projectId: "proj_1",
+        userContent: "帮我分工",
+        memoryContext: {
+          text: "以下是与当前项目相关的历史记忆：\n1. [边界] MVP 不做外部集成",
+          usedMemoryIds: ["mem-1", "mem-2"],
+          memoryBackend: "fts5",
+          retrievalCount: 10,
+          injectedCount: 2,
+          latencyMs: 15.5,
+        },
+      },
+      registry,
+      createModelRouter(),
+      createFastapiClient(calls),
+      new EventStream(),
+    );
+
+    // Find the agent.started event in the persisted calls
+    const agentStarted = calls
+      .flatMap((call) => call.events ?? [])
+      .find((event) => event.type === "agent.started");
+
+    expect(agentStarted).toBeDefined();
+    expect(agentStarted?.payload).toMatchObject({
+      _memory: {
+        used: true,
+        backend: "fts5",
+        used_memory_ids: ["mem-1", "mem-2"],
+        retrieval_count: 10,
+        injected_count: 2,
+        latency_ms: 15.5,
+      },
+    });
+  });
+
+  it("injects _memory used=false when memoryContext is null (R2 observability)", async () => {
+    const calls: WireAppendRequest[] = [];
+    const registry = new ToolRegistry();
+    registerMockTools(registry);
+
+    await executeRun(
+      createState(),
+      {
+        conversationId: "conv_1",
+        workspaceId: "ws_1",
+        projectId: "proj_1",
+        userContent: "帮我分工",
+        memoryContext: null,
+      },
+      registry,
+      createModelRouter(),
+      createFastapiClient(calls),
+      new EventStream(),
+    );
+
+    const agentStarted = calls
+      .flatMap((call) => call.events ?? [])
+      .find((event) => event.type === "agent.started");
+
+    expect(agentStarted).toBeDefined();
+    expect(agentStarted?.payload).toMatchObject({
+      _memory: {
+        used: false,
+        backend: "none",
+        used_memory_ids: [],
+        retrieval_count: 0,
+        injected_count: 0,
+        latency_ms: 0,
+      },
+    });
+  });
+
+  it("does not include _memory in sideEffects (R2 constraint)", async () => {
+    const registry = new ToolRegistry();
+    registerMockTools(registry);
+
+    const state = await executeRun(
+      createState(),
+      {
+        conversationId: "conv_1",
+        workspaceId: "ws_1",
+        projectId: "proj_1",
+        userContent: "帮我分工",
+        memoryContext: {
+          text: "记忆内容",
+          usedMemoryIds: ["mem-1"],
+          memoryBackend: "fts5",
+          retrievalCount: 5,
+          injectedCount: 1,
+          latencyMs: 10,
+        },
+      },
+      registry,
+      createModelRouter(),
+      createFastapiClient([]),
+      new EventStream(),
+    );
+
+    // sideEffects only records tool calls, never memory usage
+    for (const effect of state.sideEffects) {
+      expect(effect).not.toHaveProperty("_memory");
+      expect(effect).not.toHaveProperty("used_memory_ids");
+    }
+  });
+
 });

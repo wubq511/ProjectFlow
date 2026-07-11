@@ -7,7 +7,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { parseRunStartRequest } from "@/types/wire.js";
 import { createRunState } from "@/types/run-state.js";
 import { executeRun } from "@/runtime/pi-runtime.js";
-import type { SkillContext } from "@/runtime/context-builder.js";
+import type { MemoryContext, SkillContext } from "@/runtime/context-builder.js";
 import { getSkillIndex } from "@/skills/skill-index.js";
 import type { StreamEventType } from "@/events/stream.js";
 import type { RuntimeEvent } from "@/types/runtime-event.js";
@@ -41,6 +41,7 @@ export async function handleStartRun(
     workspace_state: parsed.workspace_state,
     recent_messages: parsed.recent_messages,
     pending_proposals: parsed.pending_proposals,
+    memory_mode: parsed.memory_mode ?? "enabled",
     runtime_config: {
       model: modelName,
       max_steps: parsed.runtime_config?.max_steps ?? ctx.config.defaults.maxSteps,
@@ -51,6 +52,18 @@ export async function handleStartRun(
   };
   const fastapiRunResp = await ctx.fastapiClient.startRun(fastapiRequestBody as any);
   const fastapiRunId = fastapiRunResp.run_id;
+  const memoryContext: MemoryContext | null = fastapiRunResp.memory_context
+    ? {
+        text: fastapiRunResp.memory_context.text,
+        usedMemoryIds: fastapiRunResp.memory_context.used_memory_ids,
+        usedMemoryTypes: fastapiRunResp.memory_context.used_memory_types ?? [],
+        guardedMemberNames: fastapiRunResp.memory_context.guarded_member_names ?? [],
+        memoryBackend: fastapiRunResp.memory_context.memory_backend,
+        retrievalCount: fastapiRunResp.memory_context.retrieval_count,
+        injectedCount: fastapiRunResp.memory_context.injected_count,
+        latencyMs: fastapiRunResp.memory_context.latency_ms,
+      }
+    : null;
 
   // Step 2: Create local run state using FastAPI-assigned run_id
   const runState = createRunState({
@@ -110,6 +123,8 @@ export async function handleStartRun(
       recentMessages: parsed.recent_messages,
       pendingProposals: parsed.pending_proposals,
       skillContext,
+      viewerUserId: parsed.viewer_user_id,
+      memoryContext,
     },
     ctx.toolRegistry,
     // Model router: resolve from model config registry (loaded from model-configs.json)

@@ -75,7 +75,7 @@ export function WorkspaceCreateForm({
     }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
-  }, [name, teamSize, useCase, customUseCase])
+  }, [name, teamSize, useCase])
 
   const validateField = React.useCallback((field: string, value: string) => {
     const newErrors: Record<string, string> = {}

@@ -109,12 +109,15 @@ class AgentRuntimeService:
         self.session.commit()
         self.session.refresh(run)
 
-        # Build memory context on the FastAPI side; sidecar receives it via response
-        memory_context = self._build_memory_context_for_run(
-            request.project_id,
-            request.viewer_user_id,
-            query=request.user_content,
-        )
+        # R8 evaluation can explicitly disable injection for A while still
+        # exercising the same FastAPI run creation and sidecar path.
+        memory_context = None
+        if request.memory_mode == "enabled":
+            memory_context = self._build_memory_context_for_run(
+                request.project_id,
+                request.viewer_user_id,
+                query=request.user_content,
+            )
 
         return RunStartResponse(
             run_id=run.id,

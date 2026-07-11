@@ -18,6 +18,7 @@ from sqlmodel import Session
 from app.core.database import get_session
 from app.schemas.project_memory import ProjectMemoryRead
 from app.services.memory_service import (
+    DISPLAY_STATUSES,
     export_memories_markdown,
     get_visible_memories,
     validate_viewer,
@@ -85,11 +86,15 @@ def api_list_memories(
     viewer_user_id: str | None = Query(None, description="Viewer user ID"),
     session: Session = Depends(get_session),
 ):
-    """只读记忆列表（JSON）。需要 viewer_user_id。"""
+    """只读记忆列表（JSON）。需要 viewer_user_id。
+
+    AD-3: 返回 viewer 有权查看的 active + superseded + archived 记忆。
+    """
     _validate_and_get_project(session, project_id, viewer_user_id)
 
     memories = get_visible_memories(
-        session, project_id=project_id, viewer_user_id=viewer_user_id
+        session, project_id=project_id, viewer_user_id=viewer_user_id,
+        statuses=DISPLAY_STATUSES,
     )
     result = [_memory_to_read(m).model_dump() for m in memories]
 
@@ -107,11 +112,15 @@ def api_export_memories_markdown(
     viewer_user_id: str | None = Query(None, description="Viewer user ID"),
     session: Session = Depends(get_session),
 ):
-    """只读 Markdown 导出。需要 viewer_user_id。"""
+    """只读 Markdown 导出。需要 viewer_user_id。
+
+    AD-3: 返回 viewer 有权查看的 active + superseded + archived 记忆。
+    """
     project = _validate_and_get_project(session, project_id, viewer_user_id)
 
     memories = get_visible_memories(
-        session, project_id=project_id, viewer_user_id=viewer_user_id
+        session, project_id=project_id, viewer_user_id=viewer_user_id,
+        statuses=DISPLAY_STATUSES,
     )
     markdown = export_memories_markdown(memories, project_name=project.name)
 

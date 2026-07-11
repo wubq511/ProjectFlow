@@ -1,112 +1,8 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-10.
+Status: current as of 2026-07-11.
 
 ## Latest Architecture Handoff
-
-### Conversation Output Channel + Thinking Fold (2026-07-10)
-
-Fixed streaming output loss, toolcall JSON pollution, DB bloat, and added thinking/answer separation with collapsible folds.
-
-**Root Causes (3 bugs):**
-1. `event-mapper.ts` passed full `assistantMessageEvent` as content → ~302 MB DB bloat.
-2. `start-run-stream.ts` accumulated all `agent.delta` content including `toolcall_delta` → tool JSON polluted `AgentMessage.content`.
-3. Removing `assistantMessageEvent` from payload broke streaming entirely — Pi SDK's `message_update` has no `data` field, all content is in `assistantMessageEvent`.
-
-**Final Architecture:**
-- `event-mapper.ts`: `message_update` extracts `text_delta.delta` and `thinking_delta.delta` from `assistantMessageEvent` into `payload.content` with `delta_type` label. `toolcall_delta` discarded. Full `assistantMessageEvent` never passed. `agent_end` extracts `final_content` from last assistant message's TextContent parts.
-- `start-run-stream.ts`: Content chunks tracked with delta type. `tool.started` records `lastToolBoundaryIdx`. At `agent.completed`, chunks before boundary = thinking, after = answer. `execution_steps` collected from tool lifecycle events with `tool_call_id` precision matching. `tool.blocked` → status `"blocked"` (distinct from `"failed"`).
-- `agent_conversation_service.py`: `_save_assistant_message` persists `execution_steps` and `thinking_content` in `structured_payload`. `final_content` falls back to `accumulated_content`.
-- Frontend `ChatMessage`: Reads `thinking_content` and `execution_steps` from `structured_payload`. Renders thinking fold (plain text, not Markdown) → execution steps fold → final answer. Runtime validation on `execution_steps` shape.
-
-**Key Design Decision:** Thinking/answer separation happens at `agent.completed` using tool call boundaries, NOT during streaming. Non-reasoning models (DeepSeek V4, MiMo V2.5) don't emit `thinking_end` events, so real-time folding is impossible. All text streams visibly, then folds on reload from persisted `structured_payload`.
-
-**Verification:** 557 agent-bridge tests pass, 513 backend tests pass, 17 ChatMessage frontend tests pass.
-
----
-
-### PR #84/#85/#86 Merge + Adversarial Review Bug Fixes (2026-07-10)
-
-Merged three PRs with adversarial review, resolved merge conflicts, and fixed critical bugs found during review.
-
-**PR #84 — SSE Streaming Fixes:**
-- Fixed `currentEvent` variable scoping (moved inside while loop broke cross-chunk event tracking)
-- Added `ENDPOINT_EVENT_TYPE_MAP` for unified endpoint→event_type mapping (retrospective→"replan", not "retro")
-- Polling timeout race condition fix: check terminal status BEFORE timeout check
-- Timeline verification window tightened: use `startTime` as lower bound (not `startTime - TIME_WINDOW_MS`)
-- ConnectError fallback now persists assistant message via `_save_assistant_message` + `_build_done_turn`
-- Degraded success semantics: `status: "fallback"`, `used_fallback: true`
-
-**PR #85 — Pi Runtime Terminal State Guards + Error Handling:**
-- All `tool_execution_*` events + `message_*`/`turn_*` events: guard against writes after terminal state (completed/failed/cancelled)
-- `app.ts` error handling: `err: any` → `err: unknown` with proper type narrowing, FastapiError detection with status code validation (400-599)
-- `signal?.aborted` returning false → throw `DOMException AbortError`
-- Deterministic intent matcher `_deterministic_intent_match()` as ConnectError fallback (narrowed patterns: "分析.*风险", "生成.*行动", "检查.*进度")
-
-**PR #86 — Output Localization + Tool Reliability + Enhancements:**
-- `buildIdMappingTable()` ID→名称对照表注入系统提示
-- `translateStatusValues` 55 enum values Chinese translation
-- `translateFieldNames` field name Chinese translation
-- Tool failure returns error content (not exception) for LLM retry
-- `analyze_checkins_and_risks` supports single-side input
-- Negotiation accept/reject API + UI
-- New risk-analysis skill (`create_risk` creates directly)
-- `replan-diff` ID field hiding + enum translation
-
-**Merge conflict resolution:** 4 files with 9 conflict regions. Strategy: preserve main's sidecar proxy architecture + integrate PR enhancements. Deterministic intent matcher adapted as ConnectError fallback (not replacement).
-
-**Adversarial review — Critical bugs found and fixed (commit `96bd560`):**
-
-| ID | Bug | Fix |
-|----|-----|-----|
-| C1 | `buildIdMappingTable()` walk only recursed into array values — no-op for real workspace state | Walk now recurses into ALL values (arrays + nested objects), no longer requires top-level `id` field |
-| C2 | `translateStatusValues()` blind `replaceAll` on raw JSON corrupted field names and free-text content | Replaced with `translateStatusValuesOnParsed()` — tree-walk on parsed JSON, only replaces leaf string values, never touches keys |
-| C3 | `FIELD_NAME_MAP` 3 key collision groups caused silent data loss | Disambiguated: `dependency_ids_ref→依赖任务(参考)`, `next_due→下次到期`, `deliverables→交付物列表` |
-| C9 | Stage progress bar permanently 0% (`activeStages.filter(completed)` always 0) | Changed to `completedStages.length / stages.length` |
-
-Also fixed 2 TS compilation errors: `page.tsx` extra `currentUserId` arg, `api.test.ts` missing `viewerUserId` arg.
-
-**Verification (2026-07-10):** agent-bridge 540 tests pass, typecheck pass; backend 506 tests pass, 4 skipped; frontend typecheck pass.
-
-**Key files modified:** `agent-bridge/src/runtime/context-builder.ts`, `agent-bridge/src/runtime/pi-runtime.ts`, `agent-bridge/src/server/app.ts`, `frontend/src/lib/api.ts`, `frontend/src/lib/api.test.ts`, `frontend/src/app/workspaces/[workspaceId]/page.tsx`, `frontend/src/components/stage/stage-plan-board.tsx`, `backend/app/services/agent_conversation_service.py`, `backend/app/services/agent_tools_service.py`, `backend/app/agent/llm_client.py`
-
-### Agent Output Localization & Display Hardening (2026-07-09)
-
-Comprehensive hardening of the Agent Bridge sidecar's LLM-facing data pipeline and frontend display layer to eliminate mixed Chinese/English output, raw internal ID leakage, and inline numbered prose rendering.
-
-**What was built:**
-
-- **`transformForLLM` pipeline** (`context-builder.ts`): Two-stage JSON transformation applied to all LLM-bound data (initial workspace_state, mid-run tool results, pending_proposals):
-  1. `translateStatusValuesOnParsed` — tree-walk on parsed JSON, replaces only leaf string values matching known enums: "in_progress"→"进行中", "low"→"低", etc. Never touches keys or free-text content (supersedes blind `replaceAll` on raw JSON string).
-  2. `translateFieldNames` — 100+ English JSON keys translated to Chinese: `"mood_or_confidence"`→`"心情/信心"`, `"available_hours_per_week"`→`"每周可用小时"`, etc. LLM sees fully Chinese JSON.
-  - **`buildIdMappingTable`** — walks entire workspace state tree (all objects + arrays), extracts `id→display_name/name/title` mappings, injects as persistent system prompt table. LLM uses UUIDs in tool calls and Chinese names in text output.
-
-- **Tool result data injection** (`pi-runtime.ts`): `toPiTool` now includes the tool's `data` JSON (up to 32KB, after `transformForLLM`) in `content[0].text`, not just the label `observation`. The LLM can actually read the workspace state, member profiles, and task details that previous tool calls returned.
-
-- **Skill output visibility** (`start-run.ts`, `get-run.ts`, `api.ts`): `GET /runs/:runId` now returns `tool_results` array with `tool_name`, `side_effect_status`, `observation`, `proposal_id`, and `created_ids`. Frontend `runAgentFlow` parses this and returns meaningful `output` and `created_ids` instead of always empty `{}`/`[]`. Success banner now shows whether a proposal or advisory record was created.
-
-- **System prompt hardening** (`context-builder.ts`): Core rules strengthened to mandate tool calls ("用户点击按钮 = 必须产出", "禁止以已有数据为由跳过工具调用"), terminology translation table, `「」` naming convention, and output self-check checklist.
-
-- **Skill instruction hardening** (6 SKILL.md): All skills updated with explicit "必须调用", "禁止只做分析不调用工具", «」 naming convention, multi-line formatting rules, and `project-intake`'s `suggested_questions` focused to urgent decision points only.
-
-- **`MultilineText` component** (`multiline-text.tsx`): New shared UI component that splits `(1)...(2)...(3)` numbered prose into separate lines and parses `**bold**` markdown. Applied to all agent output display components (18 components across 14 files).
-
-- **`MarkdownContent` hardening** (`MarkdownContent.tsx`): Added `normalizeNumberedProse()` preprocessor that converts `(1)...(2)` inline numbering to standard markdown ordered lists before react-markdown rendering.
-
-- **Stage plan replacement semantics** (`agent_proposal_service.py`): `_persist_stage_plan` now marks all existing non-completed stages as `completed` before creating new ones. A confirmed plan is authoritative — it replaces, not appends to, the previous plan. Frontend `StagePlanBoard` splits active vs completed stages; completed stages are collapsed in a "已完成的阶段" section.
-
-- **TaskBreakdownBoard active/completed split** (`task-breakdown-board.tsx`): Task grouping now only uses active (non-completed) stages. Completed stages and their tasks appear in a collapsed footer section with full detail (tasks with priority/status/hours).
-
-- **Assignment task selector filtering** (`assignment-flow-panel.tsx`): "想换成哪个任务？" dropdown now only shows tasks from the current active stage that are unassigned and not claimed by another live proposal. Excludes the task being rejected and finalized tasks.
-
-- **`splitProseLines` utility** (`utils.ts`): Exported to shared lib as the single source of truth for numbered prose splitting.
-
-**Verification (2026-07-09, updated 2026-07-10):**
-- agent-bridge: 540 tests pass (18 files), typecheck pass
-- frontend: 56 tests pass (10 files), typecheck pass
-- backend: 506 tests pass, 4 skipped
-
-**Key files modified:** `agent-bridge/src/runtime/context-builder.ts`, `agent-bridge/src/runtime/pi-runtime.ts`, `agent-bridge/src/server/routes/get-run.ts`, `agent-bridge/src/server/routes/start-run.ts`, `agent-bridge/skills/*/SKILL.md` (6 files), `backend/app/services/agent_proposal_service.py`, `backend/app/tests/test_agent_proposal_confirm.py`, `frontend/src/lib/api.ts`, `frontend/src/lib/utils.ts`, `frontend/src/app/workspaces/[workspaceId]/page.tsx`, `frontend/src/components/ui/multiline-text.tsx` (new), `frontend/src/components/ui/match-text.tsx`, `frontend/src/components/agent/agent-proposal-panel.tsx`, `frontend/src/components/agent/direction-decision-view.tsx`, `frontend/src/components/agent/direction-card-panel.tsx`, `frontend/src/components/agent/action-card.tsx`, `frontend/src/components/agent/timeline.tsx`, `frontend/src/components/stage/stage-plan-board.tsx`, `frontend/src/components/task/task-breakdown-board.tsx`, `frontend/src/components/assignment/assignment-flow-panel.tsx`, `frontend/src/components/risk/risk-card.tsx`, `frontend/src/components/risk/replan-diff.tsx`, `frontend/src/components/project/project-memory-panel.tsx`, `frontend/src/components/project/project-task-views.tsx`, `frontend/src/components/project/agent-conversation-cards.tsx`, `frontend/src/components/project/agent/ModuleRunCard.tsx`, `frontend/src/components/project/agent/MarkdownContent.tsx`
 
 ### Agent Thinking Process Folding (2026-07-10)
 
@@ -154,19 +50,20 @@ Implemented multi-model, multi-provider configuration and runtime switching for 
 
 **Key files:** `agent-bridge/model-configs.json`, `agent-bridge/src/types/model-config.ts`, `agent-bridge/src/config/model-config-store.ts`, `agent-bridge/src/config/dotenv-writer.ts`, `agent-bridge/src/config/file-watcher.ts`, `agent-bridge/src/runtime/model-router.ts`, `agent-bridge/src/runtime/pi-runtime.ts`, `agent-bridge/src/server/routes/config-models.ts`, `agent-bridge/src/server/routes/config-api-key.ts`, `agent-bridge/src/server/routes/config-reload.ts`, `agent-bridge/src/server/routes/config-providers.ts`, `agent-bridge/src/server/app.ts`, `agent-bridge/src/index.ts`, `frontend/src/components/settings/settings-dialog.tsx`, `frontend/src/components/settings/model-config-tab.tsx`, `frontend/src/components/project/agent-sidebar.tsx`, `frontend/src/lib/api.ts`, `frontend/src/lib/types.ts`
 
-### T42 — ProjectMemory V1 Closure Review (2026-07-07)
+### T42 — ProjectMemory V1 Remediation Closure (2026-07-11)
 
-Issues #71-#80 are closed and merged to `main`. The ProjectMemory V1 backend/runtime/evaluation/vector-guardrail/frontend slices are complete. No remaining V1 closure gaps.
+The merged #71-#80 implementation is now followed by completed remediation slices R1-R6 and R8. The selective R8 Pilot passes 7/7 release gates; R7 remains a separately approved V1.1 vector project.
 
 **Closure result:**
 
-- Backend/runtime V1 path is implemented: governed persistence, deterministic extractor, source hooks, idempotency/supersede, visibility, JSON list, Markdown export API, default FTS5+jieba retrieval, Agent context injection, retrieval evaluation, and optional vector guardrails.
-- Frontend V1 path is implemented: `ProjectMemoryPanel` with topic-grouped read-only list, loading/error/empty states, and Markdown export/copy/download using the current viewer identity (issue #80, commit `0a25690`).
-- Verification after #80: backend `ruff check app` passed; backend tests `519 passed, 4 skipped; frontend tests `55 passed`; frontend lint passed with 2 existing React hook warnings; frontend production build passed; frontend production dependency audit reported 0 vulnerabilities; agent-bridge tests/typecheck/build passed.
-- GitHub issues #71, #72, #73, #74, #75, #76, #77, and #80 are closed.
+- FastAPI-built memory context reaches the sidecar model prompt on both run routes; runtime evidence is emitted in `agent.started`.
+- Retrieval is project-scoped and uses two-phase natural-language matching; the 50-query eval reaches Recall@10/Recall@3 100%, MRR@10 0.97, and 2% bad-first rate.
+- Viewer authorization is shared by list/export/injection, history display is lifecycle-aware, and FTS synchronization reaches terminal `synced` or `failed` states.
+- The initial 150-pair/300-call sidecar Pilot plus selective S1/S2 remediation evidence passes 7/7 gates. Post-fix raw-ID leakage is 0/140 calls; S2 rejection reduction is 100%. A narrow member-constraint assignment output guard raised the selectively composed S1 B-group evidence to 10/10 and exposes guard status/call count in final SSE evidence.
+- Verification: backend `702 passed, 4 skipped` and Ruff pass; agent bridge `607 passed` across 26 files plus typecheck/build pass; frontend `117 passed` across 14 files plus lint/build pass.
 - Accepted V1 limitation: alternate `/api/replans/confirm` path still does not produce ProjectMemory; current frontend does not use this endpoint.
 
-**Canonical closure record:** `docs/T42/project-memory-v1-closure.md`
+**Canonical closure record:** `docs/T42/project-memory-v1-closure.md`. Final Pilot evidence: `docs/T42/project-memory-v1-ab-selective-rerun-report.md`.
 
 ### T42 — ProjectMemory V1 Optional Vector Extra & Dependency Guardrails (2026-07-07, issue #77)
 
@@ -1097,9 +994,15 @@ Implemented scope:
 - Confirming an agent proposal persists the payload to `Project.direction_card`, `Stage`, or `Task` records depending on proposal type.
 - Confirmation updates the source `AgentEvent.user_confirmed` and creates timeline evidence.
 
+### T42 — ProjectMemory V1 Remediation (Bat A–D, 2026-07-10)
+
+All 6 remediation slices (R1–R6, R8) completed. R7 (optional vector) remains separate project. See `docs/T42/project-memory-v1-closure.md` and `docs/T42/project-memory-v1-remediation-plan.md`.
+
+**Key files:** `backend/app/agent/memory/ab_eval.py`, `backend/app/agent/memory/query_normalizer.py`, `backend/app/agent/memory/retrieval_eval.py`, `backend/app/services/memory_service.py`, `backend/app/api/routes_memories.py`, `backend/app/tests/test_ab_eval.py`
+
 ## Verification Baseline
 
-Latest verification baseline after T42 ProjectMemory V1 stabilization (issues #71-#77):
+Latest verification baseline after T42 ProjectMemory V1 remediation (Batch D, 2026-07-10):
 
 ```bash
 cd backend
@@ -1116,9 +1019,9 @@ npm audit --omit=dev
 
 Results:
 
-- Backend: 519 tests passed, 4 skipped.
-- Agent-bridge: 540 tests passed across 18 files.
-- Frontend tests: 56 passed across 10 files (API layer, project dashboard, home page, app shell, action card, task status update, error boundaries, assignment flow panel, agent sidebar, project memory panel).
+- Backend: 702 tests passed, 4 skipped.
+- Agent-bridge: 607 tests passed across 26 files.
+- Frontend tests: 117 passed across 14 files.
 - Frontend lint passed with 2 existing React hook warnings.
 - Frontend build passed.
 - Frontend production dependency audit reported 0 vulnerabilities.
@@ -1305,7 +1208,7 @@ Verification: backend 218/218 tests pass; frontend 24/24 tests pass; frontend li
 
 ## Next Work
 
-All MVP phases (0-41) are complete. T41 Agent Runtime sidecar (S3-S16) and T42 ProjectMemory V1 (issues #71-#80) are merged to `main` as of 2026-07-07. No remaining V1 closure gaps.
+All MVP phases (0-41) are complete. T41 Agent Runtime sidecar (S3-S16) and T42 ProjectMemory V1 (issues #71-#80 + remediation R1-R6/R8) are merged to `main` as of 2026-07-10. R8 A/B eval harness is built; 150-run real-model pilot requires existing provider credentials.
 
 T23.D full mock + real-LLM manual rerun of D1-D17 is the only documented pending verification item. Post-MVP backlog includes auth, deployment, collaboration permissions, and broader UI hardening (tracked in `.trae/documents/code-review-unfixed-issues.md`).
 

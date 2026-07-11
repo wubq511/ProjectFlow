@@ -55,11 +55,16 @@ const STATUS_CN: Record<string, string> = {
   archived: "已归档",
 };
 
+function isExpired(memory: ProjectMemory): boolean {
+  return memory.status === "active" && memory.valid_until !== null
+    && new Date(memory.valid_until).getTime() < Date.now();
+}
+
 function memoryMatchesTopic(memory: ProjectMemory, topic: MemoryTopic): boolean {
   if (topic.historical) {
-    return memory.status === "superseded" || memory.status === "archived";
+    return memory.status === "superseded" || memory.status === "archived" || isExpired(memory);
   }
-  return topic.typeSet.has(memory.memory_type);
+  return memory.status === "active" && !isExpired(memory) && topic.typeSet.has(memory.memory_type);
 }
 
 function formatDateTime(iso: string | null): string {
@@ -107,8 +112,12 @@ export function ProjectMemoryPanel({ projectId, projectName, currentUserId }: Pr
   useEffect(() => {
     if (!currentUserId) return;
     let ignore = false;
-    setLoading(true);
-    setError(null);
+    queueMicrotask(() => {
+      if (!ignore) {
+        setLoading(true);
+        setError(null);
+      }
+    });
     listProjectMemories(projectId, currentUserId)
       .then((data) => {
         if (!ignore) setMemories(data);
@@ -295,7 +304,7 @@ export function ProjectMemoryPanel({ projectId, projectName, currentUserId }: Pr
                           memory.status === "archived" && "border-neutral-300 text-neutral-500"
                         )}
                       >
-                        {STATUS_CN[memory.status] ?? memory.status}
+                        {isExpired(memory) ? "已过期" : (STATUS_CN[memory.status] ?? memory.status)}
                       </Badge>
                       <Badge variant="outline" className="text-[10px]">
                         {VISIBILITY_CN[memory.visibility] ?? memory.visibility}

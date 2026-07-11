@@ -6,6 +6,7 @@ import {
   snakifyKeys,
   parseRunStartRequest,
 } from "../../src/types/wire.js";
+import type { WireRunStartResponse } from "../../src/types/wire.js";
 
 describe("wire format", () => {
   describe("toSnakeCase", () => {
@@ -78,6 +79,50 @@ describe("wire format", () => {
       expect(parseRunStartRequest({ conversation_id: "c" })).toBeNull();
       expect(parseRunStartRequest(null)).toBeNull();
       expect(parseRunStartRequest("string")).toBeNull();
+    });
+  });
+
+  describe("WireRunStartResponse with memory_context", () => {
+    it("accepts response with memory_context", () => {
+      const resp: WireRunStartResponse = {
+        run_id: "run_1",
+        status: "created",
+        memory_context: {
+          text: "历史记忆内容",
+          used_memory_ids: ["mem-1", "mem-2"],
+          used_memory_types: ["member_constraint", "assignment"],
+          guarded_member_names: ["小林"],
+          memory_backend: "fts5",
+          retrieval_count: 10,
+          injected_count: 2,
+          latency_ms: 15.5,
+        },
+      };
+      expect(resp.run_id).toBe("run_1");
+      expect(resp.memory_context).not.toBeNull();
+      expect(resp.memory_context!.text).toBe("历史记忆内容");
+      expect(resp.memory_context!.used_memory_ids).toEqual(["mem-1", "mem-2"]);
+      expect(resp.memory_context!.used_memory_types).toEqual(["member_constraint", "assignment"]);
+      expect(resp.memory_context!.guarded_member_names).toEqual(["小林"]);
+      expect(resp.memory_context!.memory_backend).toBe("fts5");
+      expect(resp.memory_context!.injected_count).toBe(2);
+    });
+
+    it("accepts response with null memory_context", () => {
+      const resp: WireRunStartResponse = {
+        run_id: "run_2",
+        status: "created",
+        memory_context: null,
+      };
+      expect(resp.memory_context).toBeNull();
+    });
+
+    it("accepts response without memory_context (backward compatible)", () => {
+      const resp: WireRunStartResponse = {
+        run_id: "run_3",
+        status: "created",
+      };
+      expect(resp.memory_context).toBeUndefined();
     });
   });
 });

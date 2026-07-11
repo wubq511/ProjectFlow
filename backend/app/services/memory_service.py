@@ -13,7 +13,6 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import text
 from sqlmodel import Session, select
 
 from app.agent.memory.extractor import (
@@ -266,24 +265,62 @@ def _write_candidates(
         session.add(new_memory)
         session.flush()  # Get the ID
 
-        # Index the new memory for FTS5 retrieval
-        retriever.index_memory(new_memory)
+        # Index the new memory for FTS5 retrieval (best effort)
+        # R6: Track sync status based on index outcome
+        index_error: str | None = None
+        try:
+            retriever.index_memory(new_memory)
+        except Exception as exc:
+            logger.warning(
+                "FTS5 index failed for memory %s (error_type=%s)",
+                new_memory.id,
+                type(exc).__name__,
+            )
+            index_error = _truncate_safe_error(type(exc).__name__)
 
         # Supersede old active memory if exists
         if active_same_key is not None:
             _supersede_memory(session, active_same_key, new_memory.id)
 
-        # Create sync record (best effort, FTS5 not yet implemented)
-        sync_record = ProjectMemorySync(
-            memory_id=new_memory.id,
-            backend="fts5",
-            sync_status="pending",
-        )
+        # Create sync record reflecting actual FTS5 index outcome
+        if index_error is None:
+            sync_record = ProjectMemorySync(
+                memory_id=new_memory.id,
+                backend="fts5",
+                backend_memory_id=new_memory.id,
+                sync_status="synced",
+                last_synced_at=now,
+                last_error=None,
+            )
+        else:
+            sync_record = ProjectMemorySync(
+                memory_id=new_memory.id,
+                backend="fts5",
+                backend_memory_id=None,
+                sync_status="failed",
+                last_synced_at=None,
+                last_error=index_error,
+            )
         session.add(sync_record)
 
         written.append(new_memory)
 
     return written
+
+
+def _truncate_safe_error(error_text: str, max_len: int = 200) -> str:
+    """只保留错误类型，避免异常参数泄露 memory 正文。
+
+    R6: sync error 不包含敏感 memory 正文，只保留异常类型和前缀。
+    """
+    error_type = error_text.strip().split(maxsplit=1)[0].split(":", 1)[0]
+    safe_type = "".join(
+        ch for ch in error_type
+        if ch.isascii() and (ch.isalnum() or ch in "._-")
+    )
+    if not safe_type:
+        safe_type = "MemoryIndexError"
+    return f"{safe_type}: FTS5 synchronization failed"[:max_len]
 
 
 def _supersede_memory(
@@ -295,16 +332,32 @@ def _supersede_memory(
     old_memory.updated_at = datetime.now(UTC)
     session.add(old_memory)
 
-    # Remove superseded memory from FTS5 index to avoid wasting retrieval slots
+    # Remove superseded memory from FTS5 index to avoid wasting retrieval slots.
+    delete_error: str | None = None
     try:
         retriever = MemoryRetriever(session.connection())
-        if retriever._fts_available:
-            session.connection().execute(
-                text(f"DELETE FROM {MemoryRetriever._FTS_TABLE} WHERE memory_id = :memory_id"),
-                {"memory_id": old_memory.id},
-            )
-    except Exception:
-        logger.exception("Failed to remove superseded memory %s from FTS5", old_memory.id)
+        retriever.remove_memory(old_memory.id)
+    except Exception as exc:
+        logger.warning(
+            "Failed to remove superseded memory %s from FTS5 (error_type=%s)",
+            old_memory.id,
+            type(exc).__name__,
+        )
+        delete_error = _truncate_safe_error(type(exc).__name__)
+
+    # R6: deletion failure is visible on the existing sync record.
+    try:
+        sync_record = session.get(ProjectMemorySync, old_memory.id)
+        if sync_record is not None and delete_error is not None:
+            sync_record.sync_status = "failed"
+            sync_record.last_error = delete_error
+            session.add(sync_record)
+    except Exception as exc:
+        logger.warning(
+            "Failed to update sync record for superseded memory %s (error_type=%s)",
+            old_memory.id,
+            type(exc).__name__,
+        )
 
 
 # ─── Viewer identity validation ─────────────────────────────────────────────
@@ -383,14 +436,58 @@ def get_workspace_member_ids(session: Session, workspace_id: str) -> set[str]:
 
 
 def get_visible_memories(
-    session: Session, *, project_id: str, viewer_user_id: str
+    session: Session,
+    *,
+    project_id: str,
+    viewer_user_id: str,
+    statuses: set[str] | None = None,
 ) -> list[ProjectMemory]:
-    """获取 viewer 可见的 active 记忆列表。"""
+    """获取 viewer 可见的记忆列表。
+
+    Args:
+        statuses: 允许的 status 集合。默认 {"active"}（仅活跃记忆，用于 Agent 注入）。
+                  传 {"active", "superseded", "archived"} 可获取历史记忆（用于展示/导出）。
+
+    AD-3: 展示可见性与注入资格分离：
+    - JSON/Markdown 展示：允许 active + superseded + archived
+    - Agent 注入：仅 active + 未过期
+    两者复用同一 authorization predicate (can_view_memory)。
+    """
+    if statuses is None:
+        statuses = {"active"}
+
     project, _ = validate_viewer(session, project_id=project_id, viewer_user_id=viewer_user_id)
 
     member_ids = get_workspace_member_ids(session, project.workspace_id)
 
-    # Load all active memories for the project
+    # Load memories matching requested statuses
+    all_memories = session.exec(
+        select(ProjectMemory).where(
+            ProjectMemory.project_id == project_id,
+            ProjectMemory.status.in_(statuses),
+        )
+    ).all()
+
+    # Filter by visibility (authorization predicate, shared across all use cases)
+    visible: list[ProjectMemory] = []
+    for mem in all_memories:
+        if can_view_memory(mem, viewer_user_id=viewer_user_id, workspace_member_ids=member_ids):
+            visible.append(mem)
+
+    return visible
+
+
+def get_active_memories_for_injection(
+    session: Session, *, project_id: str, viewer_user_id: str
+) -> list[ProjectMemory]:
+    """获取 viewer 可见的 active + 未过期记忆（仅用于 Agent 注入）。
+
+    AD-3: 注入资格 = authorization + active status + 未过期。
+    """
+    project, _ = validate_viewer(session, project_id=project_id, viewer_user_id=viewer_user_id)
+
+    member_ids = get_workspace_member_ids(session, project.workspace_id)
+
     all_memories = session.exec(
         select(ProjectMemory).where(
             ProjectMemory.project_id == project_id,
@@ -398,11 +495,10 @@ def get_visible_memories(
         )
     ).all()
 
-    # Filter by visibility
     now = datetime.now(UTC)
     visible: list[ProjectMemory] = []
     for mem in all_memories:
-        # Check expiry
+        # Check expiry (injection only: expired memories are not injected)
         if mem.valid_until is not None and mem.valid_until < now:
             continue
         # Check visibility
@@ -439,6 +535,11 @@ def retrieve_visible_memory_ids(
 
 
 # ─── Markdown export ────────────────────────────────────────────────────────
+
+# AD-3: Display statuses for JSON list and Markdown export (active + superseded + archived).
+# Agent injection uses only {"active"} via get_active_memories_for_injection().
+DISPLAY_STATUSES = {"active", "superseded", "archived"}
+
 
 _SOURCE_TYPE_CN = {
     "direction_card_confirmed": "方向卡确认",
@@ -480,8 +581,16 @@ def export_memories_markdown(
     lines.append("")
 
     # Separate active and historical
-    active_memories = [m for m in memories if m.status == "active"]
-    historical_memories = [m for m in memories if m.status in ("superseded", "archived")]
+    now = datetime.now(UTC)
+    active_memories = [
+        m for m in memories
+        if m.status == "active" and (m.valid_until is None or m.valid_until >= now)
+    ]
+    historical_memories = [
+        m for m in memories
+        if m.status in ("superseded", "archived")
+        or (m.status == "active" and m.valid_until is not None and m.valid_until < now)
+    ]
 
     for topic_title, type_set in _TOPIC_GROUPS:
         if topic_title == "被替代或归档的历史判断":
@@ -499,7 +608,9 @@ def export_memories_markdown(
             lines.append(f"### {mem.content}")
             lines.append(f"- 理由：{mem.rationale}")
             lines.append(f"- 来源：{_SOURCE_TYPE_CN.get(mem.source_type, mem.source_type)}")
-            lines.append(f"- 状态：{_STATUS_CN.get(mem.status, mem.status)}")
+            expired = mem.status == "active" and mem.valid_until is not None and mem.valid_until < now
+            status_label = "已过期" if expired else _STATUS_CN.get(mem.status, mem.status)
+            lines.append(f"- 状态：{status_label}")
             valid_str = mem.valid_until.isoformat() if mem.valid_until else "长期"
             lines.append(f"- 有效期：{valid_str}")
             lines.append(f"- 可见范围：{_VISIBILITY_CN.get(mem.visibility, mem.visibility)}")

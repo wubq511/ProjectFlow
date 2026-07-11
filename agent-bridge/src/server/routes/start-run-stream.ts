@@ -15,6 +15,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { parseRunStartRequest } from "@/types/wire.js";
 import { createRunState } from "@/types/run-state.js";
 import { executeRun } from "@/runtime/pi-runtime.js";
+import type { MemoryContext } from "@/runtime/context-builder.js";
+import { createOutputSanitizer } from "@/runtime/output-sanitizer.js";
 import type { StreamEventType } from "@/events/stream.js";
 import type { RuntimeEvent } from "@/types/runtime-event.js";
 import type { RunContext } from "./utils.js";
@@ -134,6 +136,7 @@ export async function handleStartRunStream(
     workspace_state: parsed.workspace_state,
     recent_messages: parsed.recent_messages,
     pending_proposals: parsed.pending_proposals,
+    memory_mode: parsed.memory_mode ?? "enabled",
     runtime_config: {
       model: modelName,
       max_steps: parsed.runtime_config?.max_steps ?? ctx.config.defaults.maxSteps,
@@ -144,6 +147,32 @@ export async function handleStartRunStream(
   };
   const fastapiRunResp = await ctx.fastapiClient.startRun(fastapiRequestBody as any);
   const fastapiRunId = fastapiRunResp.run_id;
+  const memoryContext: MemoryContext | null = fastapiRunResp.memory_context
+    ? {
+        text: fastapiRunResp.memory_context.text,
+        usedMemoryIds: fastapiRunResp.memory_context.used_memory_ids,
+        usedMemoryTypes: fastapiRunResp.memory_context.used_memory_types ?? [],
+        guardedMemberNames: fastapiRunResp.memory_context.guarded_member_names ?? [],
+        memoryBackend: fastapiRunResp.memory_context.memory_backend,
+        retrievalCount: fastapiRunResp.memory_context.retrieval_count,
+        injectedCount: fastapiRunResp.memory_context.injected_count,
+        latencyMs: fastapiRunResp.memory_context.latency_ms,
+      }
+    : null;
+  const memoryEvidence = {
+    mode: parsed.memory_mode ?? "enabled",
+    backend: memoryContext?.memoryBackend ?? "none",
+    used_memory_ids: memoryContext?.usedMemoryIds ?? [],
+    used_memory_types: memoryContext?.usedMemoryTypes ?? [],
+    retrieval_count: memoryContext?.retrievalCount ?? 0,
+    injected_count: memoryContext?.injectedCount ?? 0,
+    latency_ms: memoryContext?.latencyMs ?? 0,
+  };
+  const finalMemoryEvidence = () => ({
+    ...memoryEvidence,
+    output_guard_status: memoryContext?.outputGuardStatus ?? "not_applied",
+    output_guard_model_calls: memoryContext?.outputGuardModelCalls ?? 0,
+  });
 
   // Step 2: Create local run state
   const runState = createRunState({
@@ -201,6 +230,26 @@ export async function handleStartRunStream(
   const textBlocks = new Map<string, string>();
   /** Bounded execution steps collected from tool lifecycle events. */
   const executionSteps: Array<{ tool_name: string; tool_call_id?: string; status: string; label: string }> = [];
+  const outputSanitizer = createOutputSanitizer(parsed.workspace_state);
+
+  const emitSanitizedText = (content: string, contentIndex: number): void => {
+    if (!content) return;
+    const blockKey = `${messageSeq}:${contentIndex}`;
+    accumulatedContent += content;
+    textBlocks.set(blockKey, (textBlocks.get(blockKey) ?? "") + content);
+    writeSSE(res, "content", {
+      kind: "text",
+      phase: "delta",
+      content_index: contentIndex,
+      message_seq: messageSeq,
+      content,
+    } satisfies StreamContentEvent);
+  };
+
+  const flushSanitizedTail = (contentIndex = 0): void => {
+    const tail = outputSanitizer.flush();
+    emitSanitizedText(tail, contentIndex);
+  };
 
   // Abort runtime when client disconnects mid-stream
   res.on("close", () => {
@@ -254,14 +303,11 @@ export async function handleStartRunStream(
           writeSSE(res, "content", evt);
         } else if (deltaType === "text_delta") {
           if (tokenText) {
-            accumulatedContent += tokenText;
-            // Aggregate for text content at completion
-            const existing = textBlocks.get(blockKey) ?? "";
-            textBlocks.set(blockKey, existing + tokenText);
-            const evt: StreamContentEvent = { kind: "text", phase: "delta", content_index: contentIndex, message_seq: messageSeq, content: tokenText };
-            writeSSE(res, "content", evt);
+            const safeText = outputSanitizer.push(tokenText);
+            emitSanitizedText(safeText, contentIndex);
           }
         } else if (deltaType === "text_end") {
+          flushSanitizedTail(contentIndex);
           const evt: StreamContentEvent = { kind: "text", phase: "end", content_index: contentIndex, message_seq: messageSeq };
           writeSSE(res, "content", evt);
         }
@@ -407,14 +453,16 @@ export async function handleStartRunStream(
       case "agent.completed":
       case "run.completed": {
         runCompleted = true;
+        flushSanitizedTail();
         // Capture final_content from the runtime (extracted from last assistant message's TextContent).
         finalAnswerFromRuntime = typeof data.payload?.final_content === "string"
-          ? data.payload.final_content
+          ? outputSanitizer.sanitize(data.payload.final_content)
           : "";
         const donePayload = buildDonePayload(
           runState.runId, finalAnswerFromRuntime,
           thinkingBlocks, textBlocks, accumulatedContent, executionSteps,
         );
+        donePayload.memory_evidence = finalMemoryEvidence();
         writeSSE(res, "done", donePayload);
         res.end();
         break;
@@ -452,6 +500,7 @@ export async function handleStartRunStream(
         recentMessages: parsed.recent_messages,
         pendingProposals: parsed.pending_proposals,
         viewerUserId: parsed.viewer_user_id,
+        memoryContext,
       },
       ctx.toolRegistry,
       ctx.modelRouter,
@@ -469,10 +518,12 @@ export async function handleStartRunStream(
           ctx.sessionStore.clearAbortController(state.runId);
           if (!runCompleted) {
             runCompleted = true;
+            flushSanitizedTail();
             const donePayload = buildDonePayload(
               state.runId, finalAnswerFromRuntime,
               thinkingBlocks, textBlocks, accumulatedContent, executionSteps,
             );
+            donePayload.memory_evidence = finalMemoryEvidence();
             writeSSE(res, "done", donePayload);
             res.end();
           }

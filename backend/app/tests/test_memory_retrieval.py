@@ -388,6 +388,38 @@ def test_build_memory_context_empty_when_no_memories(session: Session, client: T
     assert ctx.retrieval_count == 0
 
 
+def test_memory_context_marks_member_availability_as_cross_task_hard_constraint(
+    session: Session,
+    client: TestClient,
+):
+    workspace, project, owner, member, *_ = _create_fixture(client)
+    _write_memory(
+        session,
+        workspace_id=workspace["id"],
+        project_id=project["id"],
+        content="成员只能晚上和周末工作，工作日白天有课。",
+        memory_type="member_constraint",
+        visibility="subject_and_owner",
+        subject_user_id=member["id"],
+        owner_user_id_snapshot=owner["id"],
+    )
+
+    ctx = build_memory_context(
+        session,
+        project_id=project["id"],
+        viewer_user_id=owner["id"],
+        query="成员 可用时间",
+    )
+
+    assert "[成员约束]" in ctx.text
+    assert "跨任务硬约束" in ctx.text
+    assert "不得通过改派到另一项同样冲突的任务来规避" in ctx.text
+    assert ctx.used_memory_types == ["member_constraint"]
+    assert ctx.to_dict()["used_memory_types"] == ["member_constraint"]
+    assert ctx.guarded_member_names == [member["display_name"]]
+    assert ctx.to_dict()["guarded_member_names"] == [member["display_name"]]
+
+
 # ─── AgentEvent metadata tests ───────────────────────────────────────────────
 
 
@@ -574,3 +606,270 @@ def test_sidecar_context_built_by_fastapi(client: TestClient):
     data = response.json()
     assert "memory_context" in data
     assert isinstance(data["memory_context"], dict)
+
+
+def test_start_run_memory_mode_disabled_skips_fastapi_context_build(
+    client: TestClient,
+    monkeypatch,
+):
+    """R8 A group must not build or inject memory context at all."""
+    workspace, project, owner, *_ = _create_fixture(client)
+    calls = []
+
+    def record_context_build(*_args, **_kwargs):
+        calls.append(True)
+        return MemoryContext("should not be used", [], MemoryBackend.none, 0, 0, 0.0)
+
+    monkeypatch.setattr(
+        "app.services.agent_runtime_service.build_memory_context",
+        record_context_build,
+    )
+    response = client.post(
+        "/internal/agent-runs",
+        json={
+            "viewer_user_id": owner["id"],
+            "conversation_id": "conv_123",
+            "workspace_id": workspace["id"],
+            "project_id": project["id"],
+            "user_content": "请制定下一步计划",
+            "memory_mode": "disabled",
+        },
+        headers={"Authorization": "Bearer test-internal-service-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["memory_context"] is None
+    assert calls == []
+
+
+# ─── R3: Cross-project FTS contamination tests ─────────────────────────────
+
+
+def test_fts_cross_project_no_contamination(session: Session, client: TestClient):
+    """FTS5 retrieval with project-scoped JOIN does not return other project's memories.
+
+    Setup:
+    - Workspace A / Project A has 1 target memory about "MVP 范围边界"
+    - Workspace A / Project B has 80 highly relevant distractor memories about "MVP 范围边界"
+    - Query Project A for "MVP 范围边界" → target memory must appear in results
+    - No memory from Project B should appear in results
+    """
+    owner = client.post("/api/users", json={"display_name": "Owner"}).json()
+    workspace = client.post(
+        "/api/workspaces",
+        json={"name": "CrossProject WS"},
+        params={"owner_user_id": owner["id"]},
+    ).json()
+
+    project_a = client.post(
+        "/api/projects",
+        json={
+            "workspace_id": workspace["id"],
+            "name": "Project A",
+            "idea": "Target project",
+            "deadline": "2026-08-01",
+            "deliverables": "Demo",
+            "created_by": owner["id"],
+        },
+    ).json()
+    project_b = client.post(
+        "/api/projects",
+        json={
+            "workspace_id": workspace["id"],
+            "name": "Project B",
+            "idea": "Distractor project",
+            "deadline": "2026-08-01",
+            "deliverables": "Demo",
+            "created_by": owner["id"],
+        },
+    ).json()
+
+    # Write 1 target memory in Project A
+    target = _write_memory(
+        session,
+        workspace_id=workspace["id"],
+        project_id=project_a["id"],
+        content="本项目 MVP 范围边界：不做外部系统集成",
+        rationale="方向卡确认时团队决定聚焦核心闭环",
+        memory_type="boundary",
+    )
+
+    # Write 80 distractor memories in Project B with very similar content
+    for i in range(80):
+        _write_memory(
+            session,
+            workspace_id=workspace["id"],
+            project_id=project_b["id"],
+            content=f"MVP 范围边界：第{i+1}条干扰记忆，不做外部系统集成",
+            rationale=f"干扰理由{i+1}",
+            memory_type="boundary",
+        )
+
+    # Query Project A — target memory must be in results
+    result = retrieve_memory_ids(
+        session,
+        project_id=project_a["id"],
+        query="MVP 范围边界",
+        viewer_user_id=owner["id"],
+        limit=10,
+    )
+
+    assert target.id in result.memory_ids, (
+        f"Target memory {target.id} from Project A should appear in results, "
+        f"got: {result.memory_ids}"
+    )
+    # No memory from Project B should appear
+    for mid in result.memory_ids:
+        mem = session.get(ProjectMemory, mid)
+        assert mem is not None
+        assert mem.project_id == project_a["id"], (
+            f"Memory {mid} belongs to project {mem.project_id}, "
+            f"expected {project_a['id']}"
+        )
+
+
+def test_fts_cross_workspace_no_contamination(session: Session, client: TestClient):
+    """Cross-workspace distractor memories do not contaminate results.
+
+    Setup:
+    - Workspace A / Project A has target memory
+    - Workspace B / Project C has 80 distractor memories
+    - Query Project A → no contamination from Workspace B
+    """
+    owner_a = client.post("/api/users", json={"display_name": "OwnerA"}).json()
+    owner_b = client.post("/api/users", json={"display_name": "OwnerB"}).json()
+
+    ws_a = client.post(
+        "/api/workspaces",
+        json={"name": "WS A"},
+        params={"owner_user_id": owner_a["id"]},
+    ).json()
+    ws_b = client.post(
+        "/api/workspaces",
+        json={"name": "WS B"},
+        params={"owner_user_id": owner_b["id"]},
+    ).json()
+
+    proj_a = client.post(
+        "/api/projects",
+        json={
+            "workspace_id": ws_a["id"],
+            "name": "Project A",
+            "idea": "Target",
+            "deadline": "2026-08-01",
+            "deliverables": "Demo",
+            "created_by": owner_a["id"],
+        },
+    ).json()
+    proj_c = client.post(
+        "/api/projects",
+        json={
+            "workspace_id": ws_b["id"],
+            "name": "Project C",
+            "idea": "Distractor",
+            "deadline": "2026-08-01",
+            "deliverables": "Demo",
+            "created_by": owner_b["id"],
+        },
+    ).json()
+
+    target = _write_memory(
+        session,
+        workspace_id=ws_a["id"],
+        project_id=proj_a["id"],
+        content="分工约束：小林本周只有10小时可用",
+        rationale="分工确认时小林声明时间限制",
+        memory_type="member_constraint",
+        visibility="subject_and_owner",
+        subject_user_id=owner_a["id"],
+        owner_user_id_snapshot=owner_a["id"],
+    )
+
+    for i in range(80):
+        _write_memory(
+            session,
+            workspace_id=ws_b["id"],
+            project_id=proj_c["id"],
+            content=f"分工约束：第{i+1}条跨workspace干扰",
+            rationale=f"干扰理由{i+1}",
+            memory_type="assignment",
+        )
+
+    result = retrieve_memory_ids(
+        session,
+        project_id=proj_a["id"],
+        query="分工约束 小林",
+        viewer_user_id=owner_a["id"],
+        limit=10,
+    )
+
+    assert target.id in result.memory_ids, (
+        f"Target memory {target.id} should appear in results, got: {result.memory_ids}"
+    )
+    for mid in result.memory_ids:
+        mem = session.get(ProjectMemory, mid)
+        assert mem is not None
+        assert mem.project_id == proj_a["id"]
+
+
+def test_fts_cross_project_no_visibility_leak(session: Session, client: TestClient):
+    """JOIN-based project filter does not leak memory existence to non-members.
+
+    A non-member viewer calling retrieve_memory_ids should get empty results,
+    not see that memories exist via FTS rank leakage.
+    """
+    owner = client.post("/api/users", json={"display_name": "Owner"}).json()
+    outsider = client.post("/api/users", json={"display_name": "Outsider"}).json()
+    workspace = client.post(
+        "/api/workspaces",
+        json={"name": "Leak WS"},
+        params={"owner_user_id": owner["id"]},
+    ).json()
+    project = client.post(
+        "/api/projects",
+        json={
+            "workspace_id": workspace["id"],
+            "name": "Leak Project",
+            "idea": "Test visibility",
+            "deadline": "2026-08-01",
+            "deliverables": "Demo",
+            "created_by": owner["id"],
+        },
+    ).json()
+
+    _write_memory(
+        session,
+        workspace_id=workspace["id"],
+        project_id=project["id"],
+        content="私有记忆：成员时间约束",
+        rationale="分工确认",
+        memory_type="member_constraint",
+        visibility="subject_and_owner",
+        subject_user_id=owner["id"],
+        owner_user_id_snapshot=owner["id"],
+    )
+
+    # Outsider is not a workspace member → retrieve_memory_ids raises ValueError
+    with pytest.raises(ValueError, match="成员"):
+        retrieve_memory_ids(
+            session,
+            project_id=project["id"],
+            query="成员时间约束",
+            viewer_user_id=outsider["id"],
+            limit=10,
+        )
+
+    # Also verify via API: outsider gets 404 (not 200 with empty list,
+    # which would leak project existence)
+    response = client.post(
+        "/internal/agent-runs",
+        json={
+            "viewer_user_id": outsider["id"],
+            "conversation_id": "conv_leak",
+            "workspace_id": workspace["id"],
+            "project_id": project["id"],
+            "user_content": "成员时间约束",
+        },
+        headers={"Authorization": "Bearer test-internal-service-token"},
+    )
+    assert response.status_code == 404

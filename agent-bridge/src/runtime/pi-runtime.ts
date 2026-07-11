@@ -18,8 +18,9 @@
  */
 
 import type { AgentRunState } from "@/types/run-state.js";
-import type { ContextBuildInput, SkillContext } from "./context-builder.js";
+import type { ContextBuildInput, MemoryContext, SkillContext } from "./context-builder.js";
 import { buildContext, filterModelCallableManifests, transformForLLM } from "./context-builder.js";
+import { createMemoryGuardedStreamFn, shouldGuardMemoryOutput } from "./memory-output-guard.js";
 import type { ModelRouter } from "./model-router.js";
 import type { FastapiClient } from "@/tools/fastapi-client.js";
 import type { ToolRegistry, ToolExecutionContext } from "@/tools/registry.js";
@@ -58,6 +59,7 @@ import {
 } from "@earendil-works/pi-agent-core";
 import type { Model, Api, Provider, AssistantMessage, Message, ToolCall, Usage, TSchema } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream, Type } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/compat";
 
 export interface RunInput {
   conversationId: string;
@@ -70,6 +72,8 @@ export interface RunInput {
   skillContext?: SkillContext;
   /** Viewer identity for visibility/auth enforcement in tool execution. */
   viewerUserId?: string;
+  /** ProjectMemory context built by FastAPI (already visibility-filtered and budget-truncated). */
+  memoryContext?: MemoryContext | null;
 }
 
 export interface RunCallbacks {
@@ -252,6 +256,7 @@ async function handlePiEvent(
   stream: EventStream,
   callbacks: RunCallbacks,
   traceIncludeSensitiveData: boolean,
+  memoryMetadata?: Record<string, unknown>,
 ): Promise<void> {
   applyPiEventToRunState(event, runState);
   const pfEvent = buildRuntimeEventFromPiEvent(
@@ -260,6 +265,11 @@ async function handlePiEvent(
     {
       orderingHint: runState.lastEventSeq + 1,
       includeSensitiveData: traceIncludeSensitiveData,
+      // Persist final memory evidence with the terminal output event, after the
+      // output guard has had a chance to record its result.
+      payload: (event.type === "agent_start" || event.type === "agent_end") && memoryMetadata
+        ? memoryMetadata
+        : undefined,
     },
   );
   const appendResponse = await fastapiClient.appendEvents(runState.runId, {
@@ -404,8 +414,42 @@ export async function executeRun(
       toolManifests: toolRegistry.getManifests(),
       skillContext: input.skillContext,
       currentTime: new Date().toISOString(),
+      memoryContext: input.memoryContext,
     };
     const builtContext = buildContext(contextInput);
+
+    // R2: Build memory observability metadata for the agent.started event.
+    // Mirrors legacy workflow.py _memory_metadata() structure.
+    const memoryMetadata: Record<string, unknown> = input.memoryContext
+      ? {
+          _memory: {
+            used: !!input.memoryContext.text,
+            backend: input.memoryContext.memoryBackend,
+            used_memory_ids: input.memoryContext.usedMemoryIds,
+            used_memory_types: input.memoryContext.usedMemoryTypes ?? [],
+            retrieval_count: input.memoryContext.retrievalCount,
+            injected_count: input.memoryContext.injectedCount,
+            latency_ms: input.memoryContext.latencyMs,
+          },
+        }
+      : {
+          _memory: {
+            used: false,
+            backend: "none",
+            used_memory_ids: [],
+            retrieval_count: 0,
+            injected_count: 0,
+            latency_ms: 0,
+          },
+        };
+
+    // Store full memory text in debug payload (only accessible with sensitive data enabled)
+    if (input.memoryContext?.text) {
+      debugPayloadStore.store(
+        { runId: runState.runId, toolName: "_memory" },
+        { input: { memory_text_length: input.memoryContext.text.length }, output: traceIncludeSensitiveData ? { memory_text: input.memoryContext.text } : { memory_text: "[redacted]" } },
+      );
+    }
 
     // Step 2: Build Pi tools from registry
     const exposedManifests = filterModelCallableManifests(toolRegistry.getManifests(), input.skillContext);
@@ -441,7 +485,21 @@ export async function executeRun(
         : { provider: runState.model.provider, name: runState.model.name },
     );
     const model = options.model ?? resolved.model;
-    const streamFn = options.streamFn ?? ((modelConfigEntry?.provider ?? runState.model.provider) === "mock" ? createMockStreamFn() : undefined);
+    const configuredStreamFn = options.streamFn ?? ((modelConfigEntry?.provider ?? runState.model.provider) === "mock" ? createMockStreamFn() : undefined);
+    const streamFn = shouldGuardMemoryOutput(input.memoryContext, input.userContent)
+      ? createMemoryGuardedStreamFn(configuredStreamFn ?? (streamSimple as StreamFn), {
+          userContent: input.userContent,
+          workspaceState: input.workspaceState,
+          memoryContext: input.memoryContext!,
+          onResult: (result) => {
+            input.memoryContext!.outputGuardStatus = result.status;
+            input.memoryContext!.outputGuardModelCalls = result.modelCalls;
+            const evidence = memoryMetadata._memory as Record<string, unknown>;
+            evidence.output_guard_status = result.status;
+            evidence.output_guard_model_calls = result.modelCalls;
+          },
+        })
+      : configuredStreamFn;
 
     // Step 6: Build AgentLoopConfig with hooks
     // Map our ThinkingLevel to Pi SDK's ThinkingLevel.
@@ -483,7 +541,7 @@ export async function executeRun(
       if (event.type === "agent_end") {
         agentEndProcessed = true;
       }
-      await handlePiEvent(event, runState, fastapiClient, stream, callbacks, traceIncludeSensitiveData);
+      await handlePiEvent(event, runState, fastapiClient, stream, callbacks, traceIncludeSensitiveData, memoryMetadata);
     };
 
     const promptMessage = {

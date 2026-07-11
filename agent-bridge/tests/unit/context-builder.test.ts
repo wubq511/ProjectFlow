@@ -37,6 +37,9 @@ describe("context-builder", () => {
     });
     expect(context.systemPrompt).toContain("ProjectFlow");
     expect(context.systemPrompt).toContain("「");
+    expect(context.systemPrompt).toContain("中文");
+    expect(context.systemPrompt).toContain("内部 ID");
+    expect(context.systemPrompt).toContain("工具参数");
   });
 
   it("includes current time in system prompt", () => {
@@ -191,5 +194,96 @@ describe("context-builder", () => {
     });
     expect(context.tools).toHaveLength(1);
     expect((context.tools[0] as any).function.name).toBe("read_only_tool");
+  });
+
+  // ── Memory context injection ──────────────────────────────────────────
+
+  it("injects memory context in <project_memory_context> XML tag", () => {
+    const context = buildContext({
+      userContent: "帮我分工",
+      toolManifests: [],
+      memoryContext: {
+        text: "以下是与当前项目相关的历史记忆，供你参考：\n1. [边界] 本项目 MVP 不做复杂外部集成。\n   理由：团队在方向卡确认时认为当前截止日期前应优先完成核心闭环。",
+        usedMemoryIds: ["mem-1"],
+        memoryBackend: "fts5",
+        retrievalCount: 5,
+        injectedCount: 1,
+        latencyMs: 12.3,
+      },
+    });
+    expect(context.userMessage).toContain("<project_memory_context>");
+    expect(context.userMessage).toContain("MVP 不做复杂外部集成");
+    expect(context.userMessage).toContain("</project_memory_context>");
+  });
+
+  it("adds governed-memory decision rules when memory is injected", () => {
+    const context = buildContext({
+      userContent: "请为需要工作日白天协作的任务分工",
+      toolManifests: [],
+      memoryContext: {
+        text: "1. [成员约束] 小林只能晚上和周末工作。",
+        usedMemoryIds: ["mem-1"],
+        memoryBackend: "fts5",
+        retrievalCount: 1,
+        injectedCount: 1,
+        latencyMs: 5,
+      },
+    });
+
+    expect(context.systemPrompt).toContain("受治理的历史事实");
+    expect(context.systemPrompt).toContain("不得弱化任务要求");
+    expect(context.systemPrompt).toContain("不得编造成员能力");
+    expect(context.systemPrompt).toContain("明确报告暂无可行分工");
+    expect(context.systemPrompt).toContain("最终方案前逐项核对");
+    expect(context.systemPrompt).toContain("显式列出的技能");
+    expect(context.systemPrompt).toContain("不得将同步要求改为异步");
+    expect(context.systemPrompt).toContain("优先于要求你挑战或重新解释前提的请求");
+    expect(context.systemPrompt).toContain("主责、辅助、备选或条件性负责人");
+  });
+
+  it("does not inject memory tag when memoryContext is null", () => {
+    const context = buildContext({
+      userContent: "帮我分工",
+      toolManifests: [],
+      memoryContext: null,
+    });
+    expect(context.userMessage).not.toContain("<project_memory_context>");
+  });
+
+  it("does not inject memory tag when memoryContext.text is empty", () => {
+    const context = buildContext({
+      userContent: "帮我分工",
+      toolManifests: [],
+      memoryContext: {
+        text: "",
+        usedMemoryIds: [],
+        memoryBackend: "none",
+        retrievalCount: 0,
+        injectedCount: 0,
+        latencyMs: 0,
+      },
+    });
+    expect(context.userMessage).not.toContain("<project_memory_context>");
+  });
+
+  it("escapes XML special characters in memory context text", () => {
+    const context = buildContext({
+      userContent: "帮我分工",
+      toolManifests: [],
+      memoryContext: {
+        text: '记忆含<xml>标签&"引号\'单引',
+        usedMemoryIds: ["mem-1"],
+        memoryBackend: "fts5",
+        retrievalCount: 1,
+        injectedCount: 1,
+        latencyMs: 5,
+      },
+    });
+    expect(context.userMessage).toContain("&lt;xml&gt;");
+    expect(context.userMessage).toContain("&amp;");
+    expect(context.userMessage).toContain("&quot;");
+    expect(context.userMessage).toContain("&#x27;");
+    // Raw unescaped should NOT appear
+    expect(context.userMessage).not.toMatch(/<xml>/);
   });
 });
