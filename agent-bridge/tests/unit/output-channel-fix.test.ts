@@ -108,7 +108,7 @@ describe("output-channel fix: event-mapper", () => {
         ],
       };
       const result = mapPiEvent(piEvent, runId);
-      expect(result.type).toBe("agent.completed");
+      expect(result.type).toBe("agent.output_captured");
       expect(result.payload.final_content).toBe("这是最终回答。");
     });
 

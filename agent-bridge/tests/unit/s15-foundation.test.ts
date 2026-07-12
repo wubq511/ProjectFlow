@@ -300,6 +300,7 @@ describe("S15: event mapper (extended)", () => {
     ];
     const mappedTypes = new Set([
       "agent.started", "agent.status", "agent.delta", "agent.completed", "agent.failed",
+      "agent.output_captured",
       "tool.started", "tool.progress", "tool.completed", "tool.failed",
       "tool.blocked", "advisory_record.created", "proposal.created",
       "runtime.error",

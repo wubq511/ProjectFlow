@@ -286,4 +286,96 @@ describe("context-builder", () => {
     // Raw unescaped should NOT appear
     expect(context.userMessage).not.toMatch(/<xml>/);
   });
+
+  // ── Answer mode (no Skill, no tools) ─────────────────────────────────
+
+  describe("answer mode (isAnswerMode=true)", () => {
+    it("does not include mandatory tool-call instruction", () => {
+      const context = buildContext({
+        userContent: "项目进展如何？",
+        toolManifests: [],
+        isAnswerMode: true,
+      });
+      // Must NOT contain the mandatory tool-call rule
+      expect(context.systemPrompt).not.toContain("每个用户请求必须对应至少一次工具调用");
+      expect(context.systemPrompt).not.toContain("不要只生成文本描述而不调用工具");
+      // Should contain the answer-mode instruction
+      expect(context.systemPrompt).toContain("可以直接回答用户的问题");
+      expect(context.systemPrompt).toContain("不需要调用工具");
+    });
+
+    it("returns empty tools array in answer mode", () => {
+      const manifests = [
+        makeManifest("get_workspace_state"),
+        makeManifest("generate_stage_plan_proposal"),
+      ];
+      const context = buildContext({
+        userContent: "项目进展如何？",
+        toolManifests: manifests,
+        isAnswerMode: true,
+      });
+      expect(context.tools).toHaveLength(0);
+    });
+
+    it("still includes domain rules and ID mapping in answer mode", () => {
+      const context = buildContext({
+        userContent: "项目进展如何？",
+        toolManifests: [],
+        isAnswerMode: true,
+        workspaceState: {
+          project: {
+            id: "proj-1",
+            name: "测试项目",
+            stages: [{ id: "s1", name: "方向澄清", status: "completed" }],
+          },
+        },
+      });
+      expect(context.systemPrompt).toContain("ID → 名称");
+      expect(context.systemPrompt).toContain("不能直接修改项目的核心状态");
+    });
+  });
+
+  // ── Action mode (with Skill) ─────────────────────────────────────────
+
+  describe("action mode (with Skill)", () => {
+    it("includes mandatory tool-call instruction when skill is active", () => {
+      const context = buildContext({
+        userContent: "帮我制定计划",
+        toolManifests: [makeManifest("get_workspace_state"), makeManifest("generate_stage_plan_proposal")],
+        skillContext: {
+          name: "project-planning",
+          description: "阶段计划",
+          body: "skill body",
+          allowedTools: ["get_workspace_state", "generate_stage_plan_proposal"],
+        },
+      });
+      expect(context.systemPrompt).toContain("每个用户请求必须对应至少一次工具调用");
+      expect(context.systemPrompt).toContain("project-planning");
+    });
+
+    it("filters tools to skill allowlist in action mode", () => {
+      const manifests = [
+        makeManifest("get_workspace_state"),
+        makeManifest("list_pending_proposals"),
+        makeManifest("generate_stage_plan_proposal"),
+        makeManifest("generate_task_breakdown_proposal"),
+      ];
+      const context = buildContext({
+        userContent: "帮我制定计划",
+        toolManifests: manifests,
+        skillContext: {
+          name: "project-planning",
+          description: "阶段计划",
+          body: "",
+          allowedTools: ["get_workspace_state", "generate_stage_plan_proposal"],
+        },
+      });
+      expect(context.tools).toHaveLength(2);
+      const toolNames = context.tools.map((t: any) => t.function.name);
+      expect(toolNames).toContain("get_workspace_state");
+      expect(toolNames).toContain("generate_stage_plan_proposal");
+      expect(toolNames).not.toContain("list_pending_proposals");
+      expect(toolNames).not.toContain("generate_task_breakdown_proposal");
+    });
+  });
 });

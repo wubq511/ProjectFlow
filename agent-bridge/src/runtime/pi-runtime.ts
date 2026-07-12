@@ -17,17 +17,27 @@
  * - Tool success observation only returned to model after FastAPI confirms persistence
  */
 
-import type { AgentRunState } from "@/types/run-state.js";
+import type { AgentRunState, RunStatus } from "@/types/run-state.js";
 import type { ContextBuildInput, MemoryContext, SkillContext } from "./context-builder.js";
 import { buildContext, filterModelCallableManifests, transformForLLM } from "./context-builder.js";
+import type { OutcomeContract } from "./outcome-contract.js";
+import { PROMPT_KERNEL_VERSION, hashPromptKernel } from "./request-preparation.js";
+import { DEFAULT_CONTEXT_TOKENS } from "@/types/model-config.js";
+import { createInitialWorkState, transitionWorkState, type WorkStateStatus } from "./work-state.js";
+import { shouldCreatePlan, createSimplePlan, type RunPlan } from "./run-plan.js";
+import { verify, type VerifierReport } from "./verifier.js";
 import { createMemoryGuardedStreamFn, shouldGuardMemoryOutput } from "./memory-output-guard.js";
 import type { ModelRouter } from "./model-router.js";
 import type { FastapiClient } from "@/tools/fastapi-client.js";
 import type { ToolRegistry, ToolExecutionContext } from "@/tools/registry.js";
-import { normalizeResult } from "@/tools/result-normalizer.js";
+import { ToolExecutor, type ToolLedgerEntry } from "@/tools/tool-executor.js";
+import { persistLedgerEntry, persistCheckpoint } from "@/tools/tool-ledger.js";
+import { createCheckpoint } from "./checkpoint.js";
+import { hashValue } from "@/utils/hash.js";
+// normalizeResult is used internally by ToolExecutor
 import { canExecuteInParallel, evaluatePolicy } from "@/policy/policy-engine.js";
 import { BudgetManager } from "@/policy/budget.js";
-import { createToolTrace } from "@/events/trace-envelope.js";
+// createToolTrace is used internally by ToolExecutor
 import {
   buildRuntimeEvent,
   buildRuntimeEventFromPiEvent,
@@ -35,7 +45,7 @@ import {
 } from "@/events/event-mapper.js";
 import { getDebugPayloadStore, type DebugPayloadStore } from "@/events/debug-payload-store.js";
 import type { EventStream, StreamEventType } from "@/events/stream.js";
-import type { RuntimeEvent } from "@/types/runtime-event.js";
+import type { RuntimeEvent, RuntimeEventType } from "@/types/runtime-event.js";
 import type { ProjectFlowToolResult, ToolTrace } from "@/types/tool-result.js";
 import { snakifyKeys } from "@/types/wire.js";
 import type {
@@ -61,6 +71,15 @@ import type { Model, Api, Provider, AssistantMessage, Message, ToolCall, Usage, 
 import { createAssistantMessageEventStream, Type } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 
+/** A queued steering event from FastAPI. */
+export interface PendingSteeringEvent {
+  steeringSeq: number;
+  steeringType: "constraint" | "correction" | "plan_change" | "clarification_answer" | "approval_response" | "cancel";
+  content: string;
+  clientMessageId: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface RunInput {
   conversationId: string;
   workspaceId: string;
@@ -70,10 +89,16 @@ export interface RunInput {
   recentMessages?: unknown[];
   pendingProposals?: unknown[];
   skillContext?: SkillContext;
+  /** All resolved skill contexts for multi-skill composition. */
+  allSkillContexts?: SkillContext[];
   /** Viewer identity for visibility/auth enforcement in tool execution. */
   viewerUserId?: string;
   /** ProjectMemory context built by FastAPI (already visibility-filtered and budget-truncated). */
   memoryContext?: MemoryContext | null;
+  /** Draft Outcome Contract from request preparation. */
+  outcomeContract?: OutcomeContract;
+  /** Queued steering events to consume at the next loop boundary. */
+  pendingSteering?: PendingSteeringEvent[];
 }
 
 export interface RunCallbacks {
@@ -83,19 +108,47 @@ export interface RunCallbacks {
 }
 
 /**
+ * Context for resuming an interrupted run from a durable checkpoint.
+ * When provided, executeRun restores state from this context instead of
+ * creating fresh WorkState/RunPlan/ledger.
+ */
+export interface ResumeExecutionContext {
+  /** Restored WorkState from checkpoint/events */
+  workState: import("./work-state.js").WorkState;
+  /** Restored RunPlan from events (if any) */
+  runPlan?: import("./run-plan.js").RunPlan;
+  /** Restored tool ledger from events */
+  toolLedger: import("@/tools/tool-executor.js").ToolLedgerEntry[];
+  /** Recovery decisions from checkpoint — determines skip/retry/block per tool */
+  recoveryDecisions: import("./checkpoint.js").ToolRecoveryDecision[];
+  /** Logical call IDs that are already completed — skip these on resume */
+  completedLogicalCallIds: Set<string>;
+  /** Logical call IDs that are safe to retry with same idempotency key */
+  safeToRetryLogicalCallIds: Set<string>;
+  /** Durable state version from FastAPI snapshot */
+  stateVersion: number;
+  /** Last event seq from snapshot */
+  lastEventSeq: number;
+  /** Latest durable checkpoint version; new checkpoints continue from it. */
+  checkpointVersion: number;
+}
+
+/**
  * Convert a ProjectFlow ToolRegistry tool to a Pi AgentTool.
+ * Uses ToolExecutor for all enforcement (validation, policy, timeout, retry, ledger).
  * Throws on tool execution failure (Pi convention).
  */
 function toPiTool(
   toolName: string,
   registry: ToolRegistry,
+  executor: ToolExecutor,
   runState: AgentRunState,
   fastapiClient: FastapiClient,
   stream: EventStream,
   budget: BudgetManager,
   traceIncludeSensitiveData: boolean,
-  debugPayloadStore: DebugPayloadStore,
   viewerUserId?: string,
+  resumeContext?: ResumeExecutionContext,
 ): AgentTool<any> | null {
   const registered = registry.get(toolName);
   if (!registered) return null;
@@ -127,56 +180,44 @@ function toPiTool(
         viewerUserId,
       };
 
-      const toolTrace = createToolTrace(runState.runId, toolCallId, toolName, traceIncludeSensitiveData);
-      const span = toolTrace.startSpan("tool.execution");
-
       try {
-        if (signal?.aborted) {
-          throw new Error("运行已取消");
+        // Defense-in-depth: on resume, check if this exact (tool, manifest, input)
+        // operation already completed in the recovered ledger. Different inputs
+        // for the same tool remain allowed.
+        if (resumeContext) {
+          const inputHash = hashValue(params);
+          const matchingCompleted = resumeContext.toolLedger.find(
+            (e) =>
+              e.toolName === toolName &&
+              e.manifestVersion === manifest.resume.manifestVersion &&
+              e.inputHash === inputHash &&
+              e.resultStatus === "success",
+          );
+          if (matchingCompleted) {
+            return {
+              content: [{
+                type: "text" as const,
+                text: `此操作已在先前运行中完成（幂等跳过）。工具: ${toolName}`,
+              }],
+              details: { _resumed: true, _originalLogicalCallId: matchingCompleted.logicalCallId },
+            };
+          }
         }
 
+        // Budget check before execution
         const budgetCheck = budget.checkAll();
         if (!budgetCheck.allowed) {
           const observation = budgetCheck.message ?? "运行预算已超限";
-          const trace = toolTrace.toResultTrace();
-          const appendResponse = await fastapiClient.appendEvents(runState.runId, {
-            idempotency_key: idempotencyKey,
-            tool_results: [{
-              tool_call_id: toolCallId,
-              tool_name: toolName,
-              tool_version: manifest.version,
-              result: {
-                status: "failed",
-                error: { code: "BUDGET_EXCEEDED", message: observation },
-                side_effect_status: "no_side_effect",
-                observation,
-                trace,
-              },
-            }],
-          });
-          updateLastEventSeq(runState, appendResponse.state_version, appendResponse.events.map((event) => event.event_seq));
           throw new Error(`BUDGET_EXCEEDED: ${observation}`);
         }
 
         budget.useToolCall();
-        const rawResult = await registered.execute(params as Record<string, unknown>, context);
-        toolTrace.endSpan(span, { status: "success" });
 
-        const normalized = normalizeResult(rawResult, params, {
-          maxBytes: manifest.resultLimit.maxBytes,
-          redaction: manifest.resultLimit.redaction,
-          recordInput: manifest.privacy.traceIncludeInputs,
-          recordOutput: manifest.privacy.traceIncludeOutputs,
-          includeSensitiveData: traceIncludeSensitiveData,
-          debugPayloadStore,
-          debugPayloadContext: {
-            runId: runState.runId,
-            toolCallId,
-            toolName,
-          },
-        });
-        normalized.idempotencyKey ??= idempotencyKey;
+        // Execute through ToolExecutor (handles validation, policy, timeout, retry, ledger)
+        // Each attempt is persisted immediately via onLedgerEntry callback.
+        const normalized = await executor.execute(toolName, params, context, manifest, signal);
 
+        // Persist tool result and product events
         const productEvents = buildToolResultProductEvents(
           normalized,
           context,
@@ -184,9 +225,9 @@ function toPiTool(
           traceIncludeSensitiveData,
         );
 
-        // Persist via append API
         const appendResponse = await fastapiClient.appendEvents(runState.runId, {
           idempotency_key: idempotencyKey,
+          expected_state_version: runState.stateVersion,
           events: productEvents.map(toWireEvent),
           tool_results: [{
             tool_call_id: toolCallId,
@@ -199,6 +240,7 @@ function toPiTool(
         updateLastEventSeq(runState, appendResponse.state_version, appendResponse.events.map((event) => event.event_seq));
         emitPersistedEvents(stream, productEvents);
 
+        // Update run state
         runState.sideEffects.push({ toolCallId, status: normalized.sideEffectStatus });
         runState.toolResults.push({
           toolCallId,
@@ -210,8 +252,6 @@ function toPiTool(
         });
 
         if (normalized.status !== "success") {
-          // Return error as content so the LLM can see it and retry,
-          // instead of terminating the entire run.
           const errorText = `工具调用失败: ${normalized.observation}`;
           return {
             content: [{ type: "text" as const, text: errorText }],
@@ -219,15 +259,11 @@ function toPiTool(
           };
         }
 
-        // Include data in content so the LLM can see the actual tool result,
-        // not just a label like "workspace_state". Pi SDK may not pass `details` to the model.
-        // Cap at 32KB to avoid blowing up the context window.
-        // Also replace all raw IDs with「」display names so the LLM never sees internal IDs.
+        // Format result for model consumption
         const MAX_CONTENT_DATA_BYTES = 32_768;
         let textContent = normalized.observation;
         if (normalized.data !== undefined) {
           let dataJson = JSON.stringify(normalized.data, null, 2);
-          // Translate status values + replace IDs with display names
           dataJson = transformForLLM(dataJson);
           if (Buffer.byteLength(dataJson, "utf-8") > MAX_CONTENT_DATA_BYTES) {
             dataJson = dataJson.slice(0, MAX_CONTENT_DATA_BYTES) + "\n...[截断]";
@@ -239,7 +275,6 @@ function toPiTool(
           details: normalized.data,
         };
       } catch (err) {
-        toolTrace.endSpan(span, { status: "error", error: String(err) });
         throw err; // Pi convention: throw on failure
       }
     },
@@ -274,6 +309,7 @@ async function handlePiEvent(
   );
   const appendResponse = await fastapiClient.appendEvents(runState.runId, {
     idempotency_key: `${pfEvent.clientEventId}:append:v1`,
+    expected_state_version: runState.stateVersion,
     state_patch: buildStatePatch(runState),
     events: [toWireEvent(pfEvent)],
   });
@@ -349,25 +385,65 @@ function applyPiEventToRunState(event: AgentEvent, runState: AgentRunState): voi
       break;
     }
     case "agent_end": {
-      const lastMsg = event.messages?.[event.messages.length - 1];
-      const stopReason = (lastMsg as AssistantMessage | undefined)?.stopReason;
-      // If any tool produced a side effect (risk created, proposal persisted, etc.),
-      // the run is successful regardless of the LLM's stopReason.
-      const hasSideEffects = runState.toolResults.some(
-        (tr) => tr.sideEffectStatus !== "no_side_effect" && tr.sideEffectStatus !== "unknown",
-      );
-      if (stopReason === "error" && !hasSideEffects) {
-        runState.status = "failed";
-      } else if (stopReason === "aborted") {
-        runState.status = "cancelled";
-      } else {
-        runState.status = "completed";
+      // DEFERRED: Do NOT set terminal status here.
+      // Capture the stop reason and final content; the post-loop verifier
+      // will determine the actual terminal status.
+      const lastMsg = event.messages?.[event.messages.length - 1] as Record<string, unknown> | undefined;
+      const stopReason = (lastMsg?.stopReason as string) ?? "unknown";
+      const modelError = !!(event as any).error || !!(event as any).isError || stopReason === "error";
+      const modelAborted = stopReason === "aborted";
+
+      // Extract final content from the last assistant message
+      let finalContent = "";
+      const msgContent = lastMsg?.content;
+      if (msgContent && Array.isArray(msgContent)) {
+        const textParts: string[] = [];
+        for (const part of msgContent) {
+          if (part && typeof part === "object") {
+            const p = part as Record<string, unknown>;
+            if (p.type === "text" && typeof p.text === "string") {
+              textParts.push(p.text);
+            }
+          }
+        }
+        finalContent = textParts.join("");
       }
-      runState.completedAt = new Date().toISOString();
+
+      runState.pendingTerminal = {
+        stopReason,
+        finalContent,
+        modelError,
+        modelAborted,
+      };
+
+      // Set non-terminal status — terminal status determined after verifier
+      runState.status = "persisting_tool_result";
       runState.updatedAt = new Date().toISOString();
       break;
     }
   }
+}
+
+/**
+ * Merge multiple skill contexts for composition.
+ * Combines bodies and allowed tools (union), with primary skill's metadata.
+ */
+function mergeSkillContexts(contexts: SkillContext[]): SkillContext {
+  if (contexts.length === 0) throw new Error("Cannot merge empty skill contexts");
+  if (contexts.length === 1) return contexts[0]!;
+
+  const primary = contexts[0]!;
+  const allTools = [...new Set(contexts.flatMap((c) => c.allowedTools))];
+  const combinedBody = contexts
+    .map((c) => `### ${c.name}\n${c.body}`)
+    .join("\n\n---\n\n");
+
+  return {
+    name: primary.name,
+    description: `组合技能: ${contexts.map((c) => c.name).join(" + ")}`,
+    body: combinedBody,
+    allowedTools: allTools,
+  };
 }
 
 /**
@@ -386,6 +462,8 @@ export async function executeRun(
     debugPayloadStore?: DebugPayloadStore;
     model?: Model<Api>;
     streamFn?: StreamFn;
+    /** Resume context — when provided, restores state from checkpoint instead of creating fresh. */
+    resumeContext?: ResumeExecutionContext;
   } = {},
   callbacks: RunCallbacks = {},
 ): Promise<AgentRunState> {
@@ -400,26 +478,100 @@ export async function executeRun(
   const traceIncludeSensitiveData = options.traceIncludeSensitiveData ?? false;
   const debugPayloadStore = options.debugPayloadStore ?? getDebugPayloadStore();
 
+  // Checkpoint counter for versioned snapshots
+  let checkpointVersion = options.resumeContext?.checkpointVersion ?? 0;
+
   try {
     // Step 1: Context building
     runState.status = "context_building";
     runState.updatedAt = new Date().toISOString();
     callbacks.onEvent?.("state.changed", { run_id: runState.runId, status: runState.status });
 
+    // Restore or create WorkState (cognitive work state, separate from transport state)
+    // On resume: use rehydrated state from checkpoint/events
+    // On fresh run: create initial state
+    let workState = options.resumeContext?.workState ?? createInitialWorkState();
+    let runPlan: RunPlan | undefined = options.resumeContext?.runPlan;
+    let verifierReport: VerifierReport | undefined;
+
+    // Restore durable version counters from resume context
+    if (options.resumeContext) {
+      runState.stateVersion = options.resumeContext.stateVersion;
+      runState.lastEventSeq = options.resumeContext.lastEventSeq;
+    }
+
+    // ── Steering consumption helper ─────────────────────────────────
+    // Consumes pending steering events at loop boundaries.
+    const consumeSteering = async (
+      steeringEvents: PendingSteeringEvent[],
+    ): Promise<{ shouldAbort: boolean }> => {
+      for (const event of steeringEvents) {
+        if (event.steeringType === "cancel") {
+          return { shouldAbort: true };
+        }
+
+        // Persist steering consumed event — failure is NOT swallowed because
+        // undurable consumption would allow duplicate processing on resume.
+        await persistControlPlaneEvent(
+          "steering.consumed",
+          runState,
+          fastapiClient,
+          stream,
+          {
+            steering_seq: event.steeringSeq,
+            steering_type: event.steeringType,
+            content: event.content.slice(0, 500), // bounded
+          },
+          traceIncludeSensitiveData,
+        );
+
+        // Handle clarification answers
+        if (event.steeringType === "clarification_answer" && workState.status === "awaiting_user") {
+          try {
+            workState = transitionWorkState(workState, "understanding", workState.version, "收到用户回答");
+          } catch {
+            // Already transitioned — ok
+          }
+        }
+      }
+      return { shouldAbort: false };
+    };
+
+    // Answer mode: no skill → no tools exposed, model answers directly.
+    // Action mode: skill active → only skill's allowed tools exposed.
+    const isAnswerMode = !input.skillContext;
+
+    // Resolve model config early to get context budget.
+    const earlyModelConfig = modelRouter.resolve(
+      `${runState.model.provider}:${runState.model.name}`,
+    );
+    const contextBudget = earlyModelConfig?.capabilities?.contextTokens ?? DEFAULT_CONTEXT_TOKENS;
+
+    // Merge multi-skill contexts if composition is active.
+    // allSkillContexts[0] is the primary; additional entries are secondary.
+    const allContexts = input.allSkillContexts ?? (input.skillContext ? [input.skillContext] : []);
+    const mergedSkillContext = allContexts.length > 1
+      ? mergeSkillContexts(allContexts)
+      : input.skillContext;
+
     const contextInput: ContextBuildInput = {
       userContent: input.userContent,
       workspaceState: input.workspaceState,
       recentMessages: input.recentMessages,
       pendingProposals: input.pendingProposals,
-      toolManifests: toolRegistry.getManifests(),
-      skillContext: input.skillContext,
+      toolManifests: isAnswerMode ? [] : toolRegistry.getManifests(),
+      skillContext: mergedSkillContext,
       currentTime: new Date().toISOString(),
       memoryContext: input.memoryContext,
+      isAnswerMode,
+      promptKernelVersion: PROMPT_KERNEL_VERSION,
+      maxContextTokens: contextBudget,
     };
     const builtContext = buildContext(contextInput);
+    const kernelHash = hashPromptKernel();
 
-    // R2: Build memory observability metadata for the agent.started event.
-    // Mirrors legacy workflow.py _memory_metadata() structure.
+    // R2: Build run evidence metadata for the agent.started event.
+    // Includes memory, outcome contract, and prompt kernel version.
     const memoryMetadata: Record<string, unknown> = input.memoryContext
       ? {
           _memory: {
@@ -443,6 +595,38 @@ export async function executeRun(
           },
         };
 
+    // Add outcome contract metadata (subset — full contract is in-memory only).
+    // Records classification and policy fields; normalizedGoal/constraints/
+    // successCriteria/requiredEvidence are NOT persisted to avoid bloating events.
+    if (input.outcomeContract) {
+      memoryMetadata._outcome_contract = {
+        request_type: input.outcomeContract.requestType,
+        effect_ceiling: input.outcomeContract.effectCeiling,
+        completion_mode: input.outcomeContract.completionMode,
+        verification_level: input.outcomeContract.verificationLevel,
+        clarification_policy: input.outcomeContract.clarificationPolicy,
+      };
+    }
+    memoryMetadata._prompt_kernel = {
+      version: PROMPT_KERNEL_VERSION,
+      hash: kernelHash,
+    };
+
+    // Record compaction metadata if context was budget-aware
+    if (builtContext.compaction) {
+      memoryMetadata._context_compaction = {
+        compacted: builtContext.compaction.compacted,
+        total_tokens_before: builtContext.compaction.totalTokensBefore,
+        total_tokens_after: builtContext.compaction.totalTokensAfter,
+        dropped_count: builtContext.compaction.droppedBlocks.length,
+        retained_count: builtContext.compaction.retainedBlocks.length,
+        pinned_preserved: builtContext.compaction.pinnedPreserved,
+        // Block type summary (no sensitive content)
+        dropped_types: [...new Set(builtContext.compaction.droppedBlocks.map((b) => b.source))],
+        retained_types: [...new Set(builtContext.compaction.retainedBlocks.map((b) => b.source))],
+      };
+    }
+
     // Store full memory text in debug payload (only accessible with sensitive data enabled)
     if (input.memoryContext?.text) {
       debugPayloadStore.store(
@@ -452,14 +636,190 @@ export async function executeRun(
     }
 
     // Step 2: Build Pi tools from registry
-    const exposedManifests = filterModelCallableManifests(toolRegistry.getManifests(), input.skillContext);
+    // Use merged skill context for tool filtering (supports multi-skill composition)
+    // On resume: do NOT filter by tool name — a run may legitimately call the same
+    // tool multiple times with different inputs. Instead, ToolExecutor dedupes by
+    // (tool name, manifest version, input hash) for defense in depth.
+    let exposedManifests = isAnswerMode
+      ? []
+      : filterModelCallableManifests(toolRegistry.getManifests(), mergedSkillContext);
+
+    // On resume: reconcile recovered ledger into RunPlan steps.
+    // If every required step is already complete, skip the model loop entirely
+    // and jump to verifier/terminalization from recovered evidence.
+    let allPlanStepsComplete = false;
+    if (options.resumeContext && runPlan) {
+      const { toolLedger } = options.resumeContext;
+      for (const step of runPlan.steps) {
+        if (step.status === "completed") continue;
+        const stepTools = new Set(step.allowedTools);
+        const hasMatchingSuccess = toolLedger.some(
+          (e) => stepTools.has(e.toolName) && e.resultStatus === "success",
+        );
+        if (hasMatchingSuccess) {
+          step.status = "completed";
+          step.progressMessage = "从恢复证据中标记完成";
+        }
+      }
+      allPlanStepsComplete = runPlan.steps.every(
+        (s) => s.status === "completed" || s.status === "skipped",
+      );
+    }
+
     const toolNames = exposedManifests.map((m) => m.name);
+
+    // Create ToolExecutor — all tool execution goes through this.
+    // onLedgerEntry callback persists each attempt immediately via FastAPI.
+    const recoveredLedger = options.resumeContext?.toolLedger ?? [];
+    const toolExecutor = new ToolExecutor(toolRegistry, {
+      maxResultBytes: 32768,
+      traceIncludeSensitiveData,
+      debugPayloadStore,
+      onLedgerEntry: async (entry) => {
+        await persistLedgerEntry(entry, runState, fastapiClient, stream, traceIncludeSensitiveData);
+      },
+    });
+    const getCombinedLedger = (): ToolLedgerEntry[] => [
+      ...recoveredLedger,
+      ...toolExecutor.getRunLedger(runState.runId),
+    ];
+
+    // Create RunPlan if this is a non-trivial request
+    // Skip if resuming with an existing plan from checkpoint
+    if (!runPlan && input.outcomeContract && shouldCreatePlan(input.outcomeContract, input.userContent)) {
+      workState = transitionWorkState(workState, "planning", workState.version, "creating plan");
+      const planId = `plan_${runState.runId}_${Date.now()}`;
+      runPlan = createSimplePlan(planId, input.outcomeContract, toolNames);
+      // Emit plan created event
+      callbacks.onEvent?.("workstate.plan_created", {
+        run_id: runState.runId,
+        plan_id: runPlan.id,
+        step_count: runPlan.steps.length,
+        rationale: runPlan.rationale,
+      });
+    }
     const piTools: AgentTool<any>[] = [];
     for (const name of toolNames) {
       const piTool = toPiTool(
-        name, toolRegistry, runState, fastapiClient, stream, budget, traceIncludeSensitiveData, debugPayloadStore, input.viewerUserId,
+        name, toolRegistry, toolExecutor, runState, fastapiClient, stream, budget, traceIncludeSensitiveData, input.viewerUserId, options.resumeContext,
       );
       if (piTool) piTools.push(piTool);
+    }
+
+    // On resume with all plan steps complete: skip the model loop entirely
+    // and jump to post-loop verifier/terminalization from recovered evidence.
+    if (allPlanStepsComplete && options.resumeContext) {
+      // Transition WorkState to verifying
+      try {
+        workState = transitionWorkState(workState, "verifying", workState.version, "all plan steps completed from recovery evidence");
+        await persistControlPlaneEvent(
+          "work_state.changed",
+          runState,
+          fastapiClient,
+          stream,
+          { status: workState.status, version: workState.version, reason: workState.reason },
+          traceIncludeSensitiveData,
+        );
+      } catch (err) {
+        console.warn(`[agent-bridge] WorkState transition to verifying failed: ${err}`);
+      }
+
+      // Run verifier from recovered evidence
+      if (input.outcomeContract) {
+        const finalContent = "已根据持久化工具证据恢复运行，既定计划步骤均已完成。";
+        verifierReport = verify({
+          runId: runState.runId,
+          outcomeContract: input.outcomeContract,
+          runPlan,
+          toolResults: runState.toolResults,
+          ledgerEntries: getCombinedLedger(),
+          finalContent,
+          hasTools: !isAnswerMode,
+        });
+
+        await persistControlPlaneEvent(
+          "verifier.completed",
+          runState,
+          fastapiClient,
+          stream,
+          {
+            report_id: verifierReport.id,
+            passed: verifierReport.passed,
+            completion: verifierReport.completion,
+            has_fixable_failures: verifierReport.hasFixableFailures,
+            summary: verifierReport.summary,
+            dimensions: verifierReport.dimensions.map((d) => ({
+              name: d.name, passed: d.passed, description: d.description,
+              evidence: d.evidence.slice(0, 200), fixable: d.fixable,
+            })),
+          },
+          traceIncludeSensitiveData,
+        );
+      }
+
+      // Determine terminal status
+      const terminalStatus: RunStatus = verifierReport?.passed ? "completed" : "failed";
+      const terminalType = terminalStatus === "completed" ? "agent.completed" : "agent.failed";
+
+      try {
+        workState = transitionWorkState(
+          workState,
+          terminalStatus === "completed" ? "completed" : "failed",
+          workState.version,
+          `resume terminal: ${terminalType}`,
+        );
+      } catch {
+        // A durable terminal WorkState is preferable, but an already-terminal
+        // compatible state does not need another transition.
+      }
+
+      checkpointVersion++;
+      const resumeTerminalCheckpoint = createCheckpoint(
+        runState,
+        workState,
+        runPlan,
+        input.outcomeContract,
+        getCombinedLedger(),
+        "pre_terminal",
+        checkpointVersion,
+        undefined,
+        input.userContent,
+      );
+      await persistCheckpoint(
+        resumeTerminalCheckpoint,
+        runState,
+        fastapiClient,
+        traceIncludeSensitiveData,
+      );
+
+      runState.status = terminalStatus;
+      runState.completedAt = new Date().toISOString();
+      runState.updatedAt = new Date().toISOString();
+
+      await persistAndEmitMappedEvent(
+        {
+          type: terminalType,
+          payload: {
+            reason: "all_plan_steps_completed_from_recovery",
+            _work_state: { status: workState.status, version: workState.version },
+            ...(verifierReport ? {
+              _verifier: {
+                passed: verifierReport.passed,
+                completion: verifierReport.completion,
+                summary: verifierReport.summary,
+              },
+            } : {}),
+          },
+          newStatus: terminalStatus,
+        },
+        runState,
+        fastapiClient,
+        stream,
+        traceIncludeSensitiveData,
+      );
+
+      callbacks.onComplete?.(runState);
+      return runState;
     }
 
     // Step 3: Build Pi AgentContext
@@ -536,11 +896,12 @@ export async function executeRun(
     runState.status = "model_streaming";
     runState.updatedAt = new Date().toISOString();
 
-    let agentEndProcessed = false;
+    // Transition WorkState to executing
+    if (workState.status === "planning" || workState.status === "understanding") {
+      workState = transitionWorkState(workState, "executing", workState.version, "starting agent loop");
+    }
+
     const piEventSink = async (event: AgentEvent) => {
-      if (event.type === "agent_end") {
-        agentEndProcessed = true;
-      }
       await handlePiEvent(event, runState, fastapiClient, stream, callbacks, traceIncludeSensitiveData, memoryMetadata);
     };
 
@@ -559,33 +920,277 @@ export async function executeRun(
       streamFn,
     );
 
-    // Step 8: Finalize terminal status (if not already set by agent_end event)
-    // Status may have been mutated by handlePiEvent callback during runAgentLoop.
-    // If agent_end was already processed, it already emitted the terminal event —
-    // we only emit a fallback event when agent_end was NOT processed.
-    const statusAfterRun = runState.status as string;
-    if (options.signal?.aborted || statusAfterRun === "cancelling" || statusAfterRun === "cancelled") {
-      runState.status = "cancelled";
-      runState.completedAt = new Date().toISOString();
-      runState.updatedAt = new Date().toISOString();
-    } else if (statusAfterRun === "failed" && !agentEndProcessed) {
-      // agent_end was not emitted — emit failure event ourselves
-      await persistAndEmitMappedEvent(
-        {
-          type: "agent.failed",
-          payload: { reason: "模型返回错误" },
-          newStatus: runState.status,
-        },
+    // Post-loop checkpoint: snapshot state after all tool observations collected.
+    // This is a correctness boundary — failure must propagate, not be swallowed.
+    checkpointVersion++;
+    const postLoopCheckpoint = createCheckpoint(
+      runState, workState, runPlan, input.outcomeContract,
+      getCombinedLedger(), "tool_result", checkpointVersion,
+      undefined, input.userContent,
+    );
+    await persistCheckpoint(postLoopCheckpoint, runState, fastapiClient, traceIncludeSensitiveData);
+
+    // ── Consume pending steering at loop boundary ─────────────────────
+    if (input.pendingSteering && input.pendingSteering.length > 0) {
+      const steeringResult = await consumeSteering(input.pendingSteering);
+      if (steeringResult.shouldAbort) {
+        runState.status = "cancelled";
+        runState.completedAt = new Date().toISOString();
+        runState.updatedAt = new Date().toISOString();
+        await persistAndEmitMappedEvent(
+          { type: "run.cancelled", payload: { reason: "用户取消" }, newStatus: "cancelled" },
+          runState, fastapiClient, stream, traceIncludeSensitiveData,
+        );
+        callbacks.onComplete?.(runState);
+        return runState;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Step 8: Post-loop control plane — verifier, plan reconciliation,
+    //         WorkState transitions, and SINGLE terminal event.
+    //
+    // IMPORTANT: agent_end from Pi did NOT set terminal status.
+    // runState.pendingTerminal captures the model's stop reason.
+    // We now determine the REAL terminal status here.
+    // ═══════════════════════════════════════════════════════════════════
+
+    // 8a. Reconcile RunPlan steps based on tool results
+    if (runPlan) {
+      for (const step of runPlan.steps) {
+        if (step.status === "pending" || step.status === "in_progress") {
+          // Check if any tool result matches this step's allowed tools
+          const stepTools = new Set(step.allowedTools);
+          const matchingResults = runState.toolResults.filter(
+            (tr) => stepTools.has(tr.toolName),
+          );
+          if (matchingResults.length > 0) {
+            step.status = "completed";
+            step.progressMessage = `工具执行完成: ${matchingResults.map((t) => t.toolName).join(", ")}`;
+          }
+        }
+      }
+      // Persist run_plan.created event
+      await persistControlPlaneEvent(
+        "run_plan.created",
         runState,
         fastapiClient,
         stream,
+        {
+          plan_id: runPlan.id,
+          rationale: runPlan.rationale,
+          steps: runPlan.steps.map((s) => ({
+            id: s.id, goal: s.goal, status: s.status,
+            dependencies: s.dependencies, allowed_tools: s.allowedTools,
+          })),
+        },
         traceIncludeSensitiveData,
       );
-    } else if (statusAfterRun !== "completed" && statusAfterRun !== "failed" && !agentEndProcessed) {
-      runState.status = "completed";
+    }
+
+    // 8b. Transition WorkState to verifying and persist event
+    try {
+      workState = transitionWorkState(workState, "verifying", workState.version, "running verifier");
+      await persistControlPlaneEvent(
+        "work_state.changed",
+        runState,
+        fastapiClient,
+        stream,
+        { status: workState.status, version: workState.version, reason: workState.reason },
+        traceIncludeSensitiveData,
+      );
+    } catch (err) {
+      // If transition fails, log but continue — verifier still runs
+      console.warn(`[agent-bridge] WorkState transition to verifying failed: ${err}`);
+    }
+
+    // 8c. Run deterministic verifier
+    if (input.outcomeContract) {
+      const finalContent = runState.pendingTerminal?.finalContent
+        ?? runState.toolResults[runState.toolResults.length - 1]?.observation
+        ?? "";
+
+      verifierReport = verify({
+        runId: runState.runId,
+        outcomeContract: input.outcomeContract,
+        runPlan,
+        toolResults: runState.toolResults,
+        ledgerEntries: getCombinedLedger(),
+        finalContent,
+        hasTools: !isAnswerMode,
+      });
+
+      // Persist verifier.completed event
+      await persistControlPlaneEvent(
+        "verifier.completed",
+        runState,
+        fastapiClient,
+        stream,
+        {
+          report_id: verifierReport.id,
+          passed: verifierReport.passed,
+          completion: verifierReport.completion,
+          has_fixable_failures: verifierReport.hasFixableFailures,
+          summary: verifierReport.summary,
+          dimensions: verifierReport.dimensions.map((d) => ({
+            name: d.name, passed: d.passed, description: d.description,
+            evidence: d.evidence.slice(0, 200), fixable: d.fixable,
+          })),
+        },
+        traceIncludeSensitiveData,
+      );
+    }
+
+    // 8d. Determine SINGLE terminal status from:
+    //     - cancellation signal
+    //     - model error/abort from pendingTerminal
+    //     - verifier completion classification
+    const pending = runState.pendingTerminal;
+    let terminalType: "agent.completed" | "agent.failed" | "run.cancelled";
+    let terminalStatus: RunStatus;
+
+    if (options.signal?.aborted) {
+      // Explicit cancellation
+      terminalType = "run.cancelled";
+      terminalStatus = "cancelled";
+    } else if (pending?.modelAborted) {
+      terminalType = "run.cancelled";
+      terminalStatus = "cancelled";
+    } else if (pending?.modelError) {
+      // Model reported error — check if side effects exist
+      const hasSideEffects = runState.toolResults.some(
+        (tr) => tr.sideEffectStatus !== "no_side_effect" && tr.sideEffectStatus !== "unknown",
+      );
+      if (hasSideEffects) {
+        // Side effects exist — verifier decides completion
+        if (verifierReport) {
+          terminalType = verifierReport.passed ? "agent.completed" : "agent.failed";
+          terminalStatus = verifierReport.passed ? "completed" : "failed";
+        } else {
+          terminalType = "agent.completed";
+          terminalStatus = "completed";
+        }
+      } else {
+        terminalType = "agent.failed";
+        terminalStatus = "failed";
+      }
+    } else if (verifierReport) {
+      // Verifier determines completion
+      switch (verifierReport.completion) {
+        case "complete":
+        case "answer_only":
+          terminalType = "agent.completed";
+          terminalStatus = "completed";
+          break;
+        case "partial":
+          terminalType = "agent.completed";
+          terminalStatus = "completed"; // partial is still a successful completion
+          break;
+        case "blocked":
+          terminalType = "agent.failed";
+          terminalStatus = "failed";
+          break;
+        case "failed":
+          terminalType = "agent.failed";
+          terminalStatus = "failed";
+          break;
+        default:
+          terminalType = "agent.completed";
+          terminalStatus = "completed";
+      }
+    } else {
+      // No verifier (answer mode without contract) — default to completed
+      terminalType = "agent.completed";
+      terminalStatus = "completed";
+    }
+
+    // 8e. Transition WorkState to terminal
+    const workStateMap: Record<string, WorkStateStatus> = {
+      completed: "completed",
+      failed: "failed",
+      cancelled: "cancelled",
+    };
+    try {
+      workState = transitionWorkState(
+        workState,
+        workStateMap[terminalStatus] ?? "completed",
+        workState.version,
+        `terminal: ${terminalType}`,
+      );
+    } catch {
+      // Already terminal — ok
+    }
+
+    // 8f. Persist pre-terminal checkpoint (safe snapshot before terminal event).
+    // This is a correctness boundary — failure must not be swallowed.
+    // If the checkpoint fails, persist a failure terminal instead of a misleading success.
+    checkpointVersion++;
+    const preTerminalCheckpoint = createCheckpoint(
+      runState, workState, runPlan, input.outcomeContract,
+      getCombinedLedger(), "pre_terminal", checkpointVersion,
+      undefined, input.userContent,
+    );
+    try {
+      await persistCheckpoint(preTerminalCheckpoint, runState, fastapiClient, traceIncludeSensitiveData);
+    } catch (ckptErr) {
+      // Checkpoint persistence failed — emit a failure terminal instead of misleading success
+      const ckptErrorMessage = ckptErr instanceof Error ? ckptErr.message : String(ckptErr);
+      console.error(`[agent-bridge] pre-terminal checkpoint persist failed: ${ckptErrorMessage}`);
+      runState.status = "failed";
       runState.completedAt = new Date().toISOString();
       runState.updatedAt = new Date().toISOString();
+      await persistAndEmitMappedEvent(
+        {
+          type: "run.failed",
+          payload: {
+            error: `检查点持久化失败: ${ckptErrorMessage}`,
+            _checkpoint_failed: true,
+          },
+          newStatus: "failed",
+        },
+        runState, fastapiClient, stream, traceIncludeSensitiveData,
+      );
+      callbacks.onError?.(new Error(`Checkpoint failed: ${ckptErrorMessage}`), runState);
+      return runState;
     }
+
+    // 8g. Persist the SINGLE terminal event with WorkState/RunPlan/VerifierReport
+    runState.status = terminalStatus;
+    runState.completedAt = new Date().toISOString();
+    runState.updatedAt = new Date().toISOString();
+
+    const terminalPayload: Record<string, unknown> = {
+      reason: pending?.stopReason ?? "completed",
+      ...(pending?.finalContent ? { final_content: pending.finalContent } : {}),
+      _work_state: { status: workState.status, version: workState.version },
+      ...(runPlan ? {
+        _run_plan: {
+          plan_id: runPlan.id,
+          steps_completed: runPlan.steps.filter((s) => s.status === "completed").length,
+          steps_total: runPlan.steps.length,
+        },
+      } : {}),
+      ...(verifierReport ? {
+        _verifier: {
+          passed: verifierReport.passed,
+          completion: verifierReport.completion,
+          summary: verifierReport.summary,
+        },
+      } : {}),
+    };
+
+    await persistAndEmitMappedEvent(
+      {
+        type: terminalType,
+        payload: terminalPayload,
+        newStatus: terminalStatus,
+      },
+      runState,
+      fastapiClient,
+      stream,
+      traceIncludeSensitiveData,
+    );
+
     callbacks.onComplete?.(runState);
 
     return runState;
@@ -644,6 +1249,7 @@ async function persistAndEmitMappedEvent(
   });
   const appendResponse = await fastapiClient.appendEvents(runState.runId, {
     idempotency_key: `${event.clientEventId}:append:v1`,
+    expected_state_version: runState.stateVersion,
     state_patch: buildStatePatch(runState),
     events: [toWireEvent(event)],
   });
@@ -651,6 +1257,39 @@ async function persistAndEmitMappedEvent(
   updateLastEventSeq(runState, appendResponse.state_version, appendResponse.events.map((item) => item.event_seq));
   stream.emit(event.type as StreamEventType, event);
   return event;
+}
+
+/**
+ * Persist a control-plane event (work_state.changed, run_plan.created, etc.)
+ * through the FastAPI append API. These events are durable and replayable.
+ */
+async function persistControlPlaneEvent(
+  type: RuntimeEventType,
+  runState: AgentRunState,
+  fastapiClient: FastapiClient,
+  stream: EventStream,
+  payload: Record<string, unknown>,
+  traceIncludeSensitiveData: boolean,
+): Promise<void> {
+  const event = buildRuntimeEvent(
+    {
+      type,
+      payload: { run_id: runState.runId, ...payload },
+    },
+    runState,
+    {
+      orderingHint: runState.lastEventSeq + 1,
+      includeSensitiveData: traceIncludeSensitiveData,
+    },
+  );
+  const appendResponse = await fastapiClient.appendEvents(runState.runId, {
+    idempotency_key: `${event.clientEventId}:append:v1`,
+    expected_state_version: runState.stateVersion,
+    events: [toWireEvent(event)],
+  });
+  assignPersistedEventSeqs([event], appendResponse);
+  updateLastEventSeq(runState, appendResponse.state_version, appendResponse.events.map((item) => item.event_seq));
+  stream.emit(event.type as StreamEventType, event);
 }
 
 function buildStatePatch(runState: AgentRunState): Record<string, unknown> {
@@ -753,7 +1392,8 @@ function toToolParameters(inputSchema: unknown): TSchema {
 }
 
 function updateLastEventSeq(runState: AgentRunState, stateVersion: number, eventSeqs: number[]): void {
-  runState.lastEventSeq = Math.max(runState.lastEventSeq, stateVersion, ...eventSeqs);
+  runState.lastEventSeq = Math.max(runState.lastEventSeq, ...eventSeqs);
+  runState.stateVersion = stateVersion;
 }
 
 function toWireTrace(trace: ToolTrace): NonNullable<WireProjectFlowToolResult["trace"]> {

@@ -26,6 +26,16 @@ function createState() {
   });
 }
 
+/** Default skill context for tests that need action mode (tool execution). */
+function defaultSkillContext() {
+  return {
+    name: "test-skill",
+    description: "Test skill for action mode",
+    body: "skill body",
+    allowedTools: ["mock_get_workspace_state", "generate_stage_plan_proposal", "analyze_checkins_and_risks", "blocked_tool", "allowed_tool"],
+  };
+}
+
 function createModelRouter(): ModelRouter {
   // Create a minimal mock ModelConfigStore for the mock provider
   const mockStore = {
@@ -107,6 +117,7 @@ describe("pi-runtime", () => {
         workspaceId: "ws_1",
         projectId: "proj_1",
         userContent: "跑一次 mock loop",
+        skillContext: defaultSkillContext(),
       },
       registry,
       createModelRouter(),
@@ -136,6 +147,7 @@ describe("pi-runtime", () => {
         workspaceId: "ws_1",
         projectId: "proj_1",
         userContent: "跑一次 mock loop",
+        skillContext: defaultSkillContext(),
       },
       registry,
       createModelRouter(),
@@ -182,6 +194,10 @@ describe("pi-runtime", () => {
         workspaceId: "ws_1",
         projectId: "proj_1",
         userContent: "生成计划",
+        skillContext: {
+          ...defaultSkillContext(),
+          allowedTools: ["generate_stage_plan_proposal"],
+        },
       },
       registry,
       createModelRouter(),
@@ -244,6 +260,10 @@ describe("pi-runtime", () => {
         workspaceId: "ws_1",
         projectId: "proj_1",
         userContent: "分析风险",
+        skillContext: {
+          ...defaultSkillContext(),
+          allowedTools: ["analyze_checkins_and_risks"],
+        },
       },
       registry,
       createModelRouter(),
@@ -393,6 +413,7 @@ describe("pi-runtime", () => {
         workspaceId: "ws_1",
         projectId: "proj_1",
         userContent: "帮我分工",
+        skillContext: defaultSkillContext(),
         memoryContext: {
           text: "以下是与当前项目相关的历史记忆：\n1. [边界] MVP 不做外部集成",
           usedMemoryIds: ["mem-1", "mem-2"],
@@ -438,6 +459,7 @@ describe("pi-runtime", () => {
         workspaceId: "ws_1",
         projectId: "proj_1",
         userContent: "帮我分工",
+        skillContext: defaultSkillContext(),
         memoryContext: null,
       },
       registry,
@@ -474,6 +496,7 @@ describe("pi-runtime", () => {
         workspaceId: "ws_1",
         projectId: "proj_1",
         userContent: "帮我分工",
+        skillContext: defaultSkillContext(),
         memoryContext: {
           text: "记忆内容",
           usedMemoryIds: ["mem-1"],

@@ -8,7 +8,28 @@
 export interface ModelCapabilities {
   thinking: boolean;
   vision: boolean;
+  /**
+   * Maximum context window in tokens for this model.
+   * Additive optional field — when absent, DEFAULT_CONTEXT_TOKENS is used.
+   * This is a DECLARED budget, not a verified model capability.
+   * It controls context assembly compaction, not the actual API limit.
+   */
+  contextTokens?: number;
 }
+
+/**
+ * Conservative default context budget when model config doesn't specify contextTokens.
+ * This is NOT the model's actual capability — it's a safe assembly budget.
+ * Reserve ~25% for output, tools, and safety margin.
+ * Typical models: 128K context → use 32K for input assembly.
+ */
+export const DEFAULT_CONTEXT_TOKENS = 32_000;
+
+/**
+ * Minimum context budget — below this, context assembly would be unusable.
+ * If pinned/required content exceeds this, we fail rather than silently truncate.
+ */
+export const MIN_CONTEXT_TOKENS = 4_000;
 
 /** On-disk format (what's in model-configs.json) */
 export interface ModelConfigEntry {

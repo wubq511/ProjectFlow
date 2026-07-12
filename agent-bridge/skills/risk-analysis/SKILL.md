@@ -6,6 +6,19 @@ allowed-tools:
   - get_timeline_slice
   - create_risk
 references: []
+v2:
+  version: 2
+  triggerExamples:
+    - "分析当前风险"
+    - "检查项目风险"
+    - "请帮我检查项目风险"
+  negativeTriggers:
+    - "当前有哪些风险"
+    - "风险等级怎么划分"
+  prerequisites: []
+  outcomeType: advisory
+  allowedEffects: advisory_only
+  requiredVerification: deterministic
 ---
 
 # 风险分析

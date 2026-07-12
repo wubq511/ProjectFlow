@@ -23,8 +23,10 @@ from app.schemas.runtime import (
     RunStartRequest,
     RunStartResponse,
     RunStatusResponse,
+    SteeringRequest,
+    SteeringResponse,
 )
-from app.services.agent_runtime_service import get_agent_runtime_service
+from app.services.agent_runtime_service import get_agent_runtime_service, StaleStateVersionError
 
 router = APIRouter(
     prefix="/internal/agent-runs",
@@ -105,6 +107,8 @@ def append_agent_run_events(
     service = get_agent_runtime_service(session)
     try:
         return service.append_events(run_id, request)
+    except StaleStateVersionError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except ValueError as e:
         # 非法状态转换返回 400，其他 ValueError（如 run not found）返回 404
         if "非法状态转换" in str(e):
@@ -149,3 +153,85 @@ def cancel_agent_run(
         status=AgentRunStatus.cancelling,
         cancelled=True,
     )
+
+
+@router.get("/{run_id}/snapshot")
+def get_agent_run_snapshot(
+    run_id: str,
+    after_event_seq: int = 0,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Get a durable snapshot of a run for resume/rehydrate.
+
+    Returns current run state, latest checkpoint, and recent events.
+    Supports cursor-based pagination via after_event_seq; returns next_cursor
+    when more pages are available.
+    Bounded/redacted — no raw workspace_state, secrets, or chain-of-thought.
+    """
+    service = get_agent_runtime_service(session)
+    result = service.get_run_snapshot(run_id, after_event_seq=after_event_seq)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return result
+
+
+@router.get("/{run_id}/resume-context")
+def get_resume_context(
+    run_id: str,
+    viewer_user_id: str,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Get authenticated resume context for a run.
+
+    Validates viewer membership and returns fresh workspace facts,
+    pending proposals, and viewer identity. Failure is blocking.
+    """
+    if not viewer_user_id or not viewer_user_id.strip():
+        raise HTTPException(status_code=400, detail="viewer_user_id 不能为空")
+    service = get_agent_runtime_service(session)
+    try:
+        return service.get_resume_context(run_id, viewer_user_id)
+    except ValueError as e:
+        msg = str(e)
+        if "不是" in msg and "成员" in msg:
+            raise HTTPException(status_code=403, detail="viewer 不是工作区成员") from e
+        if "not found" in msg.lower() or "不存在" in msg:
+            raise HTTPException(status_code=404, detail=msg) from e
+        raise HTTPException(status_code=400, detail=msg) from e
+
+
+@router.post("/{run_id}/steering", response_model=SteeringResponse)
+def append_steering_event(
+    run_id: str,
+    request: SteeringRequest,
+    session: Session = Depends(get_session),
+) -> SteeringResponse:
+    """Append a steering event to a run.
+
+    Steering events are queued and consumed at the next loop boundary.
+    Uses client_message_id for idempotency.
+    """
+    service = get_agent_runtime_service(session)
+    try:
+        result = service.append_steering(
+            run_id=run_id,
+            steering_type=request.steering_type,
+            content=request.content,
+            client_message_id=request.client_message_id,
+            metadata=request.metadata,
+            expected_state_version=request.expected_state_version,
+        )
+        return SteeringResponse(
+            run_id=result["run_id"],
+            steering_seq=result["steering_seq"],
+            state_version=result.get("state_version", 0),
+            accepted=result["accepted"],
+            message=result["message"],
+        )
+    except StaleStateVersionError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    except ValueError as e:
+        msg = str(e)
+        if "not found" in msg.lower() or "不存在" in msg:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)

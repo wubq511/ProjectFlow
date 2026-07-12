@@ -651,3 +651,36 @@ export type BuiltinProvider = {
   id: string;
   displayName: string;
 };
+
+// --- Phase 5: Work State / Steering ---
+
+export type WorkStateStatus =
+  | "understanding"
+  | "planning"
+  | "executing"
+  | "verifying"
+  | "awaiting_user"
+  | "awaiting_approval"
+  | "recovering"
+  | "completed"
+  | "partial"
+  | "blocked"
+  | "failed"
+  | "cancelled";
+
+export const WORK_STATE_LABELS: Record<WorkStateStatus, string> = {
+  understanding: "理解中",
+  planning: "规划中",
+  executing: "执行中",
+  verifying: "验证中",
+  awaiting_user: "等待回答",
+  awaiting_approval: "等待审批",
+  recovering: "恢复中",
+  completed: "已完成",
+  partial: "部分完成",
+  blocked: "已阻塞",
+  failed: "失败",
+  cancelled: "已取消",
+};
+
+export type SteeringType = "constraint" | "correction" | "plan_change" | "clarification_answer" | "approval_response" | "cancel";

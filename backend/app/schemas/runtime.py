@@ -338,6 +338,10 @@ class AppendRequest(BaseModel):
     Sidecar submits this; FastAPI processes atomically.
     """
     idempotency_key: str
+    expected_state_version: int | None = Field(
+        default=None,
+        description="Optimistic concurrency: compare against run.state_version; stale requests return 409",
+    )
     state_patch: dict[str, Any] | None = None
     events: list[EventAppendItem] = Field(default_factory=list)
     tool_results: list[ToolResultAppendItem] = Field(default_factory=list)
@@ -421,6 +425,7 @@ class RunStatusResponse(BaseModel):
     current_turn: int = 0
     current_step: int = 0
     last_event_seq: int = 0
+    state_version: int = 0
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None = None
@@ -436,3 +441,67 @@ class RunCancelResponse(BaseModel):
     run_id: str
     status: AgentRunStatus
     cancelled: bool = True
+
+
+# ─── Snapshot API (Phase 5: Checkpoint + Resume) ───────────────────────────
+
+
+class RunSnapshotResponse(BaseModel):
+    """Durable snapshot of a run for resume/rehydrate.
+
+    Contains the current run state, latest checkpoint, and recent events.
+    Bounded/redacted — no raw workspace_state, secrets, or chain-of-thought.
+    """
+    run_id: str
+    conversation_id: str
+    workspace_id: str
+    project_id: str
+    status: AgentRunStatus
+    current_turn: int = 0
+    current_step: int = 0
+    last_event_seq: int = 0
+    state_version: int = 0
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+    side_effects: list[dict[str, Any]] = Field(default_factory=list)
+    latest_checkpoint: dict[str, Any] | None = None
+    recent_events: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# ─── Steering API (Phase 5: Steering Queue) ────────────────────────────────
+
+
+STEERING_TYPES = Literal[
+    "constraint",           # user adds a constraint/correction
+    "correction",           # user corrects a previous statement
+    "plan_change",          # user requests plan modification
+    "clarification_answer", # user answers a clarification question
+    "approval_response",    # user approves/denies an effect request
+    "cancel",               # user cancels the run
+]
+
+
+class SteeringRequest(BaseModel):
+    """Request to append a steering event to a run.
+
+    Uses client_message_id for idempotency — duplicate messages are ignored.
+    The steering event is queued and consumed at the next loop boundary.
+    """
+    steering_type: STEERING_TYPES
+    content: str
+    client_message_id: str = Field(description="Idempotency key for duplicate detection")
+    expected_state_version: int | None = Field(
+        default=None,
+        description="Optimistic concurrency: compare against run.state_version; stale requests return 409",
+    )
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SteeringResponse(BaseModel):
+    """Response from appending a steering event."""
+    run_id: str
+    steering_seq: int
+    state_version: int = 0
+    accepted: bool = True
+    message: str = "已接收"

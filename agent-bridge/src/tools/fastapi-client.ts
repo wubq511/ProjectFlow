@@ -84,6 +84,37 @@ export class FastapiClient {
     return this.request<WireRunCancelResponse>("POST", `/internal/agent-runs/${runId}/cancel`, body);
   }
 
+  /** Get a durable snapshot of a run for resume/rehydrate. Supports cursor-based pagination. */
+  async getRunSnapshot(runId: string, afterEventSeq?: number): Promise<Record<string, unknown>> {
+    const cursorParam = afterEventSeq != null && afterEventSeq > 0
+      ? `?after_event_seq=${afterEventSeq}`
+      : "";
+    return this.request("GET", `/internal/agent-runs/${runId}/snapshot${cursorParam}`);
+  }
+
+  /** Get authenticated resume context for a run. */
+  async getResumeContext(runId: string, viewerUserId: string): Promise<Record<string, unknown>> {
+    return this.request("GET", `/internal/agent-runs/${runId}/resume-context?viewer_user_id=${encodeURIComponent(viewerUserId)}`);
+  }
+
+  /** Append a steering event to a run. */
+  async appendSteering(
+    runId: string,
+    steeringType: string,
+    content: string,
+    clientMessageId: string,
+    metadata?: Record<string, unknown>,
+    expectedStateVersion?: number,
+  ): Promise<{ run_id: string; steering_seq: number; state_version: number; accepted: boolean; message: string }> {
+    return this.request("POST", `/internal/agent-runs/${runId}/steering`, {
+      steering_type: steeringType,
+      content,
+      client_message_id: clientMessageId,
+      expected_state_version: expectedStateVersion,
+      metadata: metadata ?? {},
+    });
+  }
+
   /**
    * Call an internal tool endpoint.
    * All tool calls go through POST /internal/agent-tools/{tool-name}.

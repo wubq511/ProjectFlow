@@ -12,6 +12,7 @@ import type { ModelRouter } from "@/runtime/model-router.js";
 import type { ModelConfigStore } from "@/config/model-config-store.js";
 import type { DotEnvWriter } from "@/config/dotenv-writer.js";
 import type { SkillLoader } from "@/skills/skill-loader.js";
+import type { SkillIndex } from "@/skills/skill-index.js";
 
 /** Shared context passed to all route handlers — no secrets exposed on req. */
 export interface RunContext {
@@ -27,6 +28,8 @@ export interface RunContext {
   reloadDotEnv: () => Promise<void>;
   /** Load SKILL.md content by skill name */
   skillLoader: SkillLoader;
+  /** Optional injected SkillIndex (defaults to singleton getSkillIndex()) */
+  skillIndex?: SkillIndex;
 }
 
 export function sendJson(res: ServerResponse, status: number, data: unknown): void {

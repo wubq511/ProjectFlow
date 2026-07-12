@@ -139,6 +139,10 @@ def process_conversation_message_stream(
     )
     recent_messages = _recent_messages(session, conversation.id)
 
+    # Map deterministic intent to sidecar Skill name.
+    # Only unambiguous action intents get a skill; general questions stay in answer mode.
+    skill_name = _extract_skill_name(content)
+
     sidecar_request = {
         "conversation_id": conversation.id,
         "workspace_id": conversation.workspace_id,
@@ -150,6 +154,7 @@ def process_conversation_message_stream(
         "runtime_config": {
             "max_steps": 10,
             "max_tool_calls": 20,
+            **({"skill": skill_name} if skill_name else {}),
         },
     }
 
@@ -537,14 +542,16 @@ def _next_suggestions_from_conversation(session: Session, conversation: AgentCon
 # Deterministic intent matcher (sidecar-unavailable fallback)
 # ---------------------------------------------------------------------------
 
-# Ordered by specificity — more specific patterns should match first
+# Ordered by specificity — more specific patterns should match first.
+# These are BROAD patterns used only for the sidecar-unavailable guidance
+# message, NOT for Skill selection.
 _INTENT_PATTERNS: list[tuple[str, str]] = [
     ("方向澄清", r"澄清方向|方向澄清|帮我澄清|先认证|先澄清"),
-    ("生成阶段计划", r"阶段计划|生成.*计划|规划.*阶段|阶段.*规划|时间表|里程碑|plan\b"),
+    ("生成阶段计划", r"阶段计划|生成.*计划|制定.*计划|规划.*阶段|阶段.*规划|时间表|里程碑|plan\b"),
     ("任务拆解", r"拆成任务|任务拆解|拆解.*任务|把.*拆|分解.*任务|breakdown\b"),
     ("推荐分工", r"分工|分配.*成员|推荐.*分工|assign\b"),
     ("生成行动卡", r"行动卡|生成.*行动|下一步.*行动|push\b"),
-    ("分析风险", r"分析.*风险|风险.*分析|risk\b"),
+    ("分析风险", r"分析.*风险|风险.*分析|risk\b|阻塞|延期"),
     ("签到分析", r"签到|检查.*进度|checkin\b"),
     ("调整计划", r"调整计划|重新规划|重排|replan\b"),
 ]
@@ -560,4 +567,132 @@ def _deterministic_intent_match(content: str) -> str | None:
     for label, pattern in _INTENT_PATTERNS:
         if re.search(pattern, lowered):
             return label
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Narrow action-to-Skill matcher (sidecar skill resolution)
+# ---------------------------------------------------------------------------
+
+# Precedence rules for _extract_skill_name:
+# 1. Exact quick-reply phrases → action Skill (deterministic product contract)
+# 2. Explicit request markers (请/帮我/麻烦/请执行/直接/开始) + action object → action
+# 3. Question/explanation-only markers → answer mode (None)
+# 4. Narrow imperative action patterns → action Skill
+# Bare domain words (风险/延期/阻塞/签到/分工/阶段计划/方向澄清) alone → answer mode.
+
+# Question/explanation markers — used only when NO explicit request marker is present.
+_QUESTION_ONLY_MARKERS = re.compile(
+    r"什么|为什么|如何|哪[些]?|怎么|是否|什么意思|是什么|怎么样|对不对"
+)
+
+# Explicit request markers that override question syntax.
+# "可以帮我制定计划吗？" has 吗 but also 帮我 → action.
+_REQUEST_MARKERS = re.compile(r"请|帮我|麻烦|请执行|直接|开始")
+
+# Bare feature/domain labels are ambiguous: they can be navigation labels or
+# requests for explanation. Without an explicit request marker, keep them in
+# answer mode instead of allowing an advisory/proposal write.
+_AMBIGUOUS_BARE_LABELS = {
+    "方向澄清",
+    "阶段计划",
+    "任务拆解",
+    "推荐分工",
+    "风险分析",
+    "签到分析",
+}
+
+# Exact quick-reply phrases from QUICK_REPLY_INSTRUCTION_MAP.
+# These are deterministic product contracts and always map to action Skills.
+_EXACT_QUICK_REPLIES: list[tuple[str, str]] = [
+    ("project-status", r"^生成下一步行动卡$"),
+    ("risk-analysis", r"^分析当前风险$"),
+    ("risk-replan", r"^根据签到调整计划$"),
+    ("assignment-planning", r"^根据成员情况推荐分工$"),
+    ("task-breakdown", r"^把当前阶段拆成任务$"),
+    ("project-planning", r"^按三周节奏生成阶段计划$"),
+    ("project-intake", r"^先帮我澄清方向$"),
+]
+
+# Expanded quick-reply instructions (the full text sent after mapping).
+_EXPANDED_QUICK_REPLIES: list[tuple[str, str]] = [
+    ("risk-analysis", r"请执行 risk 模块"),
+    ("risk-replan", r"请执行 replan 模块"),
+    ("assignment-planning", r"请执行 assign 模块"),
+    ("task-breakdown", r"请执行 breakdown 模块"),
+    ("project-planning", r"请执行 plan 模块"),
+    ("project-intake", r"请执行 clarify 模块"),
+    ("project-status", r"请执行 push 模块"),
+]
+
+# Action-verb+domain-object patterns (narrow, imperative).
+# Only matched when preceded by an explicit request marker OR when no
+# question markers are present.
+_IMPERATIVE_ACTION_PATTERNS: list[tuple[str, str]] = [
+    # Clarification
+    ("project-intake", r"澄清.*方向|方向澄清"),
+    # Planning
+    ("project-planning", r"制定.*计划|生成.*计划|规划.*阶段|阶段.*规划|制定规划"),
+    # Breakdown
+    ("task-breakdown", r"拆成任务|任务拆解|拆解.*任务|分解.*任务|拆成.*任务"),
+    # Assignment
+    ("assignment-planning", r"推荐.*分工|分配.*成员|分配一下.*成员"),
+    # Status/Push
+    ("project-status", r"生成.*行动卡|下一步.*行动"),
+    # Risk analysis — explicit analysis action
+    ("risk-analysis", r"分析.*风险|风险.*分析|检查.*风险|识别.*风险"),
+    # Replan
+    ("risk-replan", r"调整计划|重新规划|重排.*计划|根据.*签到.*调整"),
+]
+
+
+def _extract_skill_name(content: str) -> str | None:
+    """Extract a sidecar Skill name from user content.
+
+    Precedence:
+    1. Exact quick-reply phrases → action Skill
+    2. Expanded quick-reply instructions → action Skill
+    3. Explicit request marker + action object → action Skill
+    4. Question-only markers (without request marker) → answer mode
+    5. Narrow imperative patterns (no question markers) → action Skill
+    6. Otherwise → answer mode (None)
+
+    Only used for the conversation streaming path; dashboard buttons pass
+    runtime_config.skill explicitly.
+    """
+    # 1. Exact quick-reply phrases (deterministic product contract)
+    for skill_name, pattern in _EXACT_QUICK_REPLIES:
+        if re.search(pattern, content):
+            return skill_name
+
+    # 2. Expanded quick-reply instructions
+    for skill_name, pattern in _EXPANDED_QUICK_REPLIES:
+        if re.search(pattern, content):
+            return skill_name
+
+    # 3. Explicit request markers override question syntax
+    has_request_marker = bool(_REQUEST_MARKERS.search(content))
+    has_question_marker = bool(_QUESTION_ONLY_MARKERS.search(content))
+    normalized_content = content.strip().rstrip("？?").strip()
+
+    if has_request_marker:
+        # "可以帮我制定计划吗？" → action despite 吗
+        for skill_name, pattern in _IMPERATIVE_ACTION_PATTERNS:
+            if re.search(pattern, content):
+                return skill_name
+        # Request marker but no matching action object → fall through
+
+    # 4. Question-only markers without request marker → answer mode
+    if has_question_marker and not has_request_marker:
+        return None
+
+    if not has_request_marker and normalized_content in _AMBIGUOUS_BARE_LABELS:
+        return None
+
+    # 5. Narrow imperative patterns (no question markers present)
+    for skill_name, pattern in _IMPERATIVE_ACTION_PATTERNS:
+        if re.search(pattern, content):
+            return skill_name
+
+    # 6. No match → answer mode
     return None

@@ -12,6 +12,8 @@ import { handleStartRun } from "./routes/start-run.js";
 import { handleStartRunStream } from "./routes/start-run-stream.js";
 import { handleGetRun } from "./routes/get-run.js";
 import { handleCancelRun } from "./routes/cancel-run.js";
+import { handleResumeRun } from "./routes/resume-run.js";
+import { handleSteering } from "./routes/steering.js";
 import { handleListTools } from "./routes/list-tools.js";
 import { handleHealth } from "./routes/health.js";
 import { handleConfigModelsList, handleConfigModelsAdd, handleConfigModelsUpdate, handleConfigModelsDelete } from "./routes/config-models.js";
@@ -28,6 +30,7 @@ import { ModelConfigStore } from "@/config/model-config-store.js";
 import { DotEnvWriter } from "@/config/dotenv-writer.js";
 import { ModelRouter } from "@/runtime/model-router.js";
 import { SkillLoader } from "@/skills/skill-loader.js";
+import { getSkillIndex } from "@/skills/skill-index.js";
 import type { RunContext } from "./routes/utils.js";
 
 type RouteHandler = (req: IncomingMessage, res: ServerResponse, params: Record<string, string>, ctx: RunContext) => Promise<void>;
@@ -100,6 +103,7 @@ export function createServer(config: SidecarConfig, serverCtx?: Partial<ServerCo
     dotenvWriter,
     reloadDotEnv: serverCtx?.reloadDotEnv ?? (async () => { await modelConfigStore.load(); }),
     skillLoader,
+    skillIndex: getSkillIndex(),
   };
 
   const routes: Route[] = [
@@ -108,6 +112,8 @@ export function createServer(config: SidecarConfig, serverCtx?: Partial<ServerCo
     compileRoute("POST", "/runs/stream", handleStartRunStream),
     compileRoute("GET", "/runs/:runId", handleGetRun),
     compileRoute("POST", "/runs/:runId/cancel", handleCancelRun),
+    compileRoute("POST", "/runs/:runId/resume", handleResumeRun),
+    compileRoute("POST", "/runs/:runId/steering", handleSteering),
     compileRoute("GET", "/tools/list", handleListTools),
     compileRoute("GET", "/health", handleHealth),
 

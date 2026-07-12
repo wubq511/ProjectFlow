@@ -6,6 +6,23 @@ allowed-tools:
   - recommend_assignment
 references:
   - references/assignment-rubric.md
+v2:
+  version: 2
+  triggerExamples:
+    - "推荐分工"
+    - "分配成员"
+    - "根据成员情况推荐分工"
+  negativeTriggers:
+    - "如何理解团队分工"
+    - "分工的依据是什么"
+  prerequisites:
+    - type: has_tasks
+      description: 必须有任务才能分配
+    - type: has_members
+      description: 必须有成员才能分配
+  outcomeType: proposal
+  allowedEffects: proposal_only
+  requiredVerification: deterministic
 ---
 
 # 分工推荐

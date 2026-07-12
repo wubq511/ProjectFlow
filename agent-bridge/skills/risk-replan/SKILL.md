@@ -8,6 +8,21 @@ allowed-tools:
   - generate_replan_proposal
 references:
   - references/risk-replan-playbook.md
+v2:
+  version: 2
+  triggerExamples:
+    - "调整计划"
+    - "重新规划"
+    - "根据签到调整计划"
+  negativeTriggers:
+    - "如何调整计划"
+    - "计划调整是什么"
+  prerequisites:
+    - type: has_stages
+      description: 必须有阶段才能调整计划
+  outcomeType: proposal
+  allowedEffects: proposal_only
+  requiredVerification: deterministic
 ---
 
 # 计划调整

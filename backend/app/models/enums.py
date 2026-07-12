@@ -223,12 +223,21 @@ class RuntimeEventType(str, Enum):
     agent_delta = "agent.delta"
     agent_completed = "agent.completed"
     agent_failed = "agent.failed"
+    agent_output_captured = "agent.output_captured"
     tool_progress = "tool.progress"
     advisory_record_created = "advisory_record.created"
     proposal_confirmation_confirmed = "proposal_confirmation.confirmed"
     proposal_confirmation_rejected = "proposal_confirmation.rejected"
     proposal_confirmation_committed = "proposal_confirmation.committed"
     run_state_changed = "run.state_changed"
+    work_state_changed = "work_state.changed"
+    run_plan_created = "run_plan.created"
+    run_plan_step_updated = "run_plan.step_updated"
+    verifier_completed = "verifier.completed"
+    tool_ledger_entry = "tool.ledger_entry"
+    checkpoint_saved = "checkpoint.saved"
+    steering_queued = "steering.queued"
+    steering_consumed = "steering.consumed"
 
 
 class HumanActionType(str, Enum):

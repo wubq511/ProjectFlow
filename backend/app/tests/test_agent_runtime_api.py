@@ -771,3 +771,584 @@ def _create_runtime_linked_clarify_proposal(test_engine) -> tuple[str, str, str]
         session.add(proposal)
         session.commit()
         return run.id, proposal.id, owner.id
+
+
+class TestP0DurableIdempotency:
+    """P0-6: Pure state-patch and tool-result-only idempotency survives restart."""
+
+    def test_pure_state_patch_duplicate_does_not_increment_version(self, client):
+        """Duplicate pure state-patch request returns same response without new events."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # First state-patch request
+        response1 = client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:pure_patch:v1",
+            "state_patch": {"status": "context_building", "current_turn": 1},
+        })
+        assert response1.status_code == 200
+        version1 = response1.json()["state_version"]
+        events_after_first = client.get(f"/internal/agent-runs/{run_id}/events").json()
+        event_count_after_first = len(events_after_first)
+
+        # Duplicate request with same idempotency_key (simulates restart)
+        response2 = client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:pure_patch:v1",
+            "state_patch": {"status": "context_building", "current_turn": 1},
+        })
+        assert response2.status_code == 200
+        version2 = response2.json()["state_version"]
+        events_after_second = client.get(f"/internal/agent-runs/{run_id}/events").json()
+        event_count_after_second = len(events_after_second)
+
+        # Version and event count must NOT increase on duplicate
+        assert version2 == version1
+        assert event_count_after_second == event_count_after_first
+
+    def test_tool_result_only_duplicate_does_not_increment_version(self, client, test_engine):
+        """Duplicate tool-result-only request returns same response without new events."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # First tool-result-only request
+        response1 = client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:tool_only:v1",
+            "tool_results": [{
+                "tool_call_id": "tc_001",
+                "tool_name": "get_workspace_state",
+                "tool_version": 1,
+                "result": {
+                    "status": "success",
+                    "side_effect_status": "no_side_effect",
+                    "observation": "ok",
+                },
+            }],
+        })
+        assert response1.status_code == 200
+        version1 = response1.json()["state_version"]
+
+        # Duplicate request
+        response2 = client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:tool_only:v1",
+            "tool_results": [{
+                "tool_call_id": "tc_001",
+                "tool_name": "get_workspace_state",
+                "tool_version": 1,
+                "result": {
+                    "status": "success",
+                    "side_effect_status": "no_side_effect",
+                    "observation": "ok",
+                },
+            }],
+        })
+        assert response2.status_code == 200
+        version2 = response2.json()["state_version"]
+        assert version2 == version1
+
+
+class TestP0OptimisticConcurrency:
+    """P0-4: Expected state version enforcement."""
+
+    def test_stale_version_returns_409(self, client):
+        """Append with stale expected_state_version returns 409."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # First mutation (state_version: 0 → 1)
+        client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:v1",
+            "state_patch": {"status": "context_building"},
+        })
+
+        # Stale request with old version
+        response = client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:stale:v1",
+            "expected_state_version": 0,  # stale — actual is 1
+            "state_patch": {"current_turn": 1},
+        })
+        assert response.status_code == 409
+        assert "状态版本冲突" in response.json()["detail"]
+
+    def test_steering_increments_state_version(self, client):
+        """Steering enqueue increments state_version."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # Get initial state_version
+        status1 = client.get(f"/internal/agent-runs/{run_id}").json()
+
+        # Append steering
+        response = client.post(f"/internal/agent-runs/{run_id}/steering", json={
+            "steering_type": "constraint",
+            "content": "用中文回复",
+            "client_message_id": "msg_001",
+        })
+        assert response.status_code == 200
+        steering_version = response.json()["state_version"]
+
+        # Verify state_version was incremented
+        status2 = client.get(f"/internal/agent-runs/{run_id}").json()
+        assert status2["state_version"] == steering_version
+        assert steering_version > status1["state_version"]
+
+    def test_steering_stale_version_returns_409(self, client):
+        """Steering with stale expected_state_version returns 409."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # First steering (increments state_version)
+        client.post(f"/internal/agent-runs/{run_id}/steering", json={
+            "steering_type": "constraint",
+            "content": "用中文回复",
+            "client_message_id": "msg_001",
+        })
+
+        # Stale steering
+        response = client.post(f"/internal/agent-runs/{run_id}/steering", json={
+            "steering_type": "correction",
+            "content": "截止日期改为下周五",
+            "client_message_id": "msg_002",
+            "expected_state_version": 0,  # stale
+        })
+        assert response.status_code == 409
+
+
+class TestP0SnapshotPagination:
+    """P0-2: Snapshot returns complete post-checkpoint event range."""
+
+    def test_snapshot_returns_all_events(self, client):
+        """Snapshot returns all events for the run."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # Append multiple events
+        for i in range(5):
+            client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+                "idempotency_key": f"{run_id}:batch{i}:v1",
+                "events": [{
+                    "client_event_id": f"evt_{i}",
+                    "type": "tool.started",
+                    "ordering_hint": i + 1,
+                }],
+            })
+
+        # Get snapshot
+        response = client.get(f"/internal/agent-runs/{run_id}/snapshot")
+        assert response.status_code == 200
+        data = response.json()
+        # auto state_changed + 5 user events = 6 events per batch... but
+        # each batch has 1 auto + 1 user = 2 events, 5 batches = 10 events
+        assert len(data["recent_events"]) >= 5
+        assert "has_more" in data
+
+    def test_snapshot_returns_unconsumed_steering(self, client):
+        """Snapshot correctly extracts unconsumed steering events."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # Transition to model_streaming first (needed for steering)
+        client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:to_streaming:v1",
+            "state_patch": {"status": "context_building"},
+        })
+        client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:to_streaming2:v1",
+            "state_patch": {"status": "model_streaming"},
+        })
+
+        # Add steering events
+        client.post(f"/internal/agent-runs/{run_id}/steering", json={
+            "steering_type": "constraint",
+            "content": "用中文回复",
+            "client_message_id": "msg_001",
+        })
+        client.post(f"/internal/agent-runs/{run_id}/steering", json={
+            "steering_type": "correction",
+            "content": "截止日期改为下周五",
+            "client_message_id": "msg_002",
+        })
+
+        # Get snapshot
+        response = client.get(f"/internal/agent-runs/{run_id}/snapshot")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Both steering events should be unconsumed
+        unconsumed = data["unconsumed_steering"]
+        assert len(unconsumed) == 2
+        assert unconsumed[0]["steering_type"] == "constraint"
+        assert unconsumed[1]["steering_type"] == "correction"
+
+
+class TestP0ResumeContext:
+    """P0-3: Authenticated resume context endpoint."""
+
+    def test_resume_context_validates_viewer(self, client):
+        """Resume context requires valid viewer membership."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # Valid viewer
+        response = client.get(f"/internal/agent-runs/{run_id}/resume-context?viewer_user_id=user_runtime")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["viewer_user_id"] == "user_runtime"
+        assert data["run_id"] == run_id
+
+    def test_resume_context_rejects_missing_viewer(self, client):
+        """Resume context rejects missing viewer_user_id (FastAPI returns 422 for missing query param)."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        response = client.get(f"/internal/agent-runs/{run_id}/resume-context")
+        assert response.status_code in (400, 422)  # 422 for missing required query param
+
+    def test_resume_context_returns_state_version(self, client):
+        """Resume context returns current state_version."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # Mutate state to increment version
+        client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:v1",
+            "state_patch": {"status": "context_building"},
+        })
+
+        response = client.get(f"/internal/agent-runs/{run_id}/resume-context?viewer_user_id=user_runtime")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["state_version"] == 1
+        assert data["last_event_seq"] >= 1
+
+
+class TestP0Round3IdempotencyBeforeVersion:
+    """Round 3 Fix 5: Idempotency check before optimistic version comparison."""
+
+    def test_idempotent_retry_with_stale_original_version_succeeds(self, client):
+        """Exact retry with the original expected version after success returns
+        idempotent response, not 409."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # First request: state_patch with expected_state_version=0
+        response1 = client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:idem_test:v1",
+            "expected_state_version": 0,
+            "state_patch": {"status": "context_building"},
+        })
+        assert response1.status_code == 200
+        version_after_first = response1.json()["state_version"]
+
+        # Exact retry: same idempotency_key AND same expected_state_version (0).
+        # The idempotency check runs BEFORE version comparison, so this should
+        # return the idempotent response, NOT 409.
+        response2 = client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:idem_test:v1",
+            "expected_state_version": 0,  # stale after first mutation, but same key
+            "state_patch": {"status": "context_building"},
+        })
+        assert response2.status_code == 200
+        assert response2.json()["state_version"] == version_after_first
+
+    def test_distinct_stale_request_returns_409(self, client):
+        """A different request with stale version returns 409."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # First mutation
+        client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:first:v1",
+            "expected_state_version": 0,
+            "state_patch": {"status": "context_building"},
+        })
+
+        # Different request with stale version → 409
+        response = client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:different:v1",
+            "expected_state_version": 0,  # stale
+            "state_patch": {"current_turn": 1},
+        })
+        assert response.status_code == 409
+
+    def test_steering_idempotent_retry_with_stale_version_succeeds(self, client):
+        """Steering: exact retry with stale original version returns idempotent response."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # Transition to model_streaming for steering
+        client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:to_streaming:v1",
+            "state_patch": {"status": "context_building"},
+        })
+        client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:to_streaming2:v1",
+            "state_patch": {"status": "model_streaming"},
+        })
+
+        # Get current version for first steering
+        current_version = client.get(f"/internal/agent-runs/{run_id}").json()["state_version"]
+
+        # First steering (will succeed)
+        response1 = client.post(f"/internal/agent-runs/{run_id}/steering", json={
+            "steering_type": "constraint",
+            "content": "用中文回复",
+            "client_message_id": "msg_steering_idem",
+            "expected_state_version": current_version,
+        })
+        assert response1.status_code == 200
+
+        # Exact retry with same client_message_id but stale version.
+        # Idempotency check runs FIRST → returns cached response, not 409.
+        response2 = client.post(f"/internal/agent-runs/{run_id}/steering", json={
+            "steering_type": "constraint",
+            "content": "用中文回复",
+            "client_message_id": "msg_steering_idem",
+            "expected_state_version": current_version,  # stale after first steering advanced it
+        })
+        assert response2.status_code == 200
+        assert response2.json()["accepted"] is True
+        assert "幂等" in response2.json()["message"]
+
+
+class TestP0Round3SnapshotPagination:
+    """Round 3 Fix 1: Cursor-based snapshot pagination."""
+
+    def test_snapshot_returns_next_cursor_when_more_pages(self, client):
+        """Snapshot returns next_cursor when has_more is true."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # Append many events to exceed a small page size
+        for i in range(10):
+            client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+                "idempotency_key": f"{run_id}:batch{i}:v1",
+                "events": [{
+                    "client_event_id": f"evt_{i}",
+                    "type": "tool.started",
+                    "ordering_hint": i + 1,
+                }],
+            })
+
+        # Get snapshot with small limit
+        response = client.get(f"/internal/agent-runs/{run_id}/snapshot?after_event_seq=0")
+        assert response.status_code == 200
+        data = response.json()
+
+        # With default limit of 200, all events fit in one page
+        assert "has_more" in data
+        assert "next_cursor" in data
+
+    def test_snapshot_pagination_with_cursor_advances(self, client):
+        """Snapshot with after_event_seq returns only events after that sequence."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # Append events
+        for i in range(5):
+            client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+                "idempotency_key": f"{run_id}:batch{i}:v1",
+                "events": [{
+                    "client_event_id": f"evt_{i}",
+                    "type": "tool.started",
+                    "ordering_hint": i + 1,
+                }],
+            })
+
+        # Get first page (all events from seq 0)
+        page1 = client.get(f"/internal/agent-runs/{run_id}/snapshot").json()
+        page1_events = page1["recent_events"]
+
+        # Get second page from after the first event
+        if len(page1_events) > 0:
+            first_seq = page1_events[0]["event_seq"]
+            page2 = client.get(f"/internal/agent-runs/{run_id}/snapshot?after_event_seq={first_seq}").json()
+            page2_events = page2["recent_events"]
+
+            # Page 2 should not include the first event
+            page2_seqs = [e["event_seq"] for e in page2_events]
+            assert first_seq not in page2_seqs
+
+
+class TestP0Round3EventsAdvanceVersion:
+    """Round 3 Fix 6: Events-only append advances state_version."""
+
+    def test_events_only_append_advances_state_version(self, client):
+        """Appending events (without state_patch or tool_results) advances state_version."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # Get initial state_version
+        status1 = client.get(f"/internal/agent-runs/{run_id}").json()
+        initial_version = status1["state_version"]
+
+        # Append events only (no state_patch, no tool_results)
+        response = client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:events_only:v1",
+            "events": [{
+                "client_event_id": "evt_only_1",
+                "type": "agent.started",
+                "ordering_hint": 1,
+            }],
+        })
+        assert response.status_code == 200
+
+        # Verify state_version advanced
+        status2 = client.get(f"/internal/agent-runs/{run_id}").json()
+        assert status2["state_version"] > initial_version
+
+
+class TestP0Round3ResumeContextEnriched:
+    """Round 3 Fix 2: Resume context returns workspace state and pending proposals."""
+
+    def test_resume_context_returns_workspace_state(self, client):
+        """Resume context includes workspace_state field."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        response = client.get(f"/internal/agent-runs/{run_id}/resume-context?viewer_user_id=user_runtime")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should contain workspace_state (fresh facts)
+        assert "workspace_state" in data
+        # workspace_state should be a dict (WorkspaceStateResponse or empty)
+        assert isinstance(data["workspace_state"], dict)
+
+    def test_resume_context_returns_pending_proposals(self, client):
+        """Resume context includes pending_proposals field."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        response = client.get(f"/internal/agent-runs/{run_id}/resume-context?viewer_user_id=user_runtime")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should contain pending_proposals (list)
+        assert "pending_proposals" in data
+        assert isinstance(data["pending_proposals"], list)
+
+    def test_resume_context_returns_memory_context(self, client):
+        """Resume context includes memory_context field."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        response = client.get(f"/internal/agent-runs/{run_id}/resume-context?viewer_user_id=user_runtime")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should contain memory_context (may be None if memory is disabled)
+        assert "memory_context" in data

@@ -12,15 +12,15 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { parseRunStartRequest } from "@/types/wire.js";
 import { createRunState } from "@/types/run-state.js";
 import { executeRun } from "@/runtime/pi-runtime.js";
 import type { MemoryContext } from "@/runtime/context-builder.js";
+import { prepareRunRequest } from "@/runtime/request-preparation.js";
 import { createOutputSanitizer } from "@/runtime/output-sanitizer.js";
 import type { StreamEventType } from "@/events/stream.js";
 import type { RuntimeEvent } from "@/types/runtime-event.js";
 import type { RunContext } from "./utils.js";
-import { readJsonBody } from "./utils.js";
+import { sendJson } from "./utils.js";
 import type { StreamContentEvent } from "@/types/stream-content.js";
 
 /** Write a single SSE event to the response. */
@@ -119,30 +119,64 @@ export async function handleStartRunStream(
 ): Promise<void> {
   const bodyText = (req as IncomingMessage & { bodyText?: string }).bodyText ?? "";
 
-  const parsed = readJsonBody(res, bodyText, parseRunStartRequest);
-  if (!parsed) return;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bodyText);
+  } catch {
+    sendJson(res, 400, { error: "parse_error", message: "JSON 解析失败" });
+    return;
+  }
 
-  // Step 1: Create run record in FastAPI (same as start-run.ts)
-  const modelName = parsed.runtime_config?.model
-    ? `${parsed.runtime_config.model.provider}:${parsed.runtime_config.model.name}`
+  // ── Shared request preparation (BEFORE any side effects) ──
+  const prepared = await prepareRunRequest(parsed, ctx.skillLoader, ctx.skillIndex, {
+    workspaceState: (parsed as Record<string, unknown>)?.workspace_state,
+    hasPendingProposals: Array.isArray((parsed as Record<string, unknown>)?.pending_proposals) &&
+      ((parsed as Record<string, unknown>)?.pending_proposals as unknown[]).length > 0,
+  });
+
+  if (prepared.status === "invalid") {
+    sendJson(res, 400, { error: prepared.error, message: prepared.message });
+    return;
+  }
+  if (prepared.status === "unknown-skill") {
+    sendJson(res, 400, {
+      error: "invalid_skill",
+      message: `未知的 Skill: ${prepared.skillName}`,
+    });
+    return;
+  }
+  if (prepared.status === "skill-load-error") {
+    sendJson(res, 500, {
+      error: "skill_load_error",
+      message: `Skill 加载失败: ${prepared.skillName}`,
+    });
+    return;
+  }
+
+  // status === "ready"
+  const { wireRequest, skillContext, allSkillContexts, outcomeContract } = prepared;
+
+  // Step 1: Create run record in FastAPI
+  const modelName = wireRequest.runtime_config?.model
+    ? `${wireRequest.runtime_config.model.provider}:${wireRequest.runtime_config.model.name}`
     : `${ctx.config.defaultModelProvider}:${ctx.config.defaultModelName}`;
   const fastapiRequestBody: Record<string, unknown> = {
-    conversation_id: parsed.conversation_id,
-    workspace_id: parsed.workspace_id,
-    project_id: parsed.project_id,
-    user_message_id: parsed.user_message_id,
-    user_content: parsed.user_content,
-    viewer_user_id: parsed.viewer_user_id,
-    workspace_state: parsed.workspace_state,
-    recent_messages: parsed.recent_messages,
-    pending_proposals: parsed.pending_proposals,
-    memory_mode: parsed.memory_mode ?? "enabled",
+    conversation_id: wireRequest.conversation_id,
+    workspace_id: wireRequest.workspace_id,
+    project_id: wireRequest.project_id,
+    user_message_id: wireRequest.user_message_id,
+    user_content: wireRequest.user_content,
+    viewer_user_id: wireRequest.viewer_user_id,
+    workspace_state: wireRequest.workspace_state,
+    recent_messages: wireRequest.recent_messages,
+    pending_proposals: wireRequest.pending_proposals,
+    memory_mode: wireRequest.memory_mode ?? "enabled",
     runtime_config: {
       model: modelName,
-      max_steps: parsed.runtime_config?.max_steps ?? ctx.config.defaults.maxSteps,
-      max_tool_calls: parsed.runtime_config?.max_tool_calls ?? ctx.config.defaults.maxToolCalls,
-      timeout_ms: parsed.runtime_config?.timeout_ms ?? ctx.config.defaults.timeoutMs,
-      trace_include_sensitive_data: parsed.runtime_config?.trace_include_sensitive_data ?? ctx.config.traceIncludeSensitiveData,
+      max_steps: wireRequest.runtime_config?.max_steps ?? ctx.config.defaults.maxSteps,
+      max_tool_calls: wireRequest.runtime_config?.max_tool_calls ?? ctx.config.defaults.maxToolCalls,
+      timeout_ms: wireRequest.runtime_config?.timeout_ms ?? ctx.config.defaults.timeoutMs,
+      trace_include_sensitive_data: wireRequest.runtime_config?.trace_include_sensitive_data ?? ctx.config.traceIncludeSensitiveData,
     },
   };
   const fastapiRunResp = await ctx.fastapiClient.startRun(fastapiRequestBody as any);
@@ -160,7 +194,7 @@ export async function handleStartRunStream(
       }
     : null;
   const memoryEvidence = {
-    mode: parsed.memory_mode ?? "enabled",
+    mode: wireRequest.memory_mode ?? "enabled",
     backend: memoryContext?.memoryBackend ?? "none",
     used_memory_ids: memoryContext?.usedMemoryIds ?? [],
     used_memory_types: memoryContext?.usedMemoryTypes ?? [],
@@ -177,17 +211,17 @@ export async function handleStartRunStream(
   // Step 2: Create local run state
   const runState = createRunState({
     runId: fastapiRunId,
-    conversationId: parsed.conversation_id,
-    workspaceId: parsed.workspace_id,
-    projectId: parsed.project_id,
+    conversationId: wireRequest.conversation_id,
+    workspaceId: wireRequest.workspace_id,
+    projectId: wireRequest.project_id,
     model: {
-      provider: parsed.runtime_config?.model?.provider ?? ctx.config.defaultModelProvider,
-      name: parsed.runtime_config?.model?.name ?? ctx.config.defaultModelName,
+      provider: wireRequest.runtime_config?.model?.provider ?? ctx.config.defaultModelProvider,
+      name: wireRequest.runtime_config?.model?.name ?? ctx.config.defaultModelName,
     },
-    maxSteps: parsed.runtime_config?.max_steps ?? ctx.config.defaults.maxSteps,
-    maxToolCalls: parsed.runtime_config?.max_tool_calls ?? ctx.config.defaults.maxToolCalls,
-    timeoutMs: parsed.runtime_config?.timeout_ms ?? ctx.config.defaults.timeoutMs,
-    thinkingLevel: parsed.runtime_config?.thinking_level,
+    maxSteps: wireRequest.runtime_config?.max_steps ?? ctx.config.defaults.maxSteps,
+    maxToolCalls: wireRequest.runtime_config?.max_tool_calls ?? ctx.config.defaults.maxToolCalls,
+    timeoutMs: wireRequest.runtime_config?.timeout_ms ?? ctx.config.defaults.timeoutMs,
+    thinkingLevel: wireRequest.runtime_config?.thinking_level,
   });
 
   ctx.sessionStore.set(runState.runId, runState);
@@ -230,7 +264,7 @@ export async function handleStartRunStream(
   const textBlocks = new Map<string, string>();
   /** Bounded execution steps collected from tool lifecycle events. */
   const executionSteps: Array<{ tool_name: string; tool_call_id?: string; status: string; label: string }> = [];
-  const outputSanitizer = createOutputSanitizer(parsed.workspace_state);
+  const outputSanitizer = createOutputSanitizer(wireRequest.workspace_state);
 
   const emitSanitizedText = (content: string, contentIndex: number): void => {
     if (!content) return;
@@ -487,27 +521,30 @@ export async function handleStartRunStream(
     }
   });
 
-  // Step 5: Start the runtime loop
+  // Step 5: Start the runtime loop (skillContext resolved above)
   try {
     await executeRun(
       runState,
       {
-        conversationId: parsed.conversation_id,
-        workspaceId: parsed.workspace_id,
-        projectId: parsed.project_id,
-        userContent: parsed.user_content ?? "",
-        workspaceState: parsed.workspace_state,
-        recentMessages: parsed.recent_messages,
-        pendingProposals: parsed.pending_proposals,
-        viewerUserId: parsed.viewer_user_id,
+        conversationId: wireRequest.conversation_id,
+        workspaceId: wireRequest.workspace_id,
+        projectId: wireRequest.project_id,
+        userContent: wireRequest.user_content ?? "",
+        workspaceState: wireRequest.workspace_state,
+        recentMessages: wireRequest.recent_messages,
+        pendingProposals: wireRequest.pending_proposals,
+        skillContext,
+        allSkillContexts,
+        viewerUserId: wireRequest.viewer_user_id,
         memoryContext,
+        outcomeContract,
       },
       ctx.toolRegistry,
       ctx.modelRouter,
       ctx.fastapiClient,
       ctx.stream,
       {
-        traceIncludeSensitiveData: parsed.runtime_config?.trace_include_sensitive_data ?? ctx.config.traceIncludeSensitiveData,
+        traceIncludeSensitiveData: wireRequest.runtime_config?.trace_include_sensitive_data ?? ctx.config.traceIncludeSensitiveData,
         signal: abortController.signal,
       },
       {

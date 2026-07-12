@@ -500,3 +500,230 @@ class TestStreamDonePayloadSchemaValidation:
         payload = StreamDonePayloadSchema.model_validate(data)
         assert payload.thinking_content == ""
         assert payload.execution_steps == []
+
+
+# ---------------------------------------------------------------------------
+# Narrow action-to-Skill mapping
+# ---------------------------------------------------------------------------
+
+
+class TestExtractSkillName:
+    """Test _extract_skill_name with precedence-based matching."""
+
+    # ── Exact quick-reply phrases (precedence 1) ────────────────────────
+
+    def test_exact_quick_reply_phrases(self):
+        from app.services.agent_conversation_service import _extract_skill_name
+
+        assert _extract_skill_name("生成下一步行动卡") == "project-status"
+        assert _extract_skill_name("分析当前风险") == "risk-analysis"
+        assert _extract_skill_name("根据签到调整计划") == "risk-replan"
+        assert _extract_skill_name("根据成员情况推荐分工") == "assignment-planning"
+        assert _extract_skill_name("把当前阶段拆成任务") == "task-breakdown"
+        assert _extract_skill_name("按三周节奏生成阶段计划") == "project-planning"
+        assert _extract_skill_name("先帮我澄清方向") == "project-intake"
+
+    # ── Expanded quick-reply instructions (precedence 2) ────────────────
+
+    def test_expanded_quick_reply_instructions(self):
+        from app.services.agent_conversation_service import _extract_skill_name
+
+        assert _extract_skill_name("请执行 risk 模块：分析当前风险。用户点击了快捷回复") == "risk-analysis"
+        assert _extract_skill_name("请执行 replan 模块：根据签到结果调整项目计划") == "risk-replan"
+        assert _extract_skill_name("请执行 plan 模块：按三周节奏生成阶段计划") == "project-planning"
+        assert _extract_skill_name("请执行 breakdown 模块：把当前阶段拆成可执行任务") == "task-breakdown"
+        assert _extract_skill_name("请执行 assign 模块：根据成员情况推荐分工") == "assignment-planning"
+        assert _extract_skill_name("请执行 clarify 模块：澄清项目方向") == "project-intake"
+        assert _extract_skill_name("请执行 push 模块：生成下一步行动卡") == "project-status"
+
+    # ── Explicit request marker + action (precedence 3) ─────────────────
+
+    def test_request_marker_plus_action_maps_to_skill(self):
+        """请/帮我/麻烦 + action object → action despite question syntax."""
+        from app.services.agent_conversation_service import _extract_skill_name
+
+        assert _extract_skill_name("请帮我检查项目风险") == "risk-analysis"
+        assert _extract_skill_name("可以帮我制定计划吗？") == "project-planning"
+        assert _extract_skill_name("能不能帮我拆解任务？") == "task-breakdown"
+        assert _extract_skill_name("请分析一下当前风险好吗？") == "risk-analysis"
+        assert _extract_skill_name("麻烦帮我分配一下成员") == "assignment-planning"
+        assert _extract_skill_name("请帮我澄清一下方向") == "project-intake"
+
+    # ── Risk analysis action mapping ────────────────────────────────────
+
+    def test_risk_analysis_maps_to_risk_analysis_skill(self):
+        from app.services.agent_conversation_service import _extract_skill_name
+
+        assert _extract_skill_name("分析当前风险") == "risk-analysis"
+        assert _extract_skill_name("请帮我检查项目风险") == "risk-analysis"
+        assert _extract_skill_name("请分析一下当前风险好吗？") == "risk-analysis"
+
+    # ── Question-only markers → answer mode (precedence 4) ──────────────
+
+    def test_risk_questions_stay_answer_mode(self):
+        from app.services.agent_conversation_service import _extract_skill_name
+
+        assert _extract_skill_name("当前有哪些风险？") is None
+        assert _extract_skill_name("风险等级怎么划分") is None
+
+    def test_delay_questions_stay_answer_mode(self):
+        from app.services.agent_conversation_service import _extract_skill_name
+
+        assert _extract_skill_name("这个任务为什么延期？") is None
+        assert _extract_skill_name("延期了怎么办") is None
+
+    def test_blocker_questions_stay_answer_mode(self):
+        from app.services.agent_conversation_service import _extract_skill_name
+
+        assert _extract_skill_name("什么是阻塞") is None
+        assert _extract_skill_name("当前有哪些阻塞项") is None
+
+    def test_checkin_questions_stay_answer_mode(self):
+        from app.services.agent_conversation_service import _extract_skill_name
+
+        assert _extract_skill_name("签到是什么意思") is None
+        assert _extract_skill_name("签到有什么用") is None
+
+    def test_assignment_questions_stay_answer_mode(self):
+        from app.services.agent_conversation_service import _extract_skill_name
+
+        assert _extract_skill_name("如何理解团队分工") is None
+        assert _extract_skill_name("分工的依据是什么") is None
+
+    def test_plan_questions_stay_answer_mode(self):
+        from app.services.agent_conversation_service import _extract_skill_name
+
+        assert _extract_skill_name("阶段规划依据是什么") is None
+        assert _extract_skill_name("如何制定计划") is None
+
+    def test_clarification_questions_stay_answer_mode(self):
+        from app.services.agent_conversation_service import _extract_skill_name
+
+        assert _extract_skill_name("方向澄清是什么") is None
+        assert _extract_skill_name("为什么要先澄清方向") is None
+
+    # ── Bare domain vocabulary → answer mode (no action verb) ───────────
+
+    def test_bare_domain_words_stay_answer_mode(self):
+        from app.services.agent_conversation_service import _extract_skill_name
+
+        assert _extract_skill_name("项目遇到阻塞了") is None
+        assert _extract_skill_name("延期了") is None
+        for label in ("方向澄清", "阶段计划", "任务拆解", "推荐分工", "风险分析", "签到分析"):
+            assert _extract_skill_name(label) is None
+
+        assert _extract_skill_name("请帮我澄清方向") == "project-intake"
+        assert _extract_skill_name("请帮我拆解任务") == "task-breakdown"
+        assert _extract_skill_name("请分析项目风险") == "risk-analysis"
+
+    # ── General content → answer mode ───────────────────────────────────
+
+    def test_general_content_returns_none(self):
+        from app.services.agent_conversation_service import _extract_skill_name
+
+        assert _extract_skill_name("") is None
+        assert _extract_skill_name("你好") is None
+        assert _extract_skill_name("今天天气不错") is None
+        assert _extract_skill_name("这个项目的核心价值是什么") is None
+
+
+class TestSidecarRequestIncludesSkill:
+    """Test that the sidecar request includes the skill name when an intent is matched."""
+
+    @staticmethod
+    def _session_with_conversation():
+        from app.models import Project
+        from app.models.agent_conversation import AgentConversation
+
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(engine)
+        session = Session(engine)
+        project = Project(
+            id="project-1", workspace_id="workspace-1", name="项目", idea="想法",
+            deadline="2026-08-01", deliverables="演示", created_by="user-1",
+        )
+        conversation = AgentConversation(
+            id="conversation-1", workspace_id="workspace-1", project_id=project.id,
+        )
+        session.add(project)
+        session.add(conversation)
+        session.commit()
+        return session, conversation
+
+    def test_action_intent_passes_skill_to_sidecar(self, monkeypatch):
+        """When user sends an action intent, skill name should be in sidecar request."""
+        from app.services import agent_conversation_service as service
+
+        captured_requests = []
+
+        class _CaptureSidecarResponse:
+            status_code = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def iter_text(self):
+                yield service._sse_event("done", {"run_id": "run-1", "status": "completed", "final_content": "回答"})
+                return
+
+            def read(self):
+                return b""
+
+        def capturing_stream(method, url, json=None, **kwargs):
+            captured_requests.append(json)
+            return _CaptureSidecarResponse()
+
+        session, conversation = self._session_with_conversation()
+        monkeypatch.setattr(service, "get_workspace_state", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(service.httpx, "stream", capturing_stream)
+        try:
+            "".join(service.process_conversation_message_stream(session, conversation.id, "帮我制定计划"))
+        finally:
+            session.close()
+
+        assert len(captured_requests) == 1
+        assert captured_requests[0]["runtime_config"]["skill"] == "project-planning"
+
+    def test_general_question_omits_skill_from_sidecar(self, monkeypatch):
+        """When user sends a general question, no skill should be in sidecar request."""
+        from app.services import agent_conversation_service as service
+
+        captured_requests = []
+
+        class _CaptureSidecarResponse:
+            status_code = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def iter_text(self):
+                yield service._sse_event("done", {"run_id": "run-1", "status": "completed", "final_content": "回答"})
+                return
+
+            def read(self):
+                return b""
+
+        def capturing_stream(method, url, json=None, **kwargs):
+            captured_requests.append(json)
+            return _CaptureSidecarResponse()
+
+        session, conversation = self._session_with_conversation()
+        monkeypatch.setattr(service, "get_workspace_state", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(service.httpx, "stream", capturing_stream)
+        try:
+            "".join(service.process_conversation_message_stream(session, conversation.id, "项目进展如何？"))
+        finally:
+            session.close()
+
+        assert len(captured_requests) == 1
+        assert "skill" not in captured_requests[0]["runtime_config"]

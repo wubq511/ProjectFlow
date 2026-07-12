@@ -7,6 +7,22 @@ allowed-tools:
   - generate_stage_plan_proposal
 references:
   - references/planning-rubric.md
+v2:
+  version: 2
+  triggerExamples:
+    - "制定计划"
+    - "生成阶段计划"
+    - "规划阶段"
+    - "按三周节奏生成阶段计划"
+  negativeTriggers:
+    - "计划延期了"
+    - "如何制定计划"
+  prerequisites:
+    - type: has_direction_card
+      description: 项目必须有方向卡才能制定阶段计划
+  outcomeType: proposal
+  allowedEffects: proposal_only
+  requiredVerification: deterministic
 ---
 
 # 阶段计划生成

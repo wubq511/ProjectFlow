@@ -6,6 +6,22 @@ allowed-tools:
   - generate_task_breakdown_proposal
 references:
   - references/breakdown-checklist.md
+v2:
+  version: 2
+  triggerExamples:
+    - "拆成任务"
+    - "任务拆解"
+    - "分解任务"
+    - "把当前阶段拆成任务"
+  negativeTriggers:
+    - "任务分解是什么"
+    - "如何拆分任务"
+  prerequisites:
+    - type: has_stages
+      description: 必须有阶段才能拆分任务
+  outcomeType: proposal
+  allowedEffects: proposal_only
+  requiredVerification: deterministic
 ---
 
 # 任务拆分

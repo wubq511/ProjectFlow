@@ -8,6 +8,19 @@ allowed-tools:
   - create_risk
   - create_checkin
 references: []
+v2:
+  version: 2
+  triggerExamples:
+    - "生成下一步行动卡"
+    - "主动推进"
+    - "项目进展"
+  negativeTriggers:
+    - "项目进展如何"
+    - "当前状态是什么"
+  prerequisites: []
+  outcomeType: advisory
+  allowedEffects: advisory_only
+  requiredVerification: deterministic
 ---
 
 # 主动推进

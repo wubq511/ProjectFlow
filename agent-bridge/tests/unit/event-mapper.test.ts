@@ -45,70 +45,68 @@ describe("event-mapper", () => {
     expect(result.payload.error).toEqual({ code: "TIMEOUT", message: "Tool timed out" });
   });
 
-  it("maps agent_end to agent.completed when no error", () => {
+  it("maps agent_end to agent.output_captured (deferred terminal)", () => {
     const piEvent: PiEvent = { type: "agent_end", data: {} };
     const result = mapPiEvent(piEvent, runId);
-    expect(result.type).toBe("agent.completed");
-    expect(result.newStatus).toBe("completed");
+    // agent_end no longer determines terminal status — that's done post-verifier
+    expect(result.type).toBe("agent.output_captured");
+    expect(result.newStatus).toBeUndefined();
+    expect(result.payload.stop_reason).toBe("unknown");
   });
 
-  it("maps agent_end to agent.failed when error is present", () => {
+  it("maps agent_end with error to agent.output_captured with error info", () => {
     const piEvent: PiEvent = {
       type: "agent_end",
       data: {},
       error: { code: "RUNTIME_ERROR", message: "Agent execution failed" },
     };
     const result = mapPiEvent(piEvent, runId);
-    expect(result.type).toBe("agent.failed");
-    expect(result.newStatus).toBe("failed");
+    expect(result.type).toBe("agent.output_captured");
     expect(result.payload.error).toEqual({ code: "RUNTIME_ERROR", message: "Agent execution failed" });
   });
 
-  it("maps agent_end to agent.failed when isError is true", () => {
+  it("maps agent_end with isError to agent.output_captured with is_error flag", () => {
     const piEvent: PiEvent = {
       type: "agent_end",
       data: {},
       isError: true,
     };
     const result = mapPiEvent(piEvent, runId);
-    expect(result.type).toBe("agent.failed");
-    expect(result.newStatus).toBe("failed");
+    expect(result.type).toBe("agent.output_captured");
     expect(result.payload.is_error).toBe(true);
   });
 
-  it("maps agent_end to agent.failed when last message has stopReason=error", () => {
+  it("maps agent_end with stopReason=error to agent.output_captured", () => {
     const piEvent: PiEvent = {
       type: "agent_end",
       data: {},
       messages: [{ role: "assistant", stopReason: "error" } as unknown],
     };
     const result = mapPiEvent(piEvent, runId);
-    expect(result.type).toBe("agent.failed");
-    expect(result.newStatus).toBe("failed");
-    expect(result.payload.reason).toBe("模型返回错误");
+    expect(result.type).toBe("agent.output_captured");
+    expect(result.payload.stop_reason).toBe("error");
   });
 
-  it("maps agent_end to run.cancelled when last message has stopReason=aborted", () => {
+  it("maps agent_end with stopReason=aborted to agent.output_captured", () => {
     const piEvent: PiEvent = {
       type: "agent_end",
       data: {},
       messages: [{ role: "assistant", stopReason: "aborted" } as unknown],
     };
     const result = mapPiEvent(piEvent, runId);
-    expect(result.type).toBe("run.cancelled");
-    expect(result.newStatus).toBe("cancelled");
-    expect(result.payload.reason).toBe("模型返回中止");
+    expect(result.type).toBe("agent.output_captured");
+    expect(result.payload.stop_reason).toBe("aborted");
   });
 
-  it("maps agent_end to agent.completed when last message has stopReason=stop", () => {
+  it("maps agent_end with stopReason=stop to agent.output_captured", () => {
     const piEvent: PiEvent = {
       type: "agent_end",
       data: {},
       messages: [{ role: "assistant", stopReason: "stop" } as unknown],
     };
     const result = mapPiEvent(piEvent, runId);
-    expect(result.type).toBe("agent.completed");
-    expect(result.newStatus).toBe("completed");
+    expect(result.type).toBe("agent.output_captured");
+    expect(result.payload.stop_reason).toBe("stop");
   });
 
   it("maps policy_block to tool.blocked", () => {

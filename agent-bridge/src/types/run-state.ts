@@ -59,6 +59,17 @@ export interface RunBudgetLimits {
 /** Thinking/reasoning level for models that support it. */
 export type ThinkingLevel = "low" | "medium" | "high" | "xhigh" | "max";
 
+export interface PendingTerminal {
+  /** Stop reason from the model */
+  stopReason: string;
+  /** Final content extracted from the last assistant message */
+  finalContent: string;
+  /** Whether the model reported an error */
+  modelError: boolean;
+  /** Whether the model was aborted */
+  modelAborted: boolean;
+}
+
 export interface AgentRunState {
   runId: string;
   conversationId: string;
@@ -73,11 +84,20 @@ export interface AgentRunState {
   sideEffects: SideEffect[];
   toolResults: ToolResultSummary[];
   lastEventSeq: number;
+  /** Durable state version from FastAPI — passed as expected_state_version on mutations. */
+  stateVersion: number;
   budgetLimits: RunBudgetLimits;
   resumePolicy: ResumePolicy;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  /**
+   * Captured from agent_end but NOT yet persisted as terminal status.
+   * Terminal status is determined AFTER verifier runs.
+   * This field is set by applyPiEventToRunState(agent_end) and consumed
+   * by the post-loop terminal determination logic.
+   */
+  pendingTerminal?: PendingTerminal;
 }
 
 export interface CreateRunStateInput {
@@ -112,6 +132,7 @@ export function createRunState(input: CreateRunStateInput): AgentRunState {
     sideEffects: [],
     toolResults: [],
     lastEventSeq: 0,
+    stateVersion: 0,
     budgetLimits: {
       maxSteps: input.maxSteps,
       maxToolCalls: input.maxToolCalls,

@@ -260,14 +260,15 @@ describe("typed streaming contract: agent_end final_content", () => {
     expect(result.payload.final_content).toBe("可信终态回答");
   });
 
-  it("failed/cancelled after terminal state: no additional completed", () => {
+  it("agent_end captures output without terminal status (deferred)", () => {
     const failedEvent: PiEvent = {
       type: "agent_end",
       error: { code: "TIMEOUT", message: "Timeout" },
       messages: [],
     };
     const result = mapPiEvent(failedEvent, runId);
-    expect(result.type).toBe("agent.failed");
-    expect(result.newStatus).toBe("failed");
+    // Terminal status is now deferred to post-verifier
+    expect(result.type).toBe("agent.output_captured");
+    expect(result.newStatus).toBeUndefined();
   });
 });

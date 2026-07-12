@@ -25,12 +25,21 @@ export type RuntimeEventType =
   | "agent.delta"
   | "agent.completed"
   | "agent.failed"
+  | "agent.output_captured"
   | "tool.progress"
   | "advisory_record.created"
   | "proposal_confirmation.confirmed"
   | "proposal_confirmation.rejected"
   | "proposal_confirmation.committed"
-  | "run.state_changed";
+  | "run.state_changed"
+  | "work_state.changed"
+  | "run_plan.created"
+  | "run_plan.step_updated"
+  | "verifier.completed"
+  | "tool.ledger_entry"
+  | "checkpoint.saved"
+  | "steering.queued"
+  | "steering.consumed";
 
 export interface RuntimeEventState {
   status: RunStatus;

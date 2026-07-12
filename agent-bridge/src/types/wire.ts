@@ -115,6 +115,7 @@ export interface WireRunCancelResponse {
 
 export interface WireAppendRequest {
   idempotency_key: string;
+  expected_state_version?: number;
   state_patch?: Record<string, unknown>;
   events?: WireEventAppendItem[];
   tool_results?: WireToolResultAppendItem[];

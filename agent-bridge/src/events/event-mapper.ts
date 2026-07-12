@@ -210,17 +210,15 @@ export function mapPiEvent(piEvent: PiEvent, runId: string): MappedEvent {
       };
 
     case "agent_end": {
-      // Derive failure from explicit error flags OR from the last assistant message's stopReason
+      // DEFERRED: Terminal status is NOT set here.
+      // The post-loop verifier determines the actual terminal status.
+      // This event captures the model's output for tracing only.
       const lastMsg = piEvent.messages?.[piEvent.messages.length - 1] as
         | { stopReason?: string; content?: unknown[] }
         | undefined;
       const stopReason = lastMsg?.stopReason;
-      const cancelled = stopReason === "aborted";
-      const failed = !!(piEvent.error || piEvent.isError || stopReason === "error");
-      const newStatus: RunStatus = cancelled ? "cancelled" : failed ? "failed" : "completed";
 
-      // Extract final answer text from the last assistant message's TextContent parts.
-      // This is the only source of truth for the terminal answer — not accumulatedContent.
+      // Extract final answer text from the last assistant message
       let finalContent = "";
       if (lastMsg?.content && Array.isArray(lastMsg.content)) {
         const textParts: string[] = [];
@@ -236,16 +234,16 @@ export function mapPiEvent(piEvent: PiEvent, runId: string): MappedEvent {
       }
 
       return {
-        type: cancelled ? "run.cancelled" : failed ? "agent.failed" : "agent.completed",
+        // Use agent.output_captured to distinguish from the real terminal event
+        type: "agent.output_captured" as any,
         payload: {
           run_id: runId,
+          stop_reason: stopReason ?? "unknown",
           ...(piEvent.error ? { error: piEvent.error } : {}),
           ...(piEvent.isError !== undefined ? { is_error: piEvent.isError } : {}),
-          ...(stopReason === "error" ? { reason: "模型返回错误" } : {}),
-          ...(stopReason === "aborted" ? { reason: "模型返回中止" } : {}),
           ...(finalContent ? { final_content: finalContent } : {}),
         },
-        newStatus,
+        // No newStatus — terminal status determined after verifier
       };
     }
 

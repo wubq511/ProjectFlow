@@ -7,6 +7,19 @@ allowed-tools:
   - generate_direction_card_proposal
 references:
   - references/intake-rubric.md
+v2:
+  version: 2
+  triggerExamples:
+    - "帮我澄清方向"
+    - "方向澄清"
+    - "先帮我澄清方向"
+  negativeTriggers:
+    - "方向澄清是什么"
+    - "为什么要先澄清方向"
+  prerequisites: []
+  outcomeType: proposal
+  allowedEffects: proposal_only
+  requiredVerification: deterministic
 ---
 
 # 项目方向澄清

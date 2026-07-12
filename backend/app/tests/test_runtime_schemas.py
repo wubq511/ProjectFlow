@@ -547,9 +547,13 @@ class TestEnumValues:
             "model.streaming", "state.changed",
             "proposal.created", "proposal.confirmed", "proposal.rejected",
             "runtime.error", "agent.started", "agent.status", "agent.delta",
-            "agent.completed", "agent.failed", "tool.progress", "advisory_record.created",
+            "agent.completed", "agent.failed", "agent.output_captured", "tool.progress",
+            "advisory_record.created",
             "proposal_confirmation.confirmed", "proposal_confirmation.rejected",
             "proposal_confirmation.committed", "run.state_changed",
+            "work_state.changed", "run_plan.created", "run_plan.step_updated",
+            "verifier.completed", "tool.ledger_entry", "checkpoint.saved",
+            "steering.queued", "steering.consumed",
         ]
         actual = [s.value for s in RuntimeEventType]
         assert actual == expected

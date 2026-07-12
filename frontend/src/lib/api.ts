@@ -1013,6 +1013,75 @@ export async function runRetrospective(projectId: string, viewerUserId: string, 
   return runAgentFlow(projectId, "retrospective", viewerUserId, undefined, thinkingLevel, model);
 }
 
+// --- Phase 5: Resume + Steering ---
+
+export interface RunSnapshot {
+  run_id: string;
+  conversation_id: string;
+  workspace_id: string;
+  project_id: string;
+  status: string;
+  current_turn: number;
+  current_step: number;
+  last_event_seq: number;
+  state_version: number;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  side_effects: Array<Record<string, unknown>>;
+  latest_checkpoint: Record<string, unknown> | null;
+  recent_events: Array<Record<string, unknown>>;
+}
+
+/** Get a durable snapshot of a run for resume/rehydrate. */
+export async function getRunSnapshot(runId: string): Promise<RunSnapshot> {
+  const resp = await fetch(`${SIDECAR_BASE_URL}/runs/${runId}/snapshot`, {
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!resp.ok) throw new Error(`获取快照失败: ${resp.status}`);
+  return resp.json() as Promise<RunSnapshot>;
+}
+
+/** Resume a previously interrupted run. */
+export async function resumeRun(runId: string): Promise<{ run_id: string; status: string; message: string }> {
+  const resp = await fetch(`${SIDECAR_BASE_URL}/runs/${runId}/resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({})) as Record<string, unknown>;
+    throw new Error((body.message as string) ?? `恢复失败: ${resp.status}`);
+  }
+  return resp.json() as Promise<{ run_id: string; status: string; message: string }>;
+}
+
+export type SteeringType = "constraint" | "correction" | "plan_change" | "clarification_answer" | "approval_response" | "cancel";
+
+/** Append a steering event to a running agent. */
+export async function sendSteering(
+  runId: string,
+  steeringType: SteeringType,
+  content: string,
+  clientId: string,
+  metadata?: Record<string, unknown>,
+): Promise<{ run_id: string; steering_seq: number; accepted: boolean; message: string }> {
+  const resp = await fetch(`${SIDECAR_BASE_URL}/runs/${runId}/steering`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      steering_type: steeringType,
+      content,
+      client_message_id: clientId,
+      metadata: metadata ?? {},
+    }),
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({})) as Record<string, unknown>;
+    throw new Error((body.message as string) ?? `发送失败: ${resp.status}`);
+  }
+  return resp.json() as Promise<{ run_id: string; steering_seq: number; accepted: boolean; message: string }>;
+}
+
 // --- Confirmation ---
 export async function confirmAgentOutput(
   projectId: string,

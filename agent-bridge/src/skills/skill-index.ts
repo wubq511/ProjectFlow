@@ -1,12 +1,13 @@
 /**
  * Skill index — scans the skills/ directory at startup,
- * loads frontmatter (name, description, location, allowed-tools),
+ * loads frontmatter (name, description, location, allowed-tools, v2 metadata),
  * does NOT load SKILL.md body.
  */
 
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
+import type { SkillV2Metadata, SkillOutcomeType, SkillEffectCeiling, SkillVerificationLevel } from "./skill-v2-metadata.js";
 
 export interface SkillMetadata {
   name: string;
@@ -14,6 +15,8 @@ export interface SkillMetadata {
   location: string; // path to SKILL.md
   allowedTools: string[];
   references: string[];
+  /** V2 metadata (optional for backward compatibility) */
+  v2?: SkillV2Metadata;
 }
 
 export interface SkillIndexConfig {
@@ -75,6 +78,7 @@ export class SkillIndex {
 /**
  * Parse YAML frontmatter from a SKILL.md file.
  * Frontmatter is between the first pair of --- lines.
+ * Supports v1 and v2 metadata.
  */
 function parseSkillFrontmatter(content: string, filePath: string): SkillMetadata | null {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -96,12 +100,38 @@ function parseSkillFrontmatter(content: string, filePath: string): SkillMetadata
       ? frontmatter.references.filter((reference): reference is string => typeof reference === "string")
       : [];
 
+    // Parse v2 metadata if present
+    let v2: SkillV2Metadata | undefined;
+    if (frontmatter.v2 && typeof frontmatter.v2 === "object") {
+      const v2Raw = frontmatter.v2 as Record<string, unknown>;
+      v2 = {
+        version: typeof v2Raw.version === "number" ? v2Raw.version : 2,
+        triggerExamples: Array.isArray(v2Raw.triggerExamples)
+          ? v2Raw.triggerExamples.filter((t): t is string => typeof t === "string")
+          : [],
+        negativeTriggers: Array.isArray(v2Raw.negativeTriggers)
+          ? v2Raw.negativeTriggers.filter((t): t is string => typeof t === "string")
+          : [],
+        prerequisites: Array.isArray(v2Raw.prerequisites)
+          ? (v2Raw.prerequisites as SkillV2Metadata["prerequisites"])
+          : [],
+        outcomeType: (v2Raw.outcomeType as SkillOutcomeType) ?? "proposal",
+        allowedEffects: (v2Raw.allowedEffects as SkillEffectCeiling) ?? "proposal_only",
+        requiredVerification: (v2Raw.requiredVerification as SkillVerificationLevel) ?? "deterministic",
+        compatibilityRange: typeof v2Raw.compatibilityRange === "string" ? v2Raw.compatibilityRange : undefined,
+        evalFixtures: Array.isArray(v2Raw.evalFixtures)
+          ? v2Raw.evalFixtures.filter((f): f is string => typeof f === "string")
+          : undefined,
+      };
+    }
+
     return {
       name: frontmatter.name,
       description: frontmatter.description,
       location: filePath,
       allowedTools,
       references,
+      v2,
     };
   } catch {
     return null;
