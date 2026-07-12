@@ -592,6 +592,22 @@ def test_get_proposal_not_found(client: TestClient):
     assert response.status_code == 404
 
 
+def test_non_member_cannot_confirm_proposal(client: TestClient):
+    """A real user outside the proposal workspace cannot commit its state."""
+    workspace, project, *_ = _create_full_fixture(client)
+    outsider = client.post("/api/users", json={"display_name": "Outsider"}).json()
+    data = _call_direction_card_proposal(client, workspace["id"], project["id"])
+    proposal_id = data["links"]["proposal_id"]
+
+    response = client.post(
+        f"/api/agent-proposals/{proposal_id}/confirm",
+        json={"confirmed_by": outsider["id"]},
+    )
+
+    assert response.status_code == 400
+    assert client.get(f"/api/agent-proposals/{proposal_id}").json()["status"] == "pending"
+
+
 # --- requires_confirmation validators ---
 
 

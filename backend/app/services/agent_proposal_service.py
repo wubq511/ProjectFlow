@@ -10,7 +10,15 @@ from app.agent.output_schemas import (
     StagePlanOutput,
     TaskBreakdownOutput,
 )
-from app.models import AgentEvent, AgentProposal, Project, Stage, Task, User
+from app.models import (
+    AgentEvent,
+    AgentProposal,
+    Project,
+    Stage,
+    Task,
+    User,
+    WorkspaceMembership,
+)
 from app.models.enums import AgentEventType, AgentProposalStatus, ProjectStatus, RuntimeEventType, StageStatus
 from app.schemas.agent_proposal import AgentProposalRead
 from app.schemas.runtime import AppendRequest, EventAppendItem
@@ -104,6 +112,14 @@ def confirm_proposal(
         raise ValueError(f"Proposal is {proposal.status.value}, cannot confirm")
 
     require_row(session, User, confirmed_by, "User")
+    membership = session.exec(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == proposal.workspace_id,
+            WorkspaceMembership.user_id == confirmed_by,
+        )
+    ).first()
+    if membership is None:
+        raise ValueError("确认者必须是提案所属工作区成员")
 
     # Persist to project state based on type
     created_ids: list[str] = []

@@ -1,6 +1,6 @@
 # ProjectFlow API Contract
 
-Status: current as of 2026-07-06. All planned MVP endpoints are implemented; confirmation-to-persist flow for clarify/plan/breakdown/replan; negotiate agent output is timeline-only; Agent workspace context includes current time and project resources; structured assignment citations and action card fields; resource CRUD with file upload and delete; reject endpoint accepts empty body and persists rejection_reason; confirmed_by validated against User table; project delete cascades through all child data; file upload via multipart/form-data with server-side persistence; workspace creation accepts team_size and use_case; T41 internal agent-tool and agent-run endpoints require service-to-service Bearer auth.
+Status: current as of 2026-07-12. All planned MVP endpoints are implemented; proposal confirmation and project creation validate workspace membership; T41/T43 internal agent-tool, run, steering, checkpoint and tool-resource endpoints require service-to-service Bearer auth.
 
 This document records the implemented MVP API surface. Post-MVP ideas should be tracked in roadmap docs, not mixed into this contract.
 
@@ -293,8 +293,15 @@ POST /internal/agent-runs
 GET /internal/agent-runs/{run_id}
 GET /internal/agent-runs/{run_id}/events
 POST /internal/agent-runs/{run_id}/events:append
+GET /internal/agent-runs/{run_id}/snapshot
+GET /internal/agent-runs/{run_id}/resume-context?viewer_user_id={user_id}
+POST /internal/agent-runs/{run_id}/steering
+POST /internal/agent-runs/{run_id}/resources
+GET /internal/agent-runs/{run_id}/resources/{resource_id}?cursor={byte_offset}&limit={bytes}
 POST /internal/agent-runs/{run_id}/cancel
 ```
+
+Snapshots and resume context are durable recovery inputs. Steering accepts `constraint`, `plan_change`, `clarification_answer`, and `approval_response` with a client message id and optional expected state version. Large tool outputs are stored run-scoped and read back as bounded Base64 byte pages with `next_cursor`, `has_more`, total bytes and content hash. The browser-facing sidecar snapshot proxy exposes only transport/work-state fields; it does not forward the full checkpoint, viewer identity or raw event history.
 
 ### Agent Conversations
 

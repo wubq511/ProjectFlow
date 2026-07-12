@@ -16,7 +16,50 @@ export async function handleRunSnapshot(
   }
   try {
     const snapshot = await ctx.fastapiClient.getRunSnapshot(runId);
-    sendJson(res, 200, snapshot);
+    const rawCheckpoint = snapshot.latest_checkpoint;
+    const checkpoint = rawCheckpoint && typeof rawCheckpoint === "object"
+      ? rawCheckpoint as Record<string, unknown>
+      : undefined;
+    const rawWorkState = checkpoint?.workState ?? checkpoint?.work_state;
+    const workState = rawWorkState && typeof rawWorkState === "object"
+      ? rawWorkState as Record<string, unknown>
+      : undefined;
+    const recentEvents = Array.isArray(snapshot.recent_events)
+      ? snapshot.recent_events.flatMap((event) => {
+        if (!event || typeof event !== "object") return [];
+        const record = event as Record<string, unknown>;
+        if (record.type !== "work_state.changed") return [];
+        const payload = record.payload && typeof record.payload === "object"
+          ? record.payload as Record<string, unknown>
+          : {};
+        return [{
+          type: "work_state.changed",
+          payload: {
+            status: payload.status,
+            version: payload.version,
+            reason: payload.reason,
+          },
+          created_at: record.created_at,
+        }];
+      })
+      : [];
+    sendJson(res, 200, {
+      run_id: snapshot.run_id,
+      status: snapshot.status,
+      current_turn: snapshot.current_turn,
+      current_step: snapshot.current_step,
+      last_event_seq: snapshot.last_event_seq,
+      state_version: snapshot.state_version,
+      created_at: snapshot.created_at,
+      updated_at: snapshot.updated_at,
+      completed_at: snapshot.completed_at,
+      latest_checkpoint: workState ? { workState: {
+        status: workState.status,
+        version: workState.version,
+        reason: workState.reason,
+      } } : null,
+      recent_events: recentEvents,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     sendJson(res, message.includes("404") ? 404 : 502, {

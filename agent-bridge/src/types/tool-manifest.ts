@@ -39,7 +39,7 @@ export interface ToolRetryConfig {
 export interface ToolBackendConfig {
   owner: "fastapi";
   endpoint: string;
-  method: "POST";
+  method: "GET" | "POST";
 }
 
 export interface ToolEffectConfig {

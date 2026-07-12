@@ -7,11 +7,21 @@ from sqlmodel import Session, select
 from app.core.db_utils import require_row
 from app.models.project import Project
 from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMembership
 from app.schemas.project import ProjectCreate, ProjectUpdate
 
 
 def create_project(session: Session, data: ProjectCreate) -> Project:
+    require_row(session, Workspace, data.workspace_id, "Workspace")
     require_row(session, User, data.created_by, "User")
+    membership = session.exec(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == data.workspace_id,
+            WorkspaceMembership.user_id == data.created_by,
+        )
+    ).first()
+    if membership is None:
+        raise ValueError("创建者必须是工作区成员")
     project = Project(
         workspace_id=data.workspace_id,
         name=data.name,

@@ -841,6 +841,8 @@ npm audit --omit=dev                # 安全审计
 | 40 | Agent Sidebar UI Polish & Planner Reliability | ✅ 2026-06-07 |
 | 41 | Security Review & Performance Optimization | ✅ 2026-06-08 |
 | T41 | Agent Runtime Architecture Docs + Sidecar/runtime tools (S3/S5/S6/S7/S8/S9/S14/S16) | ✅ 2026-07-05 |
+| T42 | ProjectMemory V1 + remediation R1-R6/R8 | ✅ 2026-07-11 |
+| T43 | Agent Harness V2 P0 control plane, recovery, run controls and operational eval | ✅ 2026-07-12（真实模型 canary 待凭据） |
 
 ---
 

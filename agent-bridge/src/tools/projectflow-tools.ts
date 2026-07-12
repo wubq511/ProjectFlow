@@ -286,7 +286,7 @@ const readToolResourceManifest: ProjectFlowToolManifest = {
   backend: {
     owner: "fastapi",
     endpoint: "GET /internal/agent-runs/{run_id}/resources/{resource_id}",
-    method: "POST",
+    method: "GET",
   },
 };
 

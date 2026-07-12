@@ -1,6 +1,6 @@
 # ProjectFlow Runbook
 
-Status: current as of 2026-07-11.
+Status: current as of 2026-07-12.
 
 ## Prerequisites
 
@@ -140,11 +140,11 @@ npm run build
 npm audit --omit=dev
 ```
 
-Expected baseline as of 2026-07-11:
+Expected baseline as of 2026-07-12:
 
-- Backend tests pass: 644 passed, 4 skipped (MVP API/model smoke plus CORS, agent schema/module/provider/fallback, timeline logging, assignment, action-card, check-in, risk, replan, seed/reset/export, demo reset, LLM diagnostic, agent proposal confirmation, T41 internal tool/runtime contract, service-token auth, idempotency, side-effect reconciliation, runtime event bridge tests, T42 ProjectMemory tests, and R8 A/B eval harness tests).
-- Agent bridge tests pass: 566 tests across 21 unit files; `npm run typecheck` and `npm run build` pass in `agent-bridge/`.
-- Frontend tests pass: 57 tests across 10 files (API layer, project dashboard, home page, app shell, action cards, task status update, error boundaries, assignment flow panel, agent proposal panel with generation-status badge coverage).
+- Backend tests pass: 760 passed, 4 skipped.
+- Agent bridge tests pass: 990 tests across 55 unit files; `npm run lint` and `npm run build` pass in `agent-bridge/`.
+- Frontend tests pass: 125 tests across 16 files.
 - Frontend lint passes.
 - Frontend production build passes.
 - `npm audit --omit=dev` reports 0 vulnerabilities.
@@ -153,8 +153,16 @@ Known non-blocking warnings:
 
 - Backend pytest may show a FastAPI/Starlette `TestClient` deprecation warning.
 - Vitest may show a Vite CJS Node API deprecation warning.
-- Frontend lint currently reports 2 React hook dependency warnings in `workspace-content.tsx` and `workspace-create-form.tsx`.
 - Frontend tests currently report a framer-motion ref warning from `AgentArtifactCard`; tests still pass.
+
+T43 operational canary:
+
+```bash
+cd agent-bridge
+../scripts/npm run eval:canary
+```
+
+The runner exercises the public HTTP/SSE seam with distinct primary and fallback models and reports routing, outcome, P95 latency, token usage, and cost. It requires configured provider credentials; without them, treat the canary as not executed rather than passed. Deterministic public-seam scenarios remain part of the normal Agent Bridge test suite.
 
 ## LLM Provider Diagnostic
 

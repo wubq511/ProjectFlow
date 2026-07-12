@@ -8,6 +8,7 @@ import type { AgentAction } from "@/components/project/project-actions";
 import { WorkspaceLayout } from "@/components/project/workspace-layout";
 import { Button } from "@/components/ui/button";
 import { setLastWorkspaceId, useCurrentUserId, setCurrentUserId, setWorkspaceMembers } from "@/components/app-shell";
+import { resolveAgentActorId } from "@/lib/agent-identity";
 import {
   addResource,
   deleteResource,
@@ -474,9 +475,11 @@ export default function WorkspaceDashboardPage() {
     if (!projectState) return;
     setActionError(null);
     setActionSuccess(null);
-    // Use currentUserId (validated via resolveValidCurrentUserId + validate_viewer)
-    // instead of project.created_by which may not exist in the User table.
-    const confirmedBy = currentUserId ?? projectState.project.created_by;
+    const confirmedBy = resolveAgentActorId(currentUserId);
+    if (!confirmedBy) {
+      setActionError("当前工作区没有可用成员，暂时不能确认提案。请先选择有效成员。");
+      return;
+    }
     try {
       await confirmAgentProposal(proposalId, confirmedBy);
       await reloadProject();

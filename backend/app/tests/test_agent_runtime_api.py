@@ -17,7 +17,7 @@ from sqlmodel import SQLModel, Session, create_engine
 from sqlalchemy.pool import StaticPool
 
 from app.main import app
-from app.models import AgentEvent, AgentProposal, Project, User, Workspace
+from app.models import AgentEvent, AgentProposal, Project, User, Workspace, WorkspaceMembership
 from app.models.agent_run_state import AgentRunV2
 from app.models.enums import (
     AgentEventStatus,
@@ -208,6 +208,33 @@ class TestToolResources:
         assert client.post(f"/internal/agent-runs/{run_a}/resources", json=payload).status_code == 200
         assert client.post(f"/internal/agent-runs/{run_a}/resources", json=payload).status_code == 200
         assert client.get(f"/internal/agent-runs/{run_b}/resources/res-idempotent").status_code == 404
+
+
+class TestProjectCreatorValidation:
+    @staticmethod
+    def _payload(created_by: str) -> dict:
+        return {
+            "workspace_id": "ws_456",
+            "name": "Identity Boundary Project",
+            "idea": "Validate the project creator",
+            "deadline": "2099-07-15",
+            "deliverables": "Demo",
+            "created_by": created_by,
+        }
+
+    def test_missing_creator_is_a_client_error(self, client):
+        response = client.post("/api/projects", json=self._payload("missing-user"))
+        assert response.status_code == 400
+
+    def test_non_member_cannot_create_project(self, client):
+        outsider = client.post("/api/users", json={"display_name": "Outsider"}).json()
+        response = client.post("/api/projects", json=self._payload(outsider["id"]))
+        assert response.status_code == 400
+
+    def test_workspace_member_can_create_project(self, client):
+        response = client.post("/api/projects", json=self._payload("user_runtime"))
+        assert response.status_code == 201
+        assert response.json()["created_by"] == "user_runtime"
 
 
 class TestAppendEvents:
@@ -815,6 +842,7 @@ def _create_runtime_linked_clarify_proposal(test_engine) -> tuple[str, str, str]
         )
         session.add(owner)
         session.add(workspace)
+        session.add(WorkspaceMembership(workspace_id=workspace.id, user_id=owner.id, role="owner"))
         session.add(project)
         session.add(run)
         session.add(source_event)

@@ -72,6 +72,17 @@ export interface RuntimeEventBuildOptions {
 }
 
 /**
+ * High-frequency provider deltas are transport events, not durable audit facts.
+ * Their complete result is persisted at agent_end/tool_execution_end and in the
+ * checkpoint, so storing every token/progress update only amplifies the event log.
+ */
+export function shouldPersistPiEvent(piEvent: PiEvent): boolean {
+  return piEvent.type !== "message_delta"
+    && piEvent.type !== "message_update"
+    && piEvent.type !== "tool_execution_update";
+}
+
+/**
  * Map a Pi lifecycle event to a ProjectFlow event.
  */
 export function mapPiEvent(piEvent: PiEvent, runId: string): MappedEvent {

@@ -128,8 +128,8 @@ describe("S15 evaluation: tool evaluation matrix", () => {
   const registry = new ToolRegistry();
   registerDefaultTools(registry, createStubFastapiClient());
 
-  it("all 12 default tools are registered", () => {
-    expect(registry.size).toBe(12);
+  it("all 13 default tools are registered", () => {
+    expect(registry.size).toBe(13);
   });
 
   // Risk category → policy decision matrix
@@ -392,8 +392,13 @@ describe("S15 evaluation: manifest safety", () => {
     const manifests = registry.getManifests();
     for (const m of manifests) {
       expect(m.backend.owner).toBe("fastapi");
-      expect(m.backend.method).toBe("POST");
-      expect(m.backend.endpoint).toMatch(/^POST \/internal\/agent-tools\//);
+      if (m.name === "read_tool_resource") {
+        expect(m.backend.method).toBe("GET");
+        expect(m.backend.endpoint).toMatch(/^GET \/internal\/agent-runs\//);
+      } else {
+        expect(m.backend.method).toBe("POST");
+        expect(m.backend.endpoint).toMatch(/^POST \/internal\/agent-tools\//);
+      }
     }
   });
 

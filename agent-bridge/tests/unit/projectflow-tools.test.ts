@@ -1,8 +1,8 @@
 /**
  * Tests for ProjectFlow read-only tools.
  * Verifies manifest completeness, read-only semantics, registration, and that
- * each executor routes through the unified POST /internal/agent-tools/{name}
- * contract via createFastapiToolExecutor (not public GET).
+ * standard executors route through POST /internal/agent-tools/{name}; durable
+ * tool resources use their run-scoped GET endpoint.
  */
 
 import { describe, it, expect } from "vitest";
@@ -29,6 +29,7 @@ function createStubFastapiClient(): FastapiClient & {
     getRunStatus: async () => ({ run_id: "test", status: "created", current_turn: 0, current_step: 0, last_event_seq: 0, created_at: "", updated_at: "" }),
     appendEvents: async () => ({ state_version: 1, events: [], tool_results: [] }),
     cancelRun: async () => ({ run_id: "test", status: "cancelled", cancelled: true }),
+    readToolResource: async () => ({ resource_id: "res-1", content_base64: "e30=", has_more: false }),
   } as unknown as FastapiClient & {
     calls: Array<{ toolName: string; payload: Record<string, unknown> }>;
   };
@@ -39,6 +40,7 @@ const TOOL_NAMES = [
   "get_agent_conversation",
   "list_pending_proposals",
   "get_timeline_slice",
+  "read_tool_resource",
 ];
 
 const DEFAULT_TOOL_NAMES = [
@@ -74,6 +76,7 @@ const INTERNAL_ENDPOINT: Record<string, string> = {
   get_agent_conversation: "POST /internal/agent-tools/conversation",
   list_pending_proposals: "POST /internal/agent-tools/pending-proposals",
   get_timeline_slice: "POST /internal/agent-tools/timeline-slice",
+  read_tool_resource: "GET /internal/agent-runs/{run_id}/resources/{resource_id}",
   generate_stage_plan_proposal: "POST /internal/agent-tools/stage-plan-proposal",
   analyze_checkins_and_risks: "POST /internal/agent-tools/checkins-and-risks-analysis",
   generate_replan_proposal: "POST /internal/agent-tools/replan-proposal",
@@ -101,9 +104,9 @@ function makeContext(overrides: Partial<ToolExecutionContext> = {}): ToolExecuti
 
 describe("projectflow-tools", () => {
   describe("createReadOnlyTools", () => {
-    it("returns exactly 4 tools", () => {
+    it("returns exactly 5 tools", () => {
       const tools = createReadOnlyTools(createStubFastapiClient());
-      expect(tools.length).toBe(4);
+      expect(tools.length).toBe(5);
     });
 
     it("each tool has a unique name", () => {
@@ -147,12 +150,12 @@ describe("projectflow-tools", () => {
           expect(m.outputSchema).toBeDefined();
         });
 
-        it("has backend config with POST method and internal endpoint", () => {
+        it("has backend config with its declared internal endpoint", () => {
           expect(m.backend).toBeDefined();
           expect(m.backend.owner).toBe("fastapi");
-          expect(m.backend.method).toBe("POST");
+          expect(m.backend.method).toBe(m.name === "read_tool_resource" ? "GET" : "POST");
           expect(m.backend.endpoint).toBe(INTERNAL_ENDPOINT[m.name]);
-          expect(m.backend.endpoint).toMatch(/^POST \/internal\/agent-tools\//);
+          expect(m.backend.endpoint).toMatch(/^((POST \/internal\/agent-tools\/)|(GET \/internal\/agent-runs\/))/);
         });
 
         it("has execution config", () => {
@@ -504,6 +507,7 @@ describe("projectflow-tools", () => {
     it("each tool maps to the expected internal tool name", () => {
       const tools = createReadOnlyTools(createStubFastapiClient());
       for (const tool of tools) {
+        if (tool.manifest.name === "read_tool_resource") continue;
         const expected = INTERNAL_TOOL_NAME[tool.manifest.name];
         expect(expected).toBeDefined();
       }
@@ -515,7 +519,7 @@ describe("projectflow-tools", () => {
       const registry = new ToolRegistry();
       const client = createStubFastapiClient();
       registerDefaultTools(registry, client);
-      expect(registry.size).toBe(12);
+      expect(registry.size).toBe(13);
       for (const name of DEFAULT_TOOL_NAMES) {
         expect(registry.has(name)).toBe(true);
       }
@@ -525,14 +529,14 @@ describe("projectflow-tools", () => {
       const registry = new ToolRegistry();
       registerDefaultTools(registry, createStubFastapiClient());
       const manifests = registry.getModelCallableManifests();
-      expect(manifests.length).toBe(12);
+      expect(manifests.length).toBe(13);
     });
 
     it("getManifests returns all default manifests", () => {
       const registry = new ToolRegistry();
       registerDefaultTools(registry, createStubFastapiClient());
       const manifests = registry.getManifests();
-      expect(manifests.length).toBe(12);
+      expect(manifests.length).toBe(13);
       const names = manifests.map((m: ProjectFlowToolManifest) => m.name).sort();
       expect(names).toEqual([...DEFAULT_TOOL_NAMES].sort());
     });

@@ -1,8 +1,25 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-11.
+Status: current as of 2026-07-12.
 
 ## Latest Architecture Handoff
+
+### T43 — Agent Harness V2 P0 (2026-07-12)
+
+T43 closes the control-plane gaps identified in `docs/T43/ProjectFlow_Agent_Capability_Maturity_Spec.md` without broadening the Agent into a coding or open-world agent.
+
+- Shared request preparation and a versioned Prompt Kernel classify answer/clarify/analyze/act/review requests before creating a run.
+- Outcome Contract, durable RunPlan/WorkState and deterministic verifier make completion depend on evidence and success criteria rather than model stop alone.
+- Token-aware context blocks, compaction receipts, Skills V2 composition and compatibility gates preserve constraints across long runs.
+- Tool Executor V2 enforces manifest timeout/retry/concurrency/effect declarations; large results become run-scoped durable resources readable through bounded pagination.
+- Durable checkpoint, rehydrate, same-run resume and steering support constraints, plan changes, clarification answers and approval responses without replaying known side effects.
+- The frontend polls a browser-safe snapshot and exposes resume, steer, approval and cancel controls. Full checkpoint content, viewer identity and raw event history are not forwarded to the browser.
+- Trajectory export, public HTTP/SSE scenario evaluation and primary/fallback conformance canary report routing, outcome, P95 latency, token use and cost.
+- Proposal-Confirm and FastAPI fact ownership remain unchanged. No current tool requires execution approval, so approval state is available but intentionally inactive rather than forced onto proposal/advisory operations.
+
+High-frequency model token and tool-progress deltas are live SSE transport only; final output, tool results, checkpoints and state boundaries remain durable. This reduced the real browser risk-analysis run from 3,532 persisted events before the fix to 123 after the fix, with the run still completing after six bounded tool calls.
+
+Verification: backend 760 passed / 4 skipped + ruff; agent bridge 990 passed across 55 files + typecheck/build; frontend 125 passed across 16 files + lint/build. Production-model canary was not executed because no provider credentials were configured.
 
 ### Agent Thinking Process Folding (2026-07-10)
 

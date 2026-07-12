@@ -40,7 +40,10 @@ def api_create_project(
     data: ProjectCreate,
     session: Session = Depends(get_session),
 ):
-    project = create_project(session, data)
+    try:
+        project = create_project(session, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _project_to_read(project)
 
 

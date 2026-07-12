@@ -1,10 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { buildRuntimeEventFromPiEvent, mapPiEvent } from "../../src/events/event-mapper.js";
+import { buildRuntimeEventFromPiEvent, mapPiEvent, shouldPersistPiEvent } from "../../src/events/event-mapper.js";
 import type { PiEvent } from "../../src/events/event-mapper.js";
 import { createRunState } from "../../src/types/run-state.js";
 
 describe("event-mapper", () => {
   const runId = "run_123";
+
+  it("keeps high-frequency token/progress deltas out of the durable event log", () => {
+    expect(shouldPersistPiEvent({ type: "message_delta" })).toBe(false);
+    expect(shouldPersistPiEvent({ type: "message_update" })).toBe(false);
+    expect(shouldPersistPiEvent({ type: "tool_execution_update" })).toBe(false);
+    expect(shouldPersistPiEvent({ type: "message_end" })).toBe(true);
+    expect(shouldPersistPiEvent({ type: "tool_execution_end" })).toBe(true);
+  });
 
   it("maps agent_start to agent.started", () => {
     const piEvent: PiEvent = { type: "agent_start", data: {} };

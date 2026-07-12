@@ -176,8 +176,11 @@ export class ToolRegistry {
     if (m.backend.owner !== "fastapi") {
       errors.push(`backend.owner 必须是 fastapi，当前: ${m.backend.owner}`);
     }
-    if (m.backend.method !== "POST") {
-      errors.push(`backend.method 必须是 POST，当前: ${m.backend.method}`);
+    if (m.backend.method !== "GET" && m.backend.method !== "POST") {
+      errors.push(`backend.method 必须是 GET 或 POST，当前: ${m.backend.method}`);
+    }
+    if (m.backend.method === "GET" && m.riskCategory !== "read_only") {
+      errors.push("只有 read_only 工具可以声明 GET backend");
     }
 
     // 10. JSON Schema basic validity (inputSchema)

@@ -1017,9 +1017,6 @@ export async function runRetrospective(projectId: string, viewerUserId: string, 
 
 export interface RunSnapshot {
   run_id: string;
-  conversation_id: string;
-  workspace_id: string;
-  project_id: string;
   status: string;
   current_turn: number;
   current_step: number;
@@ -1028,7 +1025,6 @@ export interface RunSnapshot {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
-  side_effects: Array<Record<string, unknown>>;
   latest_checkpoint: Record<string, unknown> | null;
   recent_events: Array<Record<string, unknown>>;
 }

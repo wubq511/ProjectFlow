@@ -42,6 +42,7 @@ import {
   buildRuntimeEvent,
   buildRuntimeEventFromPiEvent,
   buildRuntimeProductEvent,
+  shouldPersistPiEvent,
 } from "@/events/event-mapper.js";
 import { getDebugPayloadStore, type DebugPayloadStore } from "@/events/debug-payload-store.js";
 import type { EventStream, StreamEventType } from "@/events/stream.js";
@@ -307,6 +308,14 @@ async function handlePiEvent(
         : undefined,
     },
   );
+  if (!shouldPersistPiEvent(event as Parameters<typeof shouldPersistPiEvent>[0])) {
+    // Token/progress deltas stay live-only. The final model/tool output and the
+    // latest state are persisted at their durable boundary, avoiding thousands
+    // of redundant event + run.state_changed rows for one response.
+    stream.emit(pfEvent.type as StreamEventType, pfEvent);
+    callbacks.onEvent?.(pfEvent.type, pfEvent.payload);
+    return;
+  }
   const appendResponse = await fastapiClient.appendEvents(runState.runId, {
     idempotency_key: `${pfEvent.clientEventId}:append:v1`,
     expected_state_version: runState.stateVersion,

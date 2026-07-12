@@ -32,6 +32,7 @@ scripts/
 .codex/
 .codegraph/
 .playwright-mcp/
+.playwright-cli/
 backend/tmp-logs/
 backend/artifacts/
 backend/ab_sidecar_pilot_*.md

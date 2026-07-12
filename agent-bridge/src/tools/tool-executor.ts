@@ -169,7 +169,7 @@ function buildResourceRef(
     : `Large result (${resultBytes} bytes) from ${toolName}`;
 
   return {
-    resourceId: `res_${hashValue({ toolName, toolCallId, resultBytes })}`,
+    resourceId: `res_${hashValue({ toolName, toolCallId, data })}`,
     type: toolName,
     summary,
     bytes: resultBytes,
@@ -445,10 +445,10 @@ export class ToolExecutor {
 
         // Build resource ref for large results
         if (result.data !== undefined) {
-          const resultBytes = JSON.stringify(result.data).length;
+          const content = JSON.stringify(result.data);
+          const resultBytes = new TextEncoder().encode(content).byteLength;
           entry.resourceRef = buildResourceRef(toolName, context.toolCallId, result.data, resultBytes);
           if (entry.resourceRef) {
-            const content = JSON.stringify(result.data);
             await this.options.onLargeResult?.(entry.resourceRef, content, context);
             result.data = {
               summary: entry.resourceRef.summary,

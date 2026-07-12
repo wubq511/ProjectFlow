@@ -130,7 +130,7 @@ describe("pi-runtime", () => {
     expect(calls.some((call) => call.tool_results?.[0]?.tool_name === "mock_get_workspace_state")).toBe(true);
   });
 
-  it("persists lifecycle runtime events through the append API before streaming them", async () => {
+  it("persists durable lifecycle boundaries while streaming token deltas live-only", async () => {
     const calls: WireAppendRequest[] = [];
     const streamed: string[] = [];
     const stream = new EventStream();
@@ -158,10 +158,55 @@ describe("pi-runtime", () => {
     expect(calls.some((call) => call.events?.some((event) => event.type === "agent.started"))).toBe(true);
     expect(calls.some((call) => call.events?.some((event) => event.type === "tool.started"))).toBe(true);
     expect(calls.some((call) => call.events?.some((event) => event.type === "tool.completed"))).toBe(true);
+    expect(calls.some((call) => call.events?.some((event) => event.type === "agent.delta"))).toBe(false);
     expect(calls.some((call) => call.state_patch?.status === "context_building")).toBe(true);
     expect(calls.some((call) => call.state_patch?.status === "tool_preparing")).toBe(true);
     expect(streamed.some((item) => item.startsWith("agent.started:0"))).toBe(false);
     expect(streamed.some((item) => item.startsWith("tool.started:0"))).toBe(false);
+  });
+
+  it("streams provider text deltas without persisting one event per token", async () => {
+    const calls: WireAppendRequest[] = [];
+    const streamed: string[] = [];
+    const eventStream = new EventStream();
+    eventStream.subscribe((message) => streamed.push(`${message.data.type}:${message.data.eventSeq}`));
+    const registry = new ToolRegistry();
+
+    const deltaStreamFn: StreamFn = (model) => {
+      const stream = createAssistantMessageEventStream();
+      const usage: Usage = {
+        input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      };
+      const partial: AssistantMessage = {
+        role: "assistant", content: [], api: model.api, provider: model.provider,
+        model: model.name, usage, stopReason: "stop", timestamp: Date.now(),
+      };
+      const message: AssistantMessage = { ...partial, content: [{ type: "text", text: "完整回答" }] };
+      queueMicrotask(() => {
+        stream.push({ type: "start", partial });
+        stream.push({ type: "text_start", contentIndex: 0, partial });
+        stream.push({ type: "text_delta", contentIndex: 0, delta: "完整", partial });
+        stream.push({ type: "text_delta", contentIndex: 0, delta: "回答", partial });
+        stream.push({ type: "text_end", contentIndex: 0, content: "完整回答", partial: message });
+        stream.push({ type: "done", reason: "stop", message });
+      });
+      return stream;
+    };
+
+    await executeRun(
+      createState(),
+      { conversationId: "conv_1", workspaceId: "ws_1", projectId: "proj_1", userContent: "直接回答" },
+      registry,
+      createModelRouter(),
+      createFastapiClient(calls),
+      eventStream,
+      { streamFn: deltaStreamFn },
+    );
+
+    expect(streamed.filter((event) => event.startsWith("agent.delta:0"))).toHaveLength(4);
+    expect(calls.flatMap((call) => call.events ?? []).some((event) => event.type === "agent.delta")).toBe(false);
+    expect(calls.flatMap((call) => call.events ?? []).some((event) => event.type === "agent.output_captured")).toBe(true);
   });
 
   it("persists and streams proposal product events from proposal side-effect tool results", async () => {

@@ -10,8 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit"
-    ,"eval:canary": "tsx scripts/run-agent-canary.ts"
+    "lint": "tsc --noEmit",
+    "eval:canary": "tsx scripts/run-agent-canary.ts"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.80.3",
