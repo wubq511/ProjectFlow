@@ -169,7 +169,7 @@ function buildResourceRef(
     : `Large result (${resultBytes} bytes) from ${toolName}`;
 
   return {
-    resourceId: `res_${toolCallId}_${Date.now()}`,
+    resourceId: `res_${hashValue({ toolName, toolCallId, resultBytes })}`,
     type: toolName,
     summary,
     bytes: resultBytes,
@@ -193,6 +193,8 @@ export interface ToolExecutorOptions {
    * If the callback throws, the error propagates to the caller.
    */
   onLedgerEntry?: (entry: ToolLedgerEntry) => void | Promise<void>;
+  /** Persist a large result outside the normal trace before exposing its ref. */
+  onLargeResult?: (ref: ToolResourceRef, content: string, context: ToolExecutionContext) => void | Promise<void>;
 }
 
 const DEFAULT_OPTIONS: ToolExecutorOptions = {
@@ -445,6 +447,20 @@ export class ToolExecutor {
         if (result.data !== undefined) {
           const resultBytes = JSON.stringify(result.data).length;
           entry.resourceRef = buildResourceRef(toolName, context.toolCallId, result.data, resultBytes);
+          if (entry.resourceRef) {
+            const content = JSON.stringify(result.data);
+            await this.options.onLargeResult?.(entry.resourceRef, content, context);
+            result.data = {
+              summary: entry.resourceRef.summary,
+              resource_ref: {
+                resource_id: entry.resourceRef.resourceId,
+                type: entry.resourceRef.type,
+                bytes: entry.resourceRef.bytes,
+                has_more: entry.resourceRef.hasMore,
+                cursor: "0",
+              },
+            };
+          }
         }
 
         // Persist this attempt immediately

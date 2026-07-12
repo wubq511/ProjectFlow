@@ -148,6 +148,27 @@ class ToolExecutionApprovalExtension(BaseModel):
     future_approval_scope: Literal["tool_call"] | None = None
 
 
+class ToolResourceCreate(BaseModel):
+    resource_id: str = Field(min_length=1, max_length=160)
+    tool_call_id: str = Field(min_length=1, max_length=160)
+    tool_name: str = Field(min_length=1, max_length=100)
+    content: str = Field(min_length=1, max_length=1_048_576)
+    content_type: Literal["application/json", "text/plain"] = "application/json"
+
+
+class ToolResourceRead(BaseModel):
+    resource_id: str
+    run_id: str
+    tool_name: str
+    content_type: str
+    content_base64: str
+    cursor: int
+    next_cursor: int | None = None
+    has_more: bool
+    total_bytes: int
+    content_hash: str
+
+
 class ToolManifest(BaseModel):
     """Capability manifest for a ProjectFlow tool.
 

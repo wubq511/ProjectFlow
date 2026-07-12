@@ -289,7 +289,7 @@ export function filterModelCallableManifests(
   const allowedTools = skillContext?.allowedTools;
   return manifests.filter((manifest) => {
     if (!manifest.modelCallable || manifest.humanTriggeredOnly) return false;
-    if (allowedTools && !allowedTools.includes(manifest.name)) return false;
+    if (allowedTools && !allowedTools.includes(manifest.name) && manifest.name !== "read_tool_resource") return false;
     return true;
   });
 }

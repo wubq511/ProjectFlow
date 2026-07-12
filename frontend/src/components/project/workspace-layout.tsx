@@ -26,6 +26,7 @@ interface WorkspaceLayoutProps {
   streamTurn?: AgentStreamTurn | null;
   archivedStreamTurns?: ArchivedAgentStreamTurn[];
   streamStatus?: { phase: AgentStreamPhase; module?: string; message: string } | null;
+  activeRunId?: string | null;
   onStopStreaming?: () => void;
   onToggleThinking?: () => void;
   actionError?: string | null;
@@ -102,6 +103,7 @@ export function WorkspaceLayout({
   streamTurn = null,
   archivedStreamTurns = [],
   streamStatus = null,
+  activeRunId = null,
   onStopStreaming,
   onToggleThinking,
   actionError,
@@ -238,6 +240,7 @@ export function WorkspaceLayout({
         streamTurn={streamTurn}
         archivedStreamTurns={archivedStreamTurns}
         streamStatus={streamStatus}
+        activeRunId={activeRunId}
         onStopStreaming={onStopStreaming}
         onToggleThinking={onToggleThinking}
         onConfirmArtifact={onConfirmAgentArtifact}

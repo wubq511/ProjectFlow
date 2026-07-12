@@ -143,6 +143,7 @@ export default function WorkspaceDashboardPage() {
     streamHasThinking,
     archivedStreamTurns,
     completedAnnouncement,
+    activeRunId,
     cleanup: streamCleanup,
   } = useAgentConversationStream({
     onPersistedTurn: (turn) => {
@@ -680,6 +681,7 @@ export default function WorkspaceDashboardPage() {
       streamTurn={streamTurn.status !== "idle" && streamTurn.status !== "completed" ? streamTurn : null}
       archivedStreamTurns={archivedStreamTurns}
       streamStatus={streamStatus}
+      activeRunId={activeRunId}
       onStopStreaming={handleStopStreaming}
       onToggleThinking={toggleThinking}
       completedAnnouncement={completedAnnouncement}

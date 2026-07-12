@@ -533,6 +533,19 @@ export async function executeRun(
             // Already transitioned — ok
           }
         }
+        if (event.steeringType === "approval_response" && workState.status === "awaiting_approval") {
+          const approved = event.metadata?.approved === true || event.content === "approved";
+          if (!approved) return { shouldAbort: true };
+          workState = transitionWorkState(workState, "planning", workState.version, "用户已批准工具执行");
+          await persistControlPlaneEvent(
+            "work_state.changed",
+            runState,
+            fastapiClient,
+            stream,
+            { status: workState.status, version: workState.version, reason: workState.reason },
+            traceIncludeSensitiveData,
+          );
+        }
       }
       return { shouldAbort: false };
     };
@@ -677,6 +690,15 @@ export async function executeRun(
       debugPayloadStore,
       onLedgerEntry: async (entry) => {
         await persistLedgerEntry(entry, runState, fastapiClient, stream, traceIncludeSensitiveData);
+      },
+      onLargeResult: async (ref, content, context) => {
+        await fastapiClient.storeToolResource(runState.runId, {
+          resource_id: ref.resourceId,
+          tool_call_id: context.toolCallId,
+          tool_name: context.toolName,
+          content,
+          content_type: "application/json",
+        });
       },
     });
     const getCombinedLedger = (): ToolLedgerEntry[] => [

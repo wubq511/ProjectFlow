@@ -26,6 +26,7 @@ from app.schemas.runtime import (
     SteeringRequest,
     SteeringResponse,
 )
+from app.schemas.runtime import ToolResourceCreate, ToolResourceRead
 from app.services.agent_runtime_service import get_agent_runtime_service, StaleStateVersionError
 
 router = APIRouter(
@@ -173,6 +174,37 @@ def get_agent_run_snapshot(
     if not result:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     return result
+
+
+@router.post("/{run_id}/resources", response_model=ToolResourceRead)
+def store_tool_resource(
+    run_id: str,
+    request: ToolResourceCreate,
+    session: Session = Depends(get_session),
+) -> ToolResourceRead:
+    service = get_agent_runtime_service(session)
+    try:
+        resource = service.store_tool_resource(run_id, request)
+        return service.read_tool_resource(run_id, resource.id, cursor=0, limit=1)
+    except ValueError as exc:
+        detail = str(exc)
+        raise HTTPException(status_code=404 if "not found" in detail.lower() else 409, detail=detail) from exc
+
+
+@router.get("/{run_id}/resources/{resource_id}", response_model=ToolResourceRead)
+def read_tool_resource(
+    run_id: str,
+    resource_id: str,
+    cursor: int = 0,
+    limit: int = 16_384,
+    session: Session = Depends(get_session),
+) -> ToolResourceRead:
+    service = get_agent_runtime_service(session)
+    try:
+        return service.read_tool_resource(run_id, resource_id, cursor=cursor, limit=limit)
+    except ValueError as exc:
+        detail = str(exc)
+        raise HTTPException(status_code=404 if "not found" in detail.lower() else 400, detail=detail) from exc
 
 
 @router.get("/{run_id}/resume-context")

@@ -97,6 +97,31 @@ class AgentRunEvent(SQLModel, table=True):
         self.trace = json.dumps(value, ensure_ascii=False)
 
 
+class AgentToolResource(SQLModel, table=True):
+    """Durable, run-scoped payload for large tool results.
+
+    Raw content is intentionally kept out of normal runtime events and traces.
+    It is available only through authenticated, paginated internal endpoints.
+    """
+    __tablename__ = "agent_tool_resources"
+    __table_args__ = (
+        Index("ix_agent_tool_resources_run_created", "run_id", "created_at"),
+        Index("ix_agent_tool_resources_tool_call", "run_id", "tool_call_id"),
+    )
+
+    id: str = Field(primary_key=True)
+    run_id: str = Field(foreign_key="agent_runs_v2.id", index=True)
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
+    project_id: str = Field(foreign_key="projects.id", index=True)
+    tool_call_id: str = Field(index=True)
+    tool_name: str = Field(index=True)
+    content: str = Field(sa_column=Column(Text, nullable=False))
+    content_type: str = Field(default="application/json")
+    total_bytes: int = Field(ge=0)
+    content_hash: str = Field(index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class AgentRunStatePatch(SQLModel):
     """State patch submitted by sidecar via internal API."""
     schema_version: int = Field(default=1)

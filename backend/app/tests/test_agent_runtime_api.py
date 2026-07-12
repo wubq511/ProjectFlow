@@ -160,6 +160,56 @@ class TestGetRunStatus:
         assert response.status_code == 404
 
 
+class TestToolResources:
+    def test_large_tool_resource_is_durable_and_paginated(self, client):
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+        content = json.dumps({"items": ["中文内容"] * 200}, ensure_ascii=False)
+        stored = client.post(f"/internal/agent-runs/{run_id}/resources", json={
+            "resource_id": "res-large-1",
+            "tool_call_id": "tc-1",
+            "tool_name": "get_workspace_state",
+            "content": content,
+            "content_type": "application/json",
+        })
+        assert stored.status_code == 200
+
+        first = client.get(f"/internal/agent-runs/{run_id}/resources/res-large-1?cursor=0&limit=64")
+        assert first.status_code == 200
+        first_data = first.json()
+        assert first_data["has_more"] is True
+        assert first_data["next_cursor"] == 64
+        assert first_data["total_bytes"] == len(content.encode("utf-8"))
+
+        second = client.get(
+            f"/internal/agent-runs/{run_id}/resources/res-large-1"
+            f"?cursor={first_data['next_cursor']}&limit=64"
+        )
+        assert second.status_code == 200
+        assert second.json()["cursor"] == 64
+
+    def test_resource_is_run_scoped_and_idempotent(self, client):
+        create_payload = {
+            "viewer_user_id": "user_runtime", "conversation_id": "conv_123",
+            "workspace_id": "ws_456", "project_id": "proj_789", "user_content": "test",
+        }
+        run_a = client.post("/internal/agent-runs", json=create_payload).json()["run_id"]
+        run_b = client.post("/internal/agent-runs", json=create_payload).json()["run_id"]
+        payload = {
+            "resource_id": "res-idempotent", "tool_call_id": "tc-1",
+            "tool_name": "get_project_state", "content": '{"ok":true}',
+        }
+        assert client.post(f"/internal/agent-runs/{run_a}/resources", json=payload).status_code == 200
+        assert client.post(f"/internal/agent-runs/{run_a}/resources", json=payload).status_code == 200
+        assert client.get(f"/internal/agent-runs/{run_b}/resources/res-idempotent").status_code == 404
+
+
 class TestAppendEvents:
     """Test POST /internal/agent-runs/{run_id}/events:append."""
 

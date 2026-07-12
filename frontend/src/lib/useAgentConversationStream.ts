@@ -15,6 +15,9 @@ export type ConversationStreamStatus = {
   phase: AgentStreamPhase;
   module?: string;
   message: string;
+  runId?: string;
+  requestMode?: "answer" | "action";
+  selectedSkills?: string[];
 };
 
 export type UseAgentConversationStreamOptions = {
@@ -96,6 +99,7 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
   /** Explicit completion announcement token — set once per turn, cleared on reset. */
   const [completedAnnouncement, setCompletedAnnouncement] = useState<string | null>(null);
   const [archivedStreamTurns, setArchivedStreamTurns] = useState<ArchivedAgentStreamTurn[]>([]);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
   const onPersistedTurnRef = useRef(options.onPersistedTurn);
   const onErrorRef = useRef(options.onError);
@@ -149,7 +153,15 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
           {
             onStatus: (status) => {
               if (generationRef.current !== gen) return;
-              setStreamStatus(status as ConversationStreamStatus);
+              if (status.run_id) setActiveRunId(status.run_id);
+              setStreamStatus((previous) => ({
+                phase: status.phase as AgentStreamPhase,
+                module: status.module,
+                message: status.message,
+                runId: status.run_id ?? previous?.runId,
+                requestMode: status.request_mode ?? previous?.requestMode,
+                selectedSkills: status.selected_skills ?? previous?.selectedSkills,
+              }));
             },
             onContent: (event) => {
               if (generationRef.current !== gen) return;
@@ -190,6 +202,7 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
               streamDone(finalContent, thinkingContent, executionSteps);
               // Set explicit completion announcement token
               setCompletedAnnouncement(turn.assistant_message?.id ?? clientTurnId);
+              setActiveRunId(null);
               // Notify parent of persisted turn
               onPersistedTurnRef.current(turn);
             },
@@ -265,6 +278,7 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
     setArchivedStreamTurns([]);
     setStreamStatus(null);
     setCompletedAnnouncement(null);
+    setActiveRunId(null);
   }, [resetStreamTurn]);
 
   // Abort on unmount
@@ -297,6 +311,7 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
     archivedStreamTurns,
     /** Explicit completion announcement token (turn ID), null until turn completes. */
     completedAnnouncement,
+    activeRunId,
     /** Cleanup function for useEffect return (aborts on unmount). */
     cleanup,
   };

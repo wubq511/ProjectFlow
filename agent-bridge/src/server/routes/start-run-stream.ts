@@ -80,6 +80,7 @@ export function buildDonePayload(
   textBlocks: Map<string, string>,
   accumulatedContent: string,
   executionSteps: Array<{ tool_name: string; tool_call_id?: string; status: string; label: string }>,
+  metrics?: { latency_ms: number; input_tokens: number; output_tokens: number; total_cost: number },
 ): Record<string, unknown> {
   // Aggregate thinking from all blocks (ordered by composite key: message_seq:contentIndex)
   const thinkingContent = Array.from(thinkingBlocks.entries())
@@ -108,6 +109,7 @@ export function buildDonePayload(
     final_content: finalAnswer,
     ...(thinkingContent ? { thinking_content: thinkingContent } : {}),
     execution_steps: executionSteps.length > 0 ? executionSteps : undefined,
+    ...(metrics ? { metrics } : {}),
   };
 }
 
@@ -237,7 +239,13 @@ export async function handleStartRunStream(
   });
 
   // Emit initial status
-  writeSSE(res, "status", { phase: "planning", message: "正在理解你的需求..." });
+  writeSSE(res, "status", {
+    phase: "planning",
+    message: "正在理解你的需求...",
+    run_id: runState.runId,
+    request_mode: outcomeContract.requestType === "answer" ? "answer" : "action",
+    selected_skills: allSkillContexts.map((skill) => skill.name),
+  });
 
   // Step 4: Subscribe to EventStream and forward as SSE
   let runCompleted = false;
@@ -265,6 +273,16 @@ export async function handleStartRunStream(
   /** Bounded execution steps collected from tool lifecycle events. */
   const executionSteps: Array<{ tool_name: string; tool_call_id?: string; status: string; label: string }> = [];
   const outputSanitizer = createOutputSanitizer(wireRequest.workspace_state);
+  const streamStartedAt = Date.now();
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let totalCost = 0;
+  const currentMetrics = () => ({
+    latency_ms: Math.max(0, Date.now() - streamStartedAt),
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    total_cost: totalCost,
+  });
 
   const emitSanitizedText = (content: string, contentIndex: number): void => {
     if (!content) return;
@@ -353,6 +371,19 @@ export async function handleStartRunStream(
         // forward the raw payload because it can contain provider data or IDs.
         if (data.payload?.phase === "message_start") {
           messageSeq++;
+        }
+        if (data.payload?.phase === "message_end") {
+          const usage = data.payload.usage && typeof data.payload.usage === "object"
+            ? data.payload.usage as Record<string, unknown>
+            : {};
+          const cost = data.payload.cost && typeof data.payload.cost === "object"
+            ? data.payload.cost as Record<string, unknown>
+            : {};
+          inputTokens += typeof usage.input === "number" ? usage.input
+            : typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
+          outputTokens += typeof usage.output === "number" ? usage.output
+            : typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
+          totalCost += typeof cost.total === "number" ? cost.total : 0;
         }
         break;
       case "run.status":
@@ -495,6 +526,7 @@ export async function handleStartRunStream(
         const donePayload = buildDonePayload(
           runState.runId, finalAnswerFromRuntime,
           thinkingBlocks, textBlocks, accumulatedContent, executionSteps,
+          currentMetrics(),
         );
         donePayload.memory_evidence = finalMemoryEvidence();
         writeSSE(res, "done", donePayload);
@@ -559,6 +591,7 @@ export async function handleStartRunStream(
             const donePayload = buildDonePayload(
               state.runId, finalAnswerFromRuntime,
               thinkingBlocks, textBlocks, accumulatedContent, executionSteps,
+              currentMetrics(),
             );
             donePayload.memory_evidence = finalMemoryEvidence();
             writeSSE(res, "done", donePayload);

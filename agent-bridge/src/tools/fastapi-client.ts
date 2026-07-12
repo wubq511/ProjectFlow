@@ -115,6 +115,25 @@ export class FastapiClient {
     });
   }
 
+  async storeToolResource(
+    runId: string,
+    resource: { resource_id: string; tool_call_id: string; tool_name: string; content: string; content_type: "application/json" | "text/plain" },
+  ): Promise<Record<string, unknown>> {
+    return this.request("POST", `/internal/agent-runs/${runId}/resources`, resource);
+  }
+
+  async readToolResource(
+    runId: string,
+    resourceId: string,
+    cursor = 0,
+    limit = 16_384,
+  ): Promise<Record<string, unknown>> {
+    return this.request(
+      "GET",
+      `/internal/agent-runs/${runId}/resources/${encodeURIComponent(resourceId)}?cursor=${cursor}&limit=${limit}`,
+    );
+  }
+
   /**
    * Call an internal tool endpoint.
    * All tool calls go through POST /internal/agent-tools/{tool-name}.

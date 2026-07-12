@@ -11,6 +11,9 @@ export type AgentStreamStatus = {
   phase: AgentStreamPhase;
   module?: string;
   message: string;
+  runId?: string;
+  requestMode?: "answer" | "action";
+  selectedSkills?: string[];
 };
 
 interface AgentStepIndicatorProps {

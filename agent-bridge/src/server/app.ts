@@ -14,6 +14,7 @@ import { handleGetRun } from "./routes/get-run.js";
 import { handleCancelRun } from "./routes/cancel-run.js";
 import { handleResumeRun } from "./routes/resume-run.js";
 import { handleSteering } from "./routes/steering.js";
+import { handleRunSnapshot } from "./routes/run-snapshot.js";
 import { handleListTools } from "./routes/list-tools.js";
 import { handleHealth } from "./routes/health.js";
 import { handleConfigModelsList, handleConfigModelsAdd, handleConfigModelsUpdate, handleConfigModelsDelete } from "./routes/config-models.js";
@@ -111,6 +112,7 @@ export function createServer(config: SidecarConfig, serverCtx?: Partial<ServerCo
     compileRoute("POST", "/runs", handleStartRun),
     compileRoute("POST", "/runs/stream", handleStartRunStream),
     compileRoute("GET", "/runs/:runId", handleGetRun),
+    compileRoute("GET", "/runs/:runId/snapshot", handleRunSnapshot),
     compileRoute("POST", "/runs/:runId/cancel", handleCancelRun),
     compileRoute("POST", "/runs/:runId/resume", handleResumeRun),
     compileRoute("POST", "/runs/:runId/steering", handleSteering),

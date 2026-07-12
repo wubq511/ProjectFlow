@@ -614,7 +614,7 @@ export async function sendAgentConversationMessage(
 }
 
 export type AgentStreamCallbacks = {
-  onStatus: (status: { phase: string; module?: string; message: string }) => void;
+  onStatus: (status: { phase: string; module?: string; message: string; run_id?: string; request_mode?: "answer" | "action"; selected_skills?: string[] }) => void;
   /** Typed content event from the streaming contract. Replaces onToken. */
   onContent: (event: StreamContentEvent) => void;
   /** Typed tool lifecycle event from the streaming contract. */

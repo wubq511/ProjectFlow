@@ -36,6 +36,7 @@ import {
   ChatComposer,
   StarterPrompts,
   AgentGuidedTour,
+  AgentRunControls,
   useGuidedTour,
 } from "./agent";
 import type { AgentStreamStatus } from "./agent/AgentStepIndicator";
@@ -145,6 +146,7 @@ interface AgentSidebarProps {
   streamTurn?: AgentStreamTurn | null;
   archivedStreamTurns?: ArchivedAgentStreamTurn[];
   streamStatus?: AgentStreamStatus | null;
+  activeRunId?: string | null;
   onStopStreaming?: () => void;
   onToggleThinking?: () => void;
   onConfirmArtifact?: (artifact: AgentArtifact) => void | Promise<void>;
@@ -171,6 +173,7 @@ export function AgentSidebar({
   streamTurn = null,
   archivedStreamTurns = [],
   streamStatus = null,
+  activeRunId = null,
   onStopStreaming,
   onToggleThinking,
   onConfirmArtifact,
@@ -646,6 +649,7 @@ export function AgentSidebar({
                       )}
                     </div>
 
+                    <AgentRunControls key={activeRunId ?? "no-run"} runId={activeRunId} connectionStatus={streamTurn?.status} onCancel={onStopStreaming} />
                     {streamStatus && <AgentStepIndicator status={streamStatus} executionSteps={streamTurn?.executionSteps} />}
                     {pendingConversation && !streamStatus && <AgentRunStatusCard />}
 

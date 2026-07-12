@@ -9,7 +9,6 @@ import { describe, it, expect, vi } from "vitest";
 import { ToolExecutor } from "../../src/tools/tool-executor.js";
 import { ToolRegistry } from "../../src/tools/registry.js";
 import type { ProjectFlowToolManifest } from "../../src/types/tool-manifest.js";
-import type { FastapiClient } from "../../src/tools/fastapi-client.js";
 import type { ToolExecutionContext } from "../../src/tools/registry.js";
 
 function makeManifest(overrides: Partial<ProjectFlowToolManifest> = {}): ProjectFlowToolManifest {
@@ -36,14 +35,6 @@ function makeContext(): ToolExecutionContext {
     runId: "run-1", toolCallId: "tc-1", conversationId: "conv-1",
     workspaceId: "ws-1", projectId: "proj-1", toolName: "test-tool",
     toolVersion: 1, manifestVersion: 1, idempotencyKey: "run-1_tc-1",
-  };
-}
-
-function makeMockFastapiClient(): FastapiClient {
-  return {
-    startRun: async () => ({ run_id: "run-1", memory_context: null }),
-    appendEvents: async () => ({ state_version: 1, events: [], tool_results: [] }),
-    callTool: async () => ({}),
   };
 }
 
@@ -132,7 +123,7 @@ describe("ToolExecutor", () => {
         },
       });
 
-      const executor = new ToolExecutor(registry, makeMockFastapiClient(), {
+      const executor = new ToolExecutor(registry, {
         backoffFn: () => 0, // no delay for tests
         jitterFn: () => 1,
       });
@@ -170,7 +161,7 @@ describe("ToolExecutor", () => {
         },
       });
 
-      const executor = new ToolExecutor(registry, makeMockFastapiClient(), {
+      const executor = new ToolExecutor(registry, {
         backoffFn: () => 0,
         jitterFn: () => 1,
       });
@@ -241,7 +232,7 @@ describe("ToolExecutor", () => {
         },
       });
 
-      const executor = new ToolExecutor(registry, makeMockFastapiClient(), {
+      const executor = new ToolExecutor(registry, {
         backoffFn: () => 0,
         jitterFn: () => 1,
       });
@@ -251,6 +242,25 @@ describe("ToolExecutor", () => {
       expect(ledger.length).toBe(3);
       expect(ledger[0]!.attempt).toBe(1);
       expect(ledger[2]!.attempt).toBe(3);
+    });
+
+    it("persists large results and exposes only a bounded resource reference", async () => {
+      const registry = new ToolRegistry();
+      const manifest = makeManifest({ resultLimit: { maxBytes: 65536, redaction: "none" } });
+      registry.register({
+        manifest,
+        execute: async () => ({ status: "success", data: { content: "中".repeat(5000) }, observation: "ok", sideEffectStatus: "no_side_effect" }),
+      });
+      const persisted: Array<{ id: string; content: string }> = [];
+      const executor = new ToolExecutor(registry, {
+        onLargeResult: async (ref, content) => { persisted.push({ id: ref.resourceId, content }); },
+      });
+
+      const result = await executor.execute("test-tool", {}, makeContext(), manifest);
+      expect(persisted).toHaveLength(1);
+      expect(persisted[0]!.content.length).toBeGreaterThan(4096);
+      expect((result.data as Record<string, unknown>).resource_ref).toBeTruthy();
+      expect(executor.getLedger()[0]!.resourceRef?.hasMore).toBe(true);
     });
   });
 });

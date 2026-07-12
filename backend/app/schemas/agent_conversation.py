@@ -39,6 +39,9 @@ class StreamStatusEventSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
     phase: Literal["planning", "executing", "generating", "streaming", "answering"]
     message: str = Field(min_length=1, strict=True)
+    run_id: str | None = None
+    request_mode: Literal["answer", "action"] | None = None
+    selected_skills: list[str] = Field(default_factory=list)
 
     @field_validator("message")
     @classmethod
@@ -129,6 +132,8 @@ class StreamDonePayloadSchema(BaseModel):
     final_content: str = Field(min_length=0, strict=True)
     thinking_content: str = ""
     execution_steps: list[StreamDoneExecutionStepSchema] = Field(default_factory=list)
+    memory_evidence: dict[str, Any] = Field(default_factory=dict)
+    metrics: dict[str, float | int] = Field(default_factory=dict)
 
 
 class AgentTurnPlan(BaseModel):

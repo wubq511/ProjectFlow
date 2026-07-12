@@ -266,6 +266,30 @@ const getTimelineSliceManifest: ProjectFlowToolManifest = {
   },
 };
 
+const readToolResourceManifest: ProjectFlowToolManifest = {
+  ...READ_ONLY_DEFAULTS,
+  name: "read_tool_resource",
+  description: "分页读取当前运行中大型工具结果的后续内容。仅能读取同一 run 已返回的 resource_ref。",
+  inputSchema: {
+    type: "object",
+    properties: {
+      resource_id: { type: "string", description: "工具结果返回的 resource_id" },
+      cursor: { type: "number", description: "下一页 cursor，首次为 0" },
+      limit: { type: "number", description: "每页字节数，最大 65536" },
+    },
+    required: ["resource_id"],
+  },
+  outputSchema: {
+    type: "object",
+    description: "Base64 编码的分页内容、next_cursor、has_more 与内容哈希",
+  },
+  backend: {
+    owner: "fastapi",
+    endpoint: "GET /internal/agent-runs/{run_id}/resources/{resource_id}",
+    method: "POST",
+  },
+};
+
 // ─── Tool: generate_stage_plan_proposal ──────────────────────────────────────
 
 const generateStagePlanProposalManifest: ProjectFlowToolManifest = {
@@ -660,6 +684,15 @@ export function createReadOnlyTools(fastapiClient: FastapiClient): RegisteredToo
     {
       manifest: getTimelineSliceManifest,
       execute: createFastapiToolExecutor(fastapiClient, "timeline-slice"),
+    },
+    {
+      manifest: readToolResourceManifest,
+      execute: async (args, context) => fastapiClient.readToolResource(
+        context.runId,
+        String(args.resource_id ?? ""),
+        typeof args.cursor === "number" ? args.cursor : 0,
+        typeof args.limit === "number" ? args.limit : 16_384,
+      ),
     },
   ];
 }

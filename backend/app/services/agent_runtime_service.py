@@ -6,6 +6,8 @@ Implements idempotency key validation and atomic event_seq assignment.
 
 import logging
 import uuid
+import base64
+import hashlib
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,7 +15,7 @@ from sqlalchemy import desc
 from sqlmodel import Session, select
 
 from app.agent.memory.context_builder import build_memory_context
-from app.models.agent_run_state import AgentRunEvent, AgentRunV2
+from app.models.agent_run_state import AgentRunEvent, AgentRunV2, AgentToolResource
 from app.models.enums import AgentRunStatus, RuntimeEventType
 from app.services.memory_service import validate_viewer
 from app.schemas.runtime import (
@@ -25,6 +27,8 @@ from app.schemas.runtime import (
     RunStartResponse,
     RunStatusResponse,
     ToolResultAppendResponse,
+    ToolResourceCreate,
+    ToolResourceRead,
 )
 
 
@@ -230,6 +234,65 @@ class AgentRuntimeService:
             created_at=run.created_at,
             updated_at=run.updated_at,
             completed_at=run.completed_at,
+        )
+
+    def store_tool_resource(self, run_id: str, request: ToolResourceCreate) -> AgentToolResource:
+        run = self.session.get(AgentRunV2, run_id)
+        if not run:
+            raise ValueError(f"Run {run_id} not found")
+        existing = self.session.get(AgentToolResource, request.resource_id)
+        encoded = request.content.encode("utf-8")
+        digest = hashlib.sha256(encoded).hexdigest()
+        if existing:
+            if existing.run_id != run_id or existing.content_hash != digest:
+                raise ValueError("resource_id conflict")
+            return existing
+        resource = AgentToolResource(
+            id=request.resource_id,
+            run_id=run_id,
+            workspace_id=run.workspace_id,
+            project_id=run.project_id,
+            tool_call_id=request.tool_call_id,
+            tool_name=request.tool_name,
+            content=request.content,
+            content_type=request.content_type,
+            total_bytes=len(encoded),
+            content_hash=digest,
+        )
+        self.session.add(resource)
+        self.session.commit()
+        self.session.refresh(resource)
+        return resource
+
+    def read_tool_resource(
+        self,
+        run_id: str,
+        resource_id: str,
+        *,
+        cursor: int = 0,
+        limit: int = 16_384,
+    ) -> ToolResourceRead:
+        resource = self.session.get(AgentToolResource, resource_id)
+        if not resource or resource.run_id != run_id:
+            raise ValueError("Tool resource not found")
+        raw = resource.content.encode("utf-8")
+        if cursor < 0 or cursor > len(raw):
+            raise ValueError("Invalid resource cursor")
+        bounded_limit = min(max(limit, 1), 65_536)
+        chunk = raw[cursor:cursor + bounded_limit]
+        next_cursor = cursor + len(chunk)
+        has_more = next_cursor < len(raw)
+        return ToolResourceRead(
+            resource_id=resource.id,
+            run_id=run_id,
+            tool_name=resource.tool_name,
+            content_type=resource.content_type,
+            content_base64=base64.b64encode(chunk).decode("ascii"),
+            cursor=cursor,
+            next_cursor=next_cursor if has_more else None,
+            has_more=has_more,
+            total_bytes=resource.total_bytes,
+            content_hash=resource.content_hash,
         )
 
     def list_run_events(self, run_id: str) -> list[RuntimeEventRead] | None:
