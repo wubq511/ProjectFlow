@@ -4,11 +4,14 @@ from typing import Any
 
 from sqlmodel import Session, select
 
+from app.core.db_utils import require_row
 from app.models.project import Project
+from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectUpdate
 
 
 def create_project(session: Session, data: ProjectCreate) -> Project:
+    require_row(session, User, data.created_by, "User")
     project = Project(
         workspace_id=data.workspace_id,
         name=data.name,
