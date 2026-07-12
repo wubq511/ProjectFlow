@@ -474,8 +474,11 @@ export default function WorkspaceDashboardPage() {
     if (!projectState) return;
     setActionError(null);
     setActionSuccess(null);
+    // Use currentUserId (validated via resolveValidCurrentUserId + validate_viewer)
+    // instead of project.created_by which may not exist in the User table.
+    const confirmedBy = currentUserId ?? projectState.project.created_by;
     try {
-      await confirmAgentProposal(proposalId, projectState.project.created_by);
+      await confirmAgentProposal(proposalId, confirmedBy);
       await reloadProject();
       setActionSuccess("提案已确认，内容已应用到项目");
     } catch (err: unknown) {
