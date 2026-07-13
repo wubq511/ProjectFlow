@@ -199,14 +199,14 @@ function computeCombinedEffectCeiling(skills: SkillContext[]): EffectCeiling {
  * Increment when the system prompt TEMPLATE STRUCTURE changes.
  * Dynamic content (time, workspace, skill, memory) does NOT affect this version.
  */
-export const PROMPT_KERNEL_VERSION = "1.0.0";
+export const PROMPT_KERNEL_VERSION = "2.0.0";
 
 /**
  * Static kernel signature — identifies the prompt template structure.
  * This is STABLE across different dynamic contexts (workspace, skill, memory).
  * Change this when the prompt sections, ordering, or rules change.
  */
-const KERNEL_SIGNATURE = `v${PROMPT_KERNEL_VERSION}:answer-action-split:id-mapping:memory-rules`;
+const KERNEL_SIGNATURE = `v${PROMPT_KERNEL_VERSION}:stable-prefix:dynamic-suffix:time-gating:outcome-contract`;
 
 import { createHash } from "node:crypto";
 

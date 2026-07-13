@@ -21,7 +21,8 @@ import type { AgentRunState, RunStatus } from "@/types/run-state.js";
 import type { ContextBuildInput, MemoryContext, SkillContext } from "./context-builder.js";
 import { buildContext, filterModelCallableManifests, transformForLLM } from "./context-builder.js";
 import type { OutcomeContract } from "./outcome-contract.js";
-import { PROMPT_KERNEL_VERSION, hashPromptKernel } from "./request-preparation.js";
+import { PROMPT_KERNEL_VERSION, hashPromptKernel, hashAssembledPrompt } from "./request-preparation.js";
+import { needsCurrentTime } from "./context-blocks.js";
 import { DEFAULT_CONTEXT_TOKENS } from "@/types/model-config.js";
 import { createInitialWorkState, transitionWorkState, type WorkStateStatus } from "./work-state.js";
 import { shouldCreatePlan, createSimplePlan, type RunPlan } from "./run-plan.js";
@@ -584,6 +585,21 @@ export async function executeRun(
       ? mergeSkillContexts(allContexts)
       : input.skillContext;
 
+    // Time gating: only inject timestamp when request is date-sensitive
+    const currentTime = needsCurrentTime(
+      input.userContent,
+      input.outcomeContract?.normalizedGoal,
+    ) ? new Date().toISOString() : undefined;
+
+    // Outcome contract: compact typed block for action mode only
+    const contractForContext = (!isAnswerMode && input.outcomeContract) ? {
+      normalizedGoal: input.outcomeContract.normalizedGoal,
+      constraints: input.outcomeContract.constraints,
+      successCriteria: input.outcomeContract.successCriteria,
+      effectCeiling: input.outcomeContract.effectCeiling,
+      completionMode: input.outcomeContract.completionMode,
+    } : undefined;
+
     const contextInput: ContextBuildInput = {
       userContent: input.userContent,
       workspaceState: input.workspaceState,
@@ -591,11 +607,12 @@ export async function executeRun(
       pendingProposals: input.pendingProposals,
       toolManifests: isAnswerMode ? [] : toolRegistry.getManifests(),
       skillContext: mergedSkillContext,
-      currentTime: new Date().toISOString(),
+      currentTime,
       memoryContext: input.memoryContext,
       isAnswerMode,
       promptKernelVersion: PROMPT_KERNEL_VERSION,
       maxContextTokens: contextBudget,
+      outcomeContract: contractForContext,
     };
     const builtContext = buildContext(contextInput);
     const kernelHash = hashPromptKernel();
@@ -637,9 +654,17 @@ export async function executeRun(
         clarification_policy: input.outcomeContract.clarificationPolicy,
       };
     }
+
+    // Prompt kernel + assembled prompt hashes (always present for trajectory evidence)
+    const assembledHash = hashAssembledPrompt(JSON.stringify({
+      systemPrompt: builtContext.systemPrompt,
+      userMessage: builtContext.userMessage,
+      tools: builtContext.tools,
+    }));
     memoryMetadata._prompt_kernel = {
       version: PROMPT_KERNEL_VERSION,
       hash: kernelHash,
+      assembled_hash: assembledHash,
     };
 
     // Record compaction metadata if context was budget-aware
@@ -654,6 +679,20 @@ export async function executeRun(
         // Block type summary (no sensitive content)
         dropped_types: [...new Set(builtContext.compaction.droppedBlocks.map((b) => b.source))],
         retained_types: [...new Set(builtContext.compaction.retainedBlocks.map((b) => b.source))],
+        // Receipt metadata (no sensitive content)
+        receipt_schema_version: builtContext.compaction.receipt.schemaVersion,
+        receipt_status: builtContext.compaction.receipt.status,
+        rejected_count: builtContext.compaction.receipt.blocks.filter((b) => b.status === "rejected").length,
+        compacted_count: builtContext.compaction.receipt.blocks.filter((b) => b.status === "compacted").length,
+        block_receipts: builtContext.compaction.receipt.blocks.map((b) => ({
+          id: b.id,
+          source: b.source,
+          retention: b.retention,
+          status: b.status,
+          version: b.version ?? null,
+          estimated_tokens: b.estimatedTokens,
+          ...(b.reason ? { reason: b.reason } : {}),
+        })),
       };
     }
 

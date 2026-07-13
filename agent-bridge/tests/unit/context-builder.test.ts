@@ -42,13 +42,23 @@ describe("context-builder", () => {
     expect(context.systemPrompt).toContain("工具参数");
   });
 
-  it("includes current time in system prompt", () => {
+  it("includes current time when date-sensitive content present", () => {
+    const context = buildContext({
+      userContent: "帮我制定计划",
+      toolManifests: [],
+      currentTime: "2026-07-04T10:00:00Z",
+    });
+    expect(context.systemPrompt).toContain("2026-07-04");
+  });
+
+  it("omits current time for generic question (time gating)", () => {
     const context = buildContext({
       userContent: "你好",
       toolManifests: [],
       currentTime: "2026-07-04T10:00:00Z",
     });
-    expect(context.systemPrompt).toContain("2026-07-04");
+    expect(context.systemPrompt).not.toContain("当前时间");
+    expect(context.systemPrompt).not.toContain("2026-07-04");
   });
 
   it("includes skill context when provided", () => {
@@ -376,6 +386,78 @@ describe("context-builder", () => {
       expect(toolNames).toContain("generate_stage_plan_proposal");
       expect(toolNames).not.toContain("list_pending_proposals");
       expect(toolNames).not.toContain("generate_task_breakdown_proposal");
+    });
+  });
+
+  // ── Kernel marker deduplication ───────────────────────────────────
+
+  describe("kernel marker", () => {
+    it("kernel marker appears exactly once in system prompt", () => {
+      const context = buildContext({
+        userContent: "你好",
+        toolManifests: [],
+        promptKernelVersion: "2.0.0",
+      });
+      const matches = context.systemPrompt.match(/\[prompt_kernel:/g);
+      expect(matches).toHaveLength(1);
+    });
+
+    it("kernel marker appears exactly once with skill context", () => {
+      const context = buildContext({
+        userContent: "帮我制定计划",
+        toolManifests: [makeManifest("get_workspace_state")],
+        skillContext: {
+          name: "project-planning",
+          description: "阶段计划",
+          body: "body",
+          allowedTools: ["get_workspace_state"],
+        },
+        promptKernelVersion: "2.0.0",
+      });
+      const matches = context.systemPrompt.match(/\[prompt_kernel:/g);
+      expect(matches).toHaveLength(1);
+    });
+  });
+
+  // ── Outcome contract (non-budget path) ────────────────────────────
+
+  describe("outcome contract (non-budget path)", () => {
+    it("injects outcome contract block in action mode", () => {
+      const context = buildContext({
+        userContent: "帮我制定计划",
+        toolManifests: [makeManifest("get_workspace_state")],
+        skillContext: {
+          name: "project-planning",
+          description: "阶段计划",
+          body: "",
+          allowedTools: ["get_workspace_state"],
+        },
+        outcomeContract: {
+          normalizedGoal: "[project-planning] 帮我制定计划",
+          constraints: ["不得直接修改 Primary Project State"],
+          successCriteria: ["调用必要的工具"],
+          effectCeiling: "proposal_only",
+          completionMode: "complete",
+        },
+      });
+      expect(context.systemPrompt).toContain("本次运行目标");
+      expect(context.systemPrompt).toContain("proposal_only");
+    });
+
+    it("does not inject outcome contract in answer mode", () => {
+      const context = buildContext({
+        userContent: "项目进展如何？",
+        toolManifests: [],
+        isAnswerMode: true,
+        outcomeContract: {
+          normalizedGoal: "项目进展如何？",
+          constraints: [],
+          successCriteria: [],
+          effectCeiling: "none",
+          completionMode: "answer-only",
+        },
+      });
+      expect(context.systemPrompt).not.toContain("本次运行目标");
     });
   });
 });

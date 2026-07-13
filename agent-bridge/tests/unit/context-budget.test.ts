@@ -3,10 +3,13 @@
  *
  * Verifies that buildContext with maxContextTokens:
  * - Creates blocks from real data
+ * - Orders stable prefix before dynamic suffix
  * - Pins goal/constraints/pending proposals/memory provenance
  * - Compacts lower-priority blocks when over budget
- * - Records compaction metadata
+ * - Records compaction metadata with receipt
  * - Preserves safety rules through compaction
+ * - Injects outcome contract in action mode only
+ * - Gates current time on date-sensitivity
  */
 
 import { describe, it, expect } from "vitest";
@@ -196,5 +199,244 @@ describe("Context budget-aware assembly", () => {
 
     expect(result.tools.length).toBe(2);
     expect(result.systemPrompt).toContain("必须使用工具");
+  });
+
+  // ── Prompt ordering: stable prefix before dynamic suffix ──────────
+
+  describe("prompt ordering", () => {
+    it("skill body appears before ID mapping table in system prompt", () => {
+      const result = buildContext({
+        userContent: "帮我制定计划",
+        workspaceState: { project: { id: "proj-1", name: "测试" } },
+        toolManifests: [makeManifest("get_workspace_state")],
+        skillContext: {
+          name: "project-planning",
+          description: "阶段计划",
+          body: "SKILL_BODY_CONTENT",
+          allowedTools: ["get_workspace_state"],
+        },
+        maxContextTokens: 32000,
+      });
+
+      const skillIdx = result.systemPrompt.indexOf("SKILL_BODY_CONTENT");
+      // Use the table header to find the actual id_mapping block (not the identity text mention)
+      const idMapIdx = result.systemPrompt.indexOf("## ID → 名称 对照表");
+      expect(skillIdx).toBeGreaterThan(-1);
+      expect(idMapIdx).toBeGreaterThan(-1);
+      expect(skillIdx).toBeLessThan(idMapIdx);
+    });
+
+    it("identity appears before skill body in system prompt", () => {
+      const result = buildContext({
+        userContent: "帮我制定计划",
+        toolManifests: [makeManifest("get_workspace_state")],
+        skillContext: {
+          name: "project-planning",
+          description: "阶段计划",
+          body: "SKILL_BODY",
+          allowedTools: ["get_workspace_state"],
+        },
+        maxContextTokens: 32000,
+      });
+
+      const identityIdx = result.systemPrompt.indexOf("ProjectFlow");
+      const skillIdx = result.systemPrompt.indexOf("SKILL_BODY");
+      expect(identityIdx).toBeLessThan(skillIdx);
+    });
+
+    it("kernel marker appears exactly once (no duplication)", () => {
+      const result = buildContext({
+        userContent: "你好",
+        toolManifests: [],
+        promptKernelVersion: "2.0.0",
+        maxContextTokens: 32000,
+      });
+
+      const matches = result.systemPrompt.match(/\[prompt_kernel:/g);
+      expect(matches).toHaveLength(1);
+    });
+  });
+
+  // ── Outcome contract (action mode only) ───────────────────────────
+
+  describe("outcome contract", () => {
+    it("injects outcome contract block in action mode", () => {
+      const result = buildContext({
+        userContent: "帮我制定计划",
+        toolManifests: [makeManifest("get_workspace_state")],
+        skillContext: {
+          name: "project-planning",
+          description: "阶段计划",
+          body: "",
+          allowedTools: ["get_workspace_state"],
+        },
+        outcomeContract: {
+          normalizedGoal: "[project-planning] 帮我制定计划",
+          constraints: ["不得直接修改 Primary Project State"],
+          successCriteria: ["调用必要的工具"],
+          effectCeiling: "proposal_only",
+          completionMode: "complete",
+        },
+        maxContextTokens: 32000,
+      });
+
+      expect(result.systemPrompt).toContain("本次运行目标");
+      expect(result.systemPrompt).toContain("帮我制定计划");
+      expect(result.systemPrompt).toContain("proposal_only");
+    });
+
+    it("does not inject outcome contract in answer mode", () => {
+      const result = buildContext({
+        userContent: "项目进展如何？",
+        toolManifests: [],
+        isAnswerMode: true,
+        outcomeContract: {
+          normalizedGoal: "项目进展如何？",
+          constraints: [],
+          successCriteria: [],
+          effectCeiling: "none",
+          completionMode: "answer-only",
+        },
+        maxContextTokens: 32000,
+      });
+
+      expect(result.systemPrompt).not.toContain("本次运行目标");
+    });
+  });
+
+  // ── Time gating ───────────────────────────────────────────────────
+
+  describe("time gating", () => {
+    it("includes current time when date-sensitive content present", () => {
+      const result = buildContext({
+        userContent: "帮我制定计划，截止日期是下周五",
+        toolManifests: [],
+        currentTime: "2026-07-13T10:00:00Z",
+        maxContextTokens: 32000,
+      });
+
+      expect(result.userMessage).toContain("当前时间: 2026-07-13");
+    });
+
+    it("omits current time for generic question without date keywords", () => {
+      const result = buildContext({
+        userContent: "项目进展如何？",
+        toolManifests: [],
+        currentTime: "2026-07-13T10:00:00Z",
+        maxContextTokens: 32000,
+      });
+
+      expect(result.systemPrompt).not.toContain("当前时间");
+      expect(result.userMessage).not.toContain("当前时间");
+    });
+
+    it("includes time when goalFromContract has date keywords", () => {
+      const result = buildContext({
+        userContent: "执行任务",
+        toolManifests: [],
+        currentTime: "2026-07-13T10:00:00Z",
+        outcomeContract: {
+          normalizedGoal: "[project-planning] 制定截止日期前的计划",
+          constraints: [],
+          successCriteria: [],
+          effectCeiling: "proposal_only",
+          completionMode: "complete",
+        },
+        maxContextTokens: 32000,
+      });
+
+      expect(result.userMessage).toContain("当前时间");
+    });
+  });
+
+  // ── Receipt accuracy ──────────────────────────────────────────────
+
+  describe("receipt", () => {
+    it("includes receipt in compaction metadata", () => {
+      const result = buildContext({
+        userContent: "你好",
+        toolManifests: [],
+        maxContextTokens: 32000,
+      });
+
+      expect(result.compaction!.receipt).toBeDefined();
+      expect(result.compaction!.receipt.schemaVersion).toBe(1);
+      expect(result.compaction!.receipt.blocks.length).toBeGreaterThan(0);
+    });
+
+    it("receipt has no content field on any block", () => {
+      const result = buildContext({
+        userContent: "你好",
+        toolManifests: [],
+        maxContextTokens: 32000,
+      });
+
+      for (const block of result.compaction!.receipt.blocks) {
+        expect(block).not.toHaveProperty("content");
+      }
+    });
+
+    it("receipt includes id, source, retention, estimatedTokens, status for each block", () => {
+      const result = buildContext({
+        userContent: "你好",
+        toolManifests: [],
+        maxContextTokens: 32000,
+      });
+
+      for (const block of result.compaction!.receipt.blocks) {
+        expect(block).toHaveProperty("id");
+        expect(block).toHaveProperty("source");
+        expect(block).toHaveProperty("retention");
+        expect(block).toHaveProperty("estimatedTokens");
+        expect(block).toHaveProperty("status");
+        expect(["retained", "compacted", "rejected"]).toContain(block.status);
+      }
+    });
+
+    it("receipt status is 'ok' when within budget", () => {
+      const result = buildContext({
+        userContent: "你好",
+        toolManifests: [],
+        maxContextTokens: 32000,
+      });
+
+      expect(result.compaction!.receipt.status).toBe("ok");
+    });
+
+    it("receipt status is 'degraded' when pinned content exceeds budget", () => {
+      const result = buildContext({
+        userContent: "帮我制定详细的阶段计划，包含所有任务拆解、分工推荐和风险分析",
+        workspaceState: {
+          project: {
+            id: "proj-1",
+            name: "测试项目".repeat(100),
+            idea: "很长的想法".repeat(100),
+            stages: Array.from({ length: 20 }, (_, i) => ({ id: `s${i}`, name: `阶段${i}`, goal: "目标".repeat(50) })),
+            tasks: Array.from({ length: 50 }, (_, i) => ({ id: `t${i}`, title: `任务${i}`, description: "描述".repeat(50) })),
+          },
+        },
+        toolManifests: [makeManifest("get_workspace_state")],
+        skillContext: {
+          name: "project-planning",
+          description: "阶段计划",
+          body: "skill body".repeat(100),
+          allowedTools: ["get_workspace_state"],
+        },
+        pendingProposals: Array.from({ length: 10 }, (_, i) => ({ id: `p${i}`, type: "plan", content: "提案内容".repeat(50) })),
+        memoryContext: {
+          text: "很长的记忆内容".repeat(100),
+          usedMemoryIds: ["mem-1"],
+          memoryBackend: "fts5",
+          retrievalCount: 1,
+          injectedCount: 1,
+          latencyMs: 5,
+        },
+        maxContextTokens: 100, // very small budget
+      });
+
+      // With such a small budget, pinned content should exceed it
+      expect(result.compaction!.receipt.pinnedExceedsBudget).toBe(true);
+      expect(result.compaction!.receipt.status).toBe("degraded");
+    });
   });
 });

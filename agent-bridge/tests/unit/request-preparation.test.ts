@@ -206,6 +206,10 @@ describe("prepareRunRequest", () => {
       expect(PROMPT_KERNEL_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
     });
 
+    it("version is 2.0.0 (ordering change)", () => {
+      expect(PROMPT_KERNEL_VERSION).toBe("2.0.0");
+    });
+
     it("hashPromptKernel (stable) produces same hash regardless of context", () => {
       const hash1 = hashPromptKernel();
       const hash2 = hashPromptKernel();
