@@ -305,67 +305,70 @@ Snapshots and resume context are durable recovery inputs. Steering accepts `cons
 
 ### Agent Conversations
 
-Conversation endpoints are the primary UI path for the project Agent sidebar. The frontend sends the user's natural-language message; the backend stores the conversation, asks the LLM for a structured turn plan, validates that plan against the deterministic workflow policy, optionally runs the selected Agent module with `user_instruction`, then returns messages and review metadata.
+Conversation endpoints are the primary UI path for the project Agent sidebar. A project can contain multiple conversations. New conversations are creator-owned and `private`; conversations created before T45 migrate to `team`. Every route validates the viewer. Project ownership does not grant access to another member's private transcript.
 
 ```http
-GET /api/projects/{project_id}/agent-conversation
-POST /api/agent/conversations/{conversation_id}/messages
+GET  /api/projects/{project_id}/agent-conversations?viewer_user_id={user_id}
+POST /api/projects/{project_id}/agent-conversations
+GET  /api/agent/conversations/{conversation_id}?viewer_user_id={user_id}
+GET  /api/agent/conversations/{conversation_id}/messages?viewer_user_id={user_id}&before_created_at={iso_time}&before_id={message_id}
+POST /api/agent/conversations/{conversation_id}/messages/stream
 ```
 
-`GET /api/projects/{project_id}/agent-conversation` returns or creates the active conversation:
+List responses are lightweight and never include the full transcript:
+
+```json
+[
+  {
+    "id": "uuid",
+    "project_id": "uuid",
+    "creator_user_id": "uuid",
+    "title": "阶段计划压缩",
+    "visibility": "private",
+    "status": "active",
+    "message_count": 6,
+    "last_message_preview": "已生成三周阶段计划…",
+    "created_at": "2026-07-13T08:00:00Z",
+    "updated_at": "2026-07-13T08:05:00Z"
+  }
+]
+```
+
+Create a conversation immediately before its first message. An empty title is resolved deterministically from the first message, without another model call:
 
 ```json
 {
-  "id": "uuid",
-  "workspace_id": "uuid",
-  "project_id": "uuid",
-  "status": "active",
-  "summary": "",
-  "current_focus": "阶段计划",
+  "viewer_user_id": "uuid"
+}
+```
+
+The detail endpoint returns conversation metadata and its latest message page. Older messages are loaded from the dedicated message endpoint using the returned stable cursor:
+
+```json
+{
   "messages": [],
-  "created_at": "2026-06-06T00:00:00Z",
-  "updated_at": "2026-06-06T00:00:00Z"
+  "has_older": true,
+  "older_cursor": {
+    "created_at": "2026-07-13T08:00:00Z",
+    "id": "uuid"
+  }
 }
 ```
 
-`POST /api/agent/conversations/{conversation_id}/messages` accepts:
+The stream request includes the viewer identity and optional model controls:
 
 ```json
 {
-  "content": "把阶段计划压缩成 3 周，优先演示闭环"
+  "content": "把阶段计划压缩成 3 周，优先演示闭环",
+  "viewer_user_id": "uuid",
+  "model": { "provider": "deepseek", "name": "deepseek-v4-flash" },
+  "thinking_level": "medium"
 }
 ```
 
-The response includes the persisted user message, assistant message, optional `AgentRun`, optional `AgentTurnPlan`, and next suggestions:
+Private conversations require the creator; team conversations require project membership. A team conversation is built with team-visible ProjectMemory only. Cross-project or unauthorized identifiers return `404` to avoid existence disclosure. The compatibility endpoint `GET /api/projects/{project_id}/agent-conversation?viewer_user_id=...` returns the latest accessible conversation and is strictly non-mutating; it returns `404` when none exists. The old non-stream `POST .../messages` endpoint returns `410`.
 
-```json
-{
-  "conversation": {},
-  "user_message": {},
-  "assistant_message": {
-    "role": "assistant",
-    "content": "阶段计划提案已生成，已放入待确认队列。你确认后我才会应用到项目。",
-    "linked_event_id": "uuid",
-    "linked_proposal_id": "uuid"
-  },
-  "run": {
-    "selected_module": "plan",
-    "status": "proposal_created",
-    "user_instruction": "把阶段计划压缩成 3 周，优先演示闭环",
-    "agent_event_id": "uuid",
-    "proposal_id": "uuid"
-  },
-  "turn_plan": {
-    "response_type": "run_module",
-    "selected_module": "plan",
-    "risk_level": "medium",
-    "requires_confirmation": true
-  },
-  "next_suggestions": ["确认这个阶段计划", "要求改成更保守", "解释为什么这样分阶段"]
-}
-```
-
-Policy gate behavior: the LLM may request a module, but the backend blocks invalid jumps. For example, `breakdown` is blocked until stages exist, `assign` is blocked until tasks exist, and `push` is blocked until finalized assignments exist. Blocked turns still persist user and assistant messages but do not create `AgentRun`, `AgentEvent`, or `AgentProposal`.
+Conversation history is runtime context, not Primary Project State or ProjectMemory. Proposals, risks and action cards remain project-level artifacts across conversation switches.
 
 ### Agent Proposals (Confirm-to-Persist)
 

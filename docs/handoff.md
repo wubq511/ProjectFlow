@@ -4,6 +4,20 @@ Status: current as of 2026-07-13.
 
 ## Latest Architecture Handoff
 
+### T44/T45 — Agent Efficiency, Model Integrity and Private Conversation History (2026-07-13)
+
+T44 and T45 are implemented in bounded commits `e8bd6e0`, `22b7977`, `6027885`, `435f489`, `70bcb99` and `6ae1831`.
+
+- Current user input enters Pi exactly once and is excluded from recent history. Usage evidence distinguishes input/output/reasoning/cache-read/cache-write tokens, uncached input and detailed cost; unavailable provider fields remain unknown rather than zero.
+- Model configuration has exactly one valid default. Normal conversation propagates explicit model/thinking selection, invalid explicit models fail, and requested/resolved attribution plus fallback reason remain separate.
+- Prompt Kernel 2.0 keeps stable rules before dynamic facts, gates time injection, records versioned Context receipts and hashes the assembled system/user/tool payload.
+- Skill V2 metadata is the single ceiling authority. The strictest ceiling is preserved through routing, Outcome Contract, prompt/trace evidence, manifest exposure, runtime policy and verification. Read-only concurrency remains; all writes remain sequential.
+- Assignment persistence now requires non-empty constraint-check evidence when the recommended or backup member has stored free-text constraints. This is an evidence-completeness gate only; semantic compliance requires a future structured constraint model.
+- Projects support multiple Agent conversations. New conversations are creator-owned/private; legacy rows migrate to team history without breaking message/run foreign keys. All routes validate viewer access, GET is non-mutating, summaries are lightweight, and messages use stable cursor pagination.
+- The Agent sidebar provides local draft/new conversation, history Sheet, private/team labels, URL selection and older-message loading. Conversation changes are locked while streaming. Team conversations receive team-visible ProjectMemory only.
+
+Verification: backend 824 passed / 4 skipped plus Ruff; agent bridge 1110 passed across 57 files plus typecheck/build; frontend 147 passed across 17 files plus lint/build. No paid production-model calls were made for this implementation pass. The earlier 2026-07-13 Flash/Pro canary is a pre-T44 baseline and must not be presented as proof of improved cache rate or cost.
+
 ### T43 — Agent Harness V2 P0 (2026-07-12)
 
 T43 closes the control-plane gaps identified in `docs/T43/ProjectFlow_Agent_Capability_Maturity_Spec.md` without broadening the Agent into a coding or open-world agent.
@@ -1021,7 +1035,7 @@ All 6 remediation slices (R1–R6, R8) completed. R7 (optional vector) remains s
 
 ## Verification Baseline
 
-Latest verification baseline after T42 ProjectMemory V1 remediation (Batch D, 2026-07-10):
+Latest deterministic verification baseline after T44/T45 (2026-07-13):
 
 ```bash
 cd backend
@@ -1038,10 +1052,10 @@ npm audit --omit=dev
 
 Results:
 
-- Backend: 702 tests passed, 4 skipped.
-- Agent-bridge: 607 tests passed across 26 files.
-- Frontend tests: 117 passed across 14 files.
-- Frontend lint passed with 2 existing React hook warnings.
+- Backend: 824 tests passed, 4 skipped; Ruff passed.
+- Agent-bridge: 1110 tests passed across 57 files; typecheck/build passed.
+- Frontend tests: 147 passed across 17 files.
+- Frontend lint and production build passed.
 - Frontend build passed.
 - Frontend production dependency audit reported 0 vulnerabilities.
 
@@ -1049,7 +1063,7 @@ Results:
 
 Backend:
 
-- Implemented routes: 72 endpoint method/path pairs covering health, LLM diagnostics, users, workspaces, invitations, member-profiles, projects, resources, stages, tasks, workspace-state, agent, agent-proposals, assignments, action-cards, check-ins, risks, replans, seed/reset, timeline, export, project-memories, and demo reset.
+- Implemented routes: 91 business endpoint method/path pairs (80 `/api`, 11 `/internal`) covering public domains plus conversations, ProjectMemory and the sidecar runtime/tool contract.
 - Domain models/persistence tables implemented (21 tables, all enums).
 - AgentEvent now records `status` for success, repaired, fallback, or failed agent runs.
 - AgentProposal stores pending clarify/plan/breakdown/replan outputs; confirmation persists to project state.
@@ -1058,10 +1072,11 @@ Backend:
 - Pydantic schemas implemented for all CRUD and execution-loop domains.
 - WorkspaceState endpoint returns members, project, stages, tasks, assignment/check-in context, project resources, and current date/time/timezone for Agent consumption.
 - Agent infrastructure can run with `LLM_PROVIDER=mock` by default, or OpenAI-compatible chat-completions settings through environment variables. Agent HTTP endpoints return `proposal_id` where applicable and persist structured outputs and created entity IDs through service-layer writes.
+- AgentConversation supports multiple project conversations with creator/title/visibility, safe legacy migration, viewer-scoped private/team access, summary lists and stable message pagination.
 
 Frontend:
 
-- Implemented routes: `/`, `/onboarding`, `/onboarding/profile`, `/workspaces/new`, `/workspaces/[workspaceId]` (transition route → project), `/projects/new`, `/projects/[projectId]`.
+- Implemented routes: `/`, `/onboarding`, `/onboarding/profile`, `/workspaces/new`, `/workspaces/[workspaceId]`; project/view/conversation selection is query-driven inside the workspace route.
 - Agent proposal panel and right Agent sidebar show whether each run succeeded, was repaired, used fallback, or failed.
 - API base URL comes from `NEXT_PUBLIC_API_BASE_URL` or defaults to `http://localhost:8000/api`.
 - All API calls go through `frontend/src/lib/api.ts`.
@@ -1074,6 +1089,7 @@ Frontend:
 - RiskPanel 支持状态过滤（全部/待处理/已接受/已忽略/已解决）。
 - localStorage 读取使用 `useSyncExternalStore` 避免 hydration mismatch。
 - UI components use shadcn/ui with project color tokens. Form components unified through FormField wrapper (label + input + error + hint).
+- Agent sidebar supports new/private conversations, accessible history selection, URL restoration and streaming-safe switching.
 
 ### Phase 17 — Code Review Hardening (2026-05-30)
 
@@ -1227,9 +1243,9 @@ Verification: backend 218/218 tests pass; frontend 24/24 tests pass; frontend li
 
 ## Next Work
 
-All MVP phases (0-41) are complete. T41 Agent Runtime sidecar (S3-S16) and T42 ProjectMemory V1 (issues #71-#80 + remediation R1-R6/R8) are merged to `main` as of 2026-07-10. R8 A/B eval harness is built; 150-run real-model pilot requires existing provider credentials.
+T41-T45 deterministic implementation is complete. The next Agent-specific task is a repeated paid production canary using the T43 public seam to measure post-T44 uncached input, cache read/write, latency and cost against the pre-T44 baseline. Do not change routing policy from a single run.
 
-T23.D full mock + real-LLM manual rerun of D1-D17 is the only documented pending verification item. Post-MVP backlog includes auth, deployment, collaboration permissions, and broader UI hardening (tracked in `.trae/documents/code-review-unfixed-issues.md`).
+The main accepted limitation is free-text member constraints: `constraint_respected` proves that the Agent supplied review evidence, not that the proposed assignment is semantically compliant. A stronger guarantee requires a structured constraint model and deterministic task/constraint matching. Post-MVP backlog also includes auth, deployment, collaboration permissions and broader UI hardening.
 
 ## Additional Completed Phases
 

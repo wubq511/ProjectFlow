@@ -256,6 +256,8 @@ Task ──1:N──> TaskStatusUpdate
 Project ──1:N──> Risk
 Project ──1:N──> ActionCard
 Project ──1:N──> AgentEvent
+Project ──1:N──> AgentConversation ──1:N──> AgentMessage
+User ──1:N──> AgentConversation (creator)
 ```
 
 #### 模型详情
@@ -281,6 +283,8 @@ Project ──1:N──> AgentEvent
 | `ActionCard` | project_id, stage/task/user_id, type, title, content, reason, goal, start_suggestion, completion_standard, due_date, status | 行动卡 |
 | `AgentProposal` | project_id, workspace_id, proposal_type, status, payload(JSON), confirmed_by, rejection_reason | Agent 提案（clarify/plan/breakdown/replan；确认前不写入项目状态；reject 时记录原因） |
 | `AgentEvent` | project_id, workspace_id, event_type, status, input/output_snapshot, reasoning_summary, user_confirmed | Agent 决策日志 |
+| `AgentConversation` | workspace_id, project_id, creator_user_id, title, visibility, status, summary/current_focus | 项目内多会话；private creator-owned，legacy team-visible |
+| `AgentMessage` | conversation_id, role, content, structured_payload, linked_event/proposal_id | 会话消息；按 `(created_at,id)` 游标分页 |
 
 ### 5.3 Schema 层
 
@@ -368,7 +372,8 @@ generate_structured_output()
 | [project_service.py](backend/app/services/project_service.py) | create/get/list/update, normalize_direction_card | 项目 CRUD + direction_card 规范化 |
 | [stage_service.py](backend/app/services/stage_service.py) | create/get/list/update, try_advance_stage | 阶段 CRUD + 阶段自动推进 |
 | [task_service.py](backend/app/services/task_service.py) | create/get/list/update, create_status_update | 任务 CRUD + 状态更新（支持 auto_commit）+ 阶段自动推进钩子 |
-| [assignment_service.py](backend/app/services/assignment_service.py) | create_proposal/response, finalize, create_negotiation | 分配全流程：提案→响应→确认→写入 Task.owner |
+| [assignment_service.py](backend/app/services/assignment_service.py) | create_proposal/response, finalize, create_negotiation | 分配全流程；有成员约束时先要求 constraint evidence，再持久化提案 |
+| [agent_conversation_service.py](backend/app/services/agent_conversation_service.py) | create/list/get, get_messages_page, process_stream | private/team 会话权限、摘要列表、稳定游标分页、流式消息与 team-memory 过滤 |
 | [member_profile_service.py](backend/app/services/member_profile_service.py) | create/get/update/list/delete | 成员画像 CRUD |
 | [checkin_service.py](backend/app/services/checkin_service.py) | create_cycle/list, create_response/list | 签到周期与响应 |
 | [risk_service.py](backend/app/services/risk_service.py) | create/list/update_status | 风险 CRUD（支持 auto_commit） |
@@ -385,7 +390,7 @@ generate_structured_output()
 
 ### 5.6 API 路由层
 
-22 个路由文件，所有端点前缀 `/api`：
+25 个已挂载路由模块，业务端点使用 `/api`，sidecar internal contract 使用 `/internal`：
 
 | 路由文件 | 端点数 | 关键端点 |
 |---------|--------|---------|
@@ -403,8 +408,11 @@ generate_structured_output()
 | routes_checkins | 4 | cycles + responses |
 | routes_risks | 3 | POST/GET/PATCH risks |
 | routes_action_cards | 3 | POST/GET/PATCH action-cards |
-| routes_agent | 8 | POST /agent/{clarify,plan,breakdown,assign,active-push,check-in-analysis,risk-analysis,replan} |
+| routes_agent_conversations | 7 | project conversation list/create、detail、message page、stream、read-only compatibility GET；旧 non-stream POST 返回 410 |
 | routes_agent_proposals | 4 | GET/POST proposals (confirm/reject) |
+| routes_agent_runtime | internal | run start/event/state/checkpoint/resource/cancel |
+| routes_agent_tools | internal | narrow typed ProjectFlow tools |
+| routes_memories | 3 | project memory list/export |
 | routes_replans | 1 | POST /replans/confirm |
 | routes_timeline | 1 | GET /projects/{id}/timeline |
 | routes_workspace_state | 1 | GET /workspaces/{id}/state |
@@ -586,6 +594,18 @@ Base URL: `http://localhost:8000/api`
 | POST | /agent/check-in-analysis | 签到分析 → Risk + inferred task changes as AgentProposal(replan) |
 | POST | /agent/risk-analysis | 风险分析 → Risk |
 | POST | /agent/replan | 重排建议 → AgentProposal(replan)，需确认 |
+
+### Agent 会话历史
+
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| GET | /projects/{id}/agent-conversations?viewer_user_id=... | 可访问会话摘要；不返回完整消息 |
+| POST | /projects/{id}/agent-conversations | 创建 viewer-owned private conversation |
+| GET | /agent/conversations/{id}?viewer_user_id=... | 会话详情与最新消息页 |
+| GET | /agent/conversations/{id}/messages?... | `(created_at,id)` 游标加载更旧消息 |
+| POST | /agent/conversations/{id}/messages/stream | viewer 校验后的 SSE 主路径；透传 model/thinking level |
+
+Compatibility singular GET 只返回最新可访问会话且不创建数据。Private conversation 仅 creator 可见；team conversation 对项目成员可见且只注入 team-visible ProjectMemory。
 
 ### T41 Internal Agent Tools
 

@@ -142,9 +142,9 @@ npm audit --omit=dev
 
 Expected baseline as of 2026-07-13:
 
-- Backend tests pass: 760 passed, 4 skipped.
-- Agent bridge tests pass: 994 tests across 55 unit files; `npm run lint` and `npm run build` pass in `agent-bridge/`.
-- Frontend tests pass: 125 tests across 16 files.
+- Backend tests pass: 824 passed, 4 skipped.
+- Agent bridge tests pass: 1110 tests across 57 unit files; `npm run typecheck` and `npm run build` pass in `agent-bridge/`.
+- Frontend tests pass: 147 tests across 17 files.
 - Frontend lint passes.
 - Frontend production build passes.
 - `npm audit --omit=dev` reports 0 vulnerabilities.
@@ -164,7 +164,21 @@ cd agent-bridge
 
 The runner exercises the public HTTP/SSE seam with distinct primary and fallback models and reports routing, outcome, P95 latency, token usage, cost and output privacy. Provide `EVAL_WORKSPACE_STATE_JSON`, `EVAL_CONVERSATION_ID`, `EVAL_WORKSPACE_ID`, `EVAL_PROJECT_ID`, `EVAL_VIEWER_USER_ID`, `EVAL_PRIMARY_MODEL` and `EVAL_FALLBACK_MODEL`; model refs use `provider:name` format. Provider keys remain in `agent-bridge/.env` and must never be echoed into the command or report.
 
-The 2026-07-13 DeepSeek Flash/Pro canary passed with 100% routing and outcome rates. Frozen scenario latency gates are answer 30s, status/planning/privacy 90s and risk-replan 120s. The accepted evidence baseline is Flash P95 32.655s / $0.0170647008 and Pro P95 92.711s / $0.058729118; compare future runs against these numbers rather than treating one sample as a permanent pricing guarantee. Deterministic public-seam scenarios remain part of the normal Agent Bridge test suite.
+The 2026-07-13 DeepSeek Flash/Pro canary passed with 100% routing and outcome rates. Frozen scenario latency gates are answer 30s, status/planning/privacy 90s and risk-replan 120s. The accepted pre-T44 evidence baseline is Flash P95 32.655s / $0.0170647008 and Pro P95 92.711s / $0.058729118. T44 was implemented after that run, so repeat the canary before claiming any cache, uncached-input, latency or cost improvement. Deterministic public-seam scenarios remain part of the normal Agent Bridge test suite.
+
+### Conversation history smoke test
+
+With a valid project member ID, verify the T45 lifecycle without exposing another member's transcript:
+
+```bash
+curl "http://localhost:8000/api/projects/<project_id>/agent-conversations?viewer_user_id=<user_id>"
+curl -X POST "http://localhost:8000/api/projects/<project_id>/agent-conversations" \
+  -H "Content-Type: application/json" \
+  -d '{"viewer_user_id":"<user_id>"}'
+curl "http://localhost:8000/api/agent/conversations/<conversation_id>?viewer_user_id=<user_id>"
+```
+
+Expected behavior: create returns a `private` conversation owned by the viewer; list returns summaries without full messages; unauthorized or cross-project identifiers return `404`; the compatibility singular GET never creates a row. In the frontend, “新对话” stays local until the first send, “历史会话” loads the latest page, and switching is disabled during streaming.
 
 ## LLM Provider Diagnostic
 
@@ -548,6 +562,15 @@ Use this checklist to manually verify the full MVP flow. It covers both mock mod
 - [ ] Direction card panel shows the proposal with problem, users, value, deliverables, boundaries, risks
 - [ ] Confirm the proposal — direction card is persisted to project state
 - [ ] Reject the proposal — direction card is not persisted
+
+### Agent conversation history
+
+- [ ] Click “新对话” — no empty server conversation is created before the first send
+- [ ] Send the first message — the URL gains the selected `conversation` query parameter
+- [ ] Open “历史会话” — private/team labels, preview and active selection are visible
+- [ ] Open an older conversation and load older messages — order is stable and no duplicates appear
+- [ ] Start a streamed answer — new/switch controls remain disabled until completion or stop
+- [ ] Switch current user — another member's private conversation is not listed or readable
 
 ### Agent: Stage Planning
 

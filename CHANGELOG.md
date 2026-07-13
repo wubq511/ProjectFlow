@@ -6,6 +6,9 @@ All notable changes to ProjectFlow are documented here. Format follows [Keep a C
 
 ### Added
 
+- T45 private multi-conversation history: creator-owned private conversations, migrated team history, viewer-scoped list/create/read APIs, stable message cursor pagination, deterministic titles, URL-deep-linked selection, and streaming-safe Agent sidebar switching.
+- T44 normalized usage evidence now records input/output/reasoning/cache-read/cache-write tokens, uncached input, detailed cost, requested model, resolved model and fallback reason without converting unavailable provider fields to zero.
+- Prompt Kernel 2.0 and Context Ledger receipts separate stable rules from dynamic facts, gate time injection, preserve block versions/hashes, and keep the current request as the final dynamic block.
 - T43 Agent Harness V2 P0: Outcome Contract, RunPlan/WorkState, token-aware context compaction, composable Skills V2, deterministic verifier, manifest-enforced Tool Executor V2, durable checkpoint/resume/steering, frontend run controls, run-scoped large-result pagination, trajectory export, public HTTP/SSE scenario evaluation and cross-model conformance canary.
 - Identity boundaries for project creation and proposal confirmation now require a real member of the target workspace; the frontend fails closed when no active member identity is available.
 - High-frequency model token and tool-progress deltas now remain live SSE events while final outputs and state boundaries stay durable, preventing per-token event/state double writes.
@@ -13,6 +16,11 @@ All notable changes to ProjectFlow are documented here. Format follows [Keep a C
 
 ### Fixed
 
+- Current user input is sent to Pi exactly once and excluded from recent history; ordinary conversation now honors the selected model and supported thinking level.
+- Model configuration enforces exactly one valid default and rejects invalid explicit selections instead of silently attributing execution to a fallback.
+- Skill V2 effect ceilings now use one strictest-ceiling policy across routing, Outcome Contract, prompt/trace metadata, manifest exposure and runtime invocation. Human-only, destructive and open-world tools remain unavailable.
+- Assignment proposals now require explicit constraint-check evidence before persistence when either recommended member has stored free-text constraints. This is an evidence-completeness gate, not semantic validation.
+- SQLite conversation migration preserves messages/run foreign keys while removing the former one-conversation-per-project uniqueness constraint.
 - Skills V2 prerequisites now gate eligibility without adding intent score; Chinese release prompts route deterministically instead of selecting the first prerequisite-satisfied skills.
 - Pi `message_end` usage and cost are extracted from the assistant message, so production canary telemetry no longer reports zero tokens or cost.
 - Operational evaluation accepts one-of read evidence where state is already injected and checks real workspace IDs instead of treating normal `project_*` terms as raw-ID leaks.

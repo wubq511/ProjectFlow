@@ -2,11 +2,11 @@
 
 ProjectFlow is a local-first active project agent MVP for college project teams. The demo target is a full loop from workspace setup through planning, assignment, active push, check-in, risk analysis, replanning, and review export.
 
-The shipped MVP still uses a legacy single `CoordinatorAgent`. The confirmed T41 target architecture is a TypeScript Agent Bridge Sidecar with Pi component runtime, ProjectFlow Tool Contract, durable AgentRunState, and Proposal-Confirm Commit. For new Agent runtime work, start from the T41 docs rather than extending the legacy Coordinator as the target runtime.
+The primary Agent path uses the T41 TypeScript Agent Bridge Sidecar with Pi component runtime, typed ProjectFlow tools, durable AgentRunState, and Proposal-Confirm Commit. The legacy `CoordinatorAgent` remains only as migration/fallback code. For new Agent runtime work, start from the T41-T45 docs rather than extending the legacy Coordinator.
 
 ## Current Status
 
-All MVP phases and MVP Usable tasks complete. Phase 24-29 (Agent Output Quality, T23 Fixes, Code Review, Frontend Redesign) complete through 2026-06-05. Phase 37-39 (Workspace UX, Landing Redesign, Agent UX Fixes, Task Ordering, Stage Auto-Advance) complete through 2026-06-07. Phase 40 (Agent Sidebar Polish) complete 2026-06-07. Phase 41 (Security Review & Performance Optimization) complete 2026-06-08. T41 Agent Runtime architecture docs were confirmed and pushed on 2026-07-04; runtime/tool slices S3/S5/S6/S7/S8/S9/S10/S11/S12/S13/S14/S15/S16 were implemented through 2026-07-06. T42 ProjectMemory V1 issues #71-#80 are closed and merged through 2026-07-07; remediation slices R1-R6 and R8 are complete, the selective R8 Pilot passed 7/7 gates on 2026-07-11, and the S1 member-constraint output guard reached 10/10 B-group compliance. R7 remains a separately approved V1.1 vector project. Multi-model multi-provider config and switching implemented 2026-07-08. T43 Agent Harness V2 P0 was completed on 2026-07-12 with durable outcome/plan/work state, context compaction, Skills V2, verifier/executor, checkpoint/resume/steering, run controls, durable large-result pagination, and public-seam operational eval. The DeepSeek Flash/Pro production canary passed on 2026-07-13 with 100% routing and outcome rates, bounded latency, real token/cost telemetry, and output privacy checks.
+All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory V1 and T43 Agent Harness V2 P0 are implemented. On 2026-07-13, T44 hardened request deduplication, cache/cost telemetry, model-selection truthfulness, Prompt Kernel/context receipts, Skill effect ceilings and assignment constraint evidence. T45 added private multi-conversation history with legacy team-history migration, viewer-scoped APIs, cursor pagination, URL selection and streaming-safe history switching. The latest deterministic baseline is 824 backend tests passed / 4 skipped, 1110 agent-bridge tests passed across 57 files, and 147 frontend tests passed across 17 files; all lint/typecheck/build gates pass. Paid production-model re-baselining after T44 remains a separate measurement task.
 
 - Phase 0 / GitHub #2 — Guardrails & Setup
 - Phase 1 / GitHub #3 — Account / Workspace / Member Profile
@@ -38,8 +38,10 @@ All MVP phases and MVP Usable tasks complete. Phase 24-29 (Agent Output Quality,
 - T41 S6-S13 / GitHub #51-#58 — Stage plan proposal, advisory Risk/ActionCard write, AssignmentProposal tool, check-in inferred task changes through replan proposal, parity/cutover safety net, direction-card/task-breakdown proposal tools, S11 frontend integration, and advisory create_risk/create_checkin tools (2026-07-06)
 - T42 ProjectMemory V1 / GitHub #71-#80 — governed project memory, deterministic extraction, visibility, retrieval, Agent context injection, evaluation harness, optional vector guardrails, and frontend read-only memory list/export UI (2026-07-07)
 - T43 Agent Harness V2 P0 / GitHub #88 — goal/plan/verify control plane, context compaction, Skills V2, manifest-enforced executor, checkpoint/resume/steering, operational eval and frontend run controls (2026-07-12)
+- T44 Agent efficiency and model integrity / GitHub #90 — exact-once input, normalized cache/cost telemetry, truthful model selection, stable Prompt Kernel and pre-execution Skill/tool safety (2026-07-13)
+- T45 private conversation history / GitHub #91 — private/team conversations, safe migration, viewer authorization, cursor pagination and Agent sidebar history UI (2026-07-13)
 
-Implemented: FastAPI backend with service-token-protected internal tool/runtime/resource endpoints; T41 typed domain tools and Proposal-Confirm; T42 governed ProjectMemory; and T43 Agent Harness V2 with Outcome Contract, RunPlan/WorkState, context compaction, composable Skills, deterministic verifier, manifest-enforced Tool Executor V2, durable checkpoint/resume/steering, browser-safe run controls, large-result pagination, trajectory export and public HTTP/SSE operational evaluation. Current verification baseline: 760 backend tests passed / 4 skipped, 994 agent-bridge tests passed across 55 files, 125 frontend tests passed across 16 files; backend ruff, agent-bridge typecheck/build, and frontend lint/build all pass.
+Implemented: FastAPI backend with private multi-conversation persistence and service-token-protected internal runtime/tools; T41 typed domain tools and Proposal-Confirm; T42 governed ProjectMemory; T43 durable Agent Harness V2; and T44 request/model/prompt/Skill efficiency hardening. Current verification baseline: 824 backend tests passed / 4 skipped, 1110 agent-bridge tests passed across 57 files, 147 frontend tests passed across 17 files; backend ruff, agent-bridge typecheck/build, and frontend lint/build all pass.
 
 ## Stack
 
@@ -139,6 +141,8 @@ npm audit --omit=dev
 - [ProjectMemory V1 design](docs/T42/project-memory-design-v4.1.md)
 - [ProjectMemory V1 closure review](docs/T42/project-memory-v1-closure.md)
 - [Agent Runtime ADRs](docs/adr/)
+- [Agent efficiency and model integrity spec](docs/T44/agent-efficiency-model-config-spec.md)
+- [Private conversation history spec](docs/T45/agent-conversation-history-spec.md)
 - [Domain glossary](CONTEXT.md)
 - [T23 test docs](docs/T23/)
 - [T23.A feedback](docs/T23/T23.A.feedback.md)
@@ -151,7 +155,7 @@ npm audit --omit=dev
 Keep secrets and local data out of git:
 
 - `.env`
-- `model-configs.json`
+- API keys and other secret overrides referenced by `agent-bridge/model-configs.json`（the default registry itself is tracked）
 - `backend/data/`
 - SQLite files
 - `.venv/`

@@ -387,6 +387,9 @@ erDiagram
     PROJECT ||--o{ RISK : has
     PROJECT ||--o{ ACTION_CARD : has
     PROJECT ||--o{ AGENT_EVENT : has
+    PROJECT ||--o{ AGENT_CONVERSATION : has
+    USER ||--o{ AGENT_CONVERSATION : creates
+    AGENT_CONVERSATION ||--o{ AGENT_MESSAGE : contains
     STAGE ||--o{ TASK : contains
     TASK ||--o{ TASK_STATUS_UPDATE : has
     TASK ||--o{ ASSIGNMENT_PROPOSAL : proposed_for
@@ -600,7 +603,7 @@ Stage 状态规则：
 | skill_match | text nullable | 技能匹配依据 |
 | availability_match | text nullable | 可用时间匹配依据 |
 | preference_match | text nullable | 意向匹配依据 |
-| constraint_respected | text nullable | 已避开的限制或风险 |
+| constraint_respected | text nullable | 约束检查证据；推荐/备选成员存在已记录约束时创建提案必填，不代表语义合规已验证 |
 | status | enum | proposed / owner_confirmed / owner_rejected / negotiating / finalized |
 | created_by_agent | boolean | 是否由 Agent 生成 |
 | created_at | datetime | 创建时间 |
@@ -778,6 +781,27 @@ MVP 不需要做复杂多人拍卖式协调，只做一轮交换确认。
 | created_at | datetime | 创建时间 |
 
 注意：`reasoning_summary` 只存给用户看的简短理由，不存模型内部推理链。
+
+---
+
+## 8.21 AgentConversation / AgentMessage
+
+一个 Project 可以有多条 AgentConversation。新会话默认 `private` 且只允许 creator 读取/写入；T45 之前的项目单例会话迁移为 `team` 历史，项目成员可读。项目 owner 不因 owner 身份获得其他成员 private transcript 权限。
+
+| AgentConversation Field | Type | Description |
+|---|---|---|
+| id | UUID | 会话 ID |
+| workspace_id / project_id | UUID | 所属工作区与项目 |
+| creator_user_id | UUID | 创建成员 |
+| title | string | 首条消息确定性生成的标题 |
+| visibility | enum | private / team |
+| status | string | active 等运行状态 |
+| summary / current_focus | text | 轻量会话元数据，不是 ProjectMemory |
+| created_at / updated_at | datetime | 创建和最近活动时间 |
+
+AgentMessage 通过 `conversation_id` 关联会话，保存 role/content、结构化 payload 以及可选 AgentEvent/AgentProposal 链接。消息读取按 `(created_at, id)` 稳定游标分页，列表接口只返回计数和最后消息 preview。GET 路径严格只读。
+
+会话是交互上下文，不是 Primary Project State 或 Memory Source Event。Team conversation 构建 Agent context 时只允许 team-visible ProjectMemory；private memory 在请求构建前过滤，而不是依赖生成后文本清洗。
 
 ---
 
