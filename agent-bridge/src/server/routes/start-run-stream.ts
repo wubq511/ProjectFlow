@@ -80,7 +80,7 @@ export function buildDonePayload(
   textBlocks: Map<string, string>,
   accumulatedContent: string,
   executionSteps: Array<{ tool_name: string; tool_call_id?: string; status: string; label: string }>,
-  metrics?: { latency_ms: number; input_tokens: number; output_tokens: number; total_cost: number },
+  metrics?: { latency_ms: number; input_tokens: number; output_tokens: number; reasoning_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number; total_cost?: number },
 ): Record<string, unknown> {
   // Aggregate thinking from all blocks (ordered by composite key: message_seq:contentIndex)
   const thinkingContent = Array.from(thinkingBlocks.entries())
@@ -276,13 +276,30 @@ export async function handleStartRunStream(
   const streamStartedAt = Date.now();
   let inputTokens = 0;
   let outputTokens = 0;
+  let reasoningTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
   let totalCost = 0;
-  const currentMetrics = () => ({
-    latency_ms: Math.max(0, Date.now() - streamStartedAt),
-    input_tokens: inputTokens,
-    output_tokens: outputTokens,
-    total_cost: totalCost,
-  });
+  // Track whether the provider actually supplied each optional metric.
+  // This distinguishes "provider reported 0" from "provider did not report at all".
+  let observedReasoning = false;
+  let observedCacheRead = false;
+  let observedCacheWrite = false;
+  let observedCost = false;
+  const currentMetrics = () => {
+    const metrics: Record<string, unknown> = {
+      latency_ms: Math.max(0, Date.now() - streamStartedAt),
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+    };
+    // Only include optional fields when the provider actually supplied them.
+    // Provider-unknown must remain absent, not synthetic zero.
+    if (observedReasoning) metrics.reasoning_tokens = reasoningTokens;
+    if (observedCacheRead) metrics.cache_read_tokens = cacheReadTokens;
+    if (observedCacheWrite) metrics.cache_write_tokens = cacheWriteTokens;
+    if (observedCost) metrics.total_cost = totalCost;
+    return metrics as { latency_ms: number; input_tokens: number; output_tokens: number; reasoning_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number; total_cost?: number };
+  };
 
   const emitSanitizedText = (content: string, contentIndex: number): void => {
     if (!content) return;
@@ -383,7 +400,19 @@ export async function handleStartRunStream(
             : typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
           outputTokens += typeof usage.output === "number" ? usage.output
             : typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
-          totalCost += typeof cost.total === "number" ? cost.total : 0;
+          {
+            const r = typeof usage.reasoning === "number" ? usage.reasoning
+              : typeof usage.reasoning_tokens === "number" ? usage.reasoning_tokens : undefined;
+            if (r !== undefined) { observedReasoning = true; reasoningTokens += r; }
+            const cr = typeof usage.cacheRead === "number" ? usage.cacheRead
+              : typeof usage.cache_read_tokens === "number" ? usage.cache_read_tokens : undefined;
+            if (cr !== undefined) { observedCacheRead = true; cacheReadTokens += cr; }
+            const cw = typeof usage.cacheWrite === "number" ? usage.cacheWrite
+              : typeof usage.cache_write_tokens === "number" ? usage.cache_write_tokens : undefined;
+            if (cw !== undefined) { observedCacheWrite = true; cacheWriteTokens += cw; }
+            const ct = typeof cost.total === "number" ? cost.total : undefined;
+            if (ct !== undefined) { observedCost = true; totalCost += ct; }
+          }
         }
         break;
       case "run.status":

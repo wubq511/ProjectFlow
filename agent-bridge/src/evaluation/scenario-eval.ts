@@ -18,7 +18,13 @@ export interface ScenarioObservation {
   latencyMs: number;
   inputTokens: number;
   outputTokens: number;
-  cost: number;
+  /** Provider-reported reasoning tokens. Absent when provider did not supply. */
+  reasoningTokens?: number;
+  /** Provider-reported cache read tokens. Absent when provider did not supply. */
+  cacheReadTokens?: number;
+  /** Provider-reported cache write tokens. Absent when provider did not supply. */
+  cacheWriteTokens?: number;
+  cost?: number;
   outputPolicyPassed?: boolean;
 }
 
@@ -28,6 +34,7 @@ export interface ScenarioResult {
   routingPassed: boolean;
   outcomePassed: boolean;
   latencyPassed: boolean;
+  privacyPassed: boolean;
   observation: ScenarioObservation;
   failures: string[];
 }
@@ -39,11 +46,25 @@ export interface ScenarioEvalReport {
   results: ScenarioResult[];
   routingAccuracy: number;
   outcomePassRate: number;
+  privacyPassRate: number;
+  privacyGate: boolean;
   p95LatencyMs: number;
   totalInputTokens: number;
   totalOutputTokens: number;
-  totalCost: number;
+  /** Absent when the provider supplied no cost data. */
+  totalCost?: number;
   passed: boolean;
+}
+
+/**
+ * Optional context for observation isolation/provisioning.
+ * Production runners use `beforeObservation` to provision a fresh fixture
+ * (conversation, project) before each observation, so effectful scenarios
+ * cannot collide across repetitions.
+ */
+export interface ObservationContext {
+  /** Called before each observation. Provision a fresh fixture here. */
+  beforeObservation?: (scenario: AgentScenario, model: string, repeatIndex: number) => Promise<void>;
 }
 
 export type ScenarioRunner = (scenario: AgentScenario, model: string) => Promise<ScenarioObservation>;
@@ -76,6 +97,7 @@ export async function runScenarioEval(
     const anyEvidencePassed = !scenario.requiredAnyEvidence?.length
       || scenario.requiredAnyEvidence.some((item) => observation.evidence.includes(item));
     const outputPolicyPassed = observation.outputPolicyPassed !== false;
+    const privacyPassed = outputPolicyPassed;
     const outcomePassed = observation.terminalStatus === "completed"
       && missingEvidence.length === 0
       && anyEvidencePassed
@@ -95,6 +117,7 @@ export async function runScenarioEval(
       routingPassed,
       outcomePassed,
       latencyPassed,
+      privacyPassed,
       observation,
       failures,
     });
@@ -102,6 +125,13 @@ export async function runScenarioEval(
   const count = Math.max(1, results.length);
   const routingAccuracy = results.filter((result) => result.routingPassed).length / count;
   const outcomePassRate = results.filter((result) => result.outcomePassed).length / count;
+  const privacyPassRate = results.filter((result) => result.privacyPassed).length / count;
+  const observedCosts = results
+    .map((result) => result.observation.cost)
+    .filter((cost): cost is number => cost !== undefined);
+  const totalCost = observedCosts.length > 0
+    ? observedCosts.reduce((sum, cost) => sum + cost, 0)
+    : undefined;
   return {
     schemaVersion: 1,
     model,
@@ -109,10 +139,252 @@ export async function runScenarioEval(
     results,
     routingAccuracy,
     outcomePassRate,
+    privacyPassRate,
+    privacyGate: privacyPassRate >= 0.9,
     p95LatencyMs: percentile95(results.map((result) => result.observation.latencyMs)),
     totalInputTokens: results.reduce((sum, result) => sum + result.observation.inputTokens, 0),
     totalOutputTokens: results.reduce((sum, result) => sum + result.observation.outputTokens, 0),
-    totalCost: results.reduce((sum, result) => sum + result.observation.cost, 0),
-    passed: results.length > 0 && routingAccuracy >= 0.9 && outcomePassRate >= 0.9 && results.every((result) => result.latencyPassed),
+    ...(totalCost !== undefined ? { totalCost } : {}),
+    passed: results.length > 0
+      && routingAccuracy >= 0.9
+      && outcomePassRate >= 0.9
+      && privacyPassRate >= 0.9
+      && results.every((result) => result.latencyPassed),
+  };
+}
+
+// ── Repeated evaluation support ──
+
+function mean(values: number[]): number {
+  return values.length === 0 ? 0 : values.reduce((s, v) => s + v, 0) / values.length;
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
+}
+
+function stdDev(values: number[]): number {
+  if (values.length < 2) return 0;
+  const m = mean(values);
+  const variance = values.reduce((s, v) => s + (v - m) ** 2, 0) / (values.length - 1);
+  return Math.sqrt(variance);
+}
+
+/** Stats computed over repeated observations of a single scenario. */
+export interface RepeatStats {
+  min: number;
+  max: number;
+  mean: number;
+  median: number;
+  p95: number;
+  stdDev: number;
+  count: number;
+}
+
+export interface ScenarioRepeatResult {
+  scenarioId: string;
+  repeats: ScenarioObservation[];
+  passCount: number;
+  failCount: number;
+  passRate: number;
+  latency: RepeatStats;
+  inputTokens: RepeatStats;
+  outputTokens: RepeatStats;
+  reasoningTokens?: RepeatStats;
+  cacheReadTokens?: RepeatStats;
+  cacheWriteTokens?: RepeatStats;
+  cost?: RepeatStats;
+  /** Uncached input tokens (input - cacheRead). Only defined when both input and cacheRead are observed. */
+  uncachedInput?: RepeatStats;
+  privacyPassCount: number;
+  privacyPassRate: number;
+  privacyAllPassed: boolean;
+  allRoutingPassed: boolean;
+  allOutcomePassed: boolean;
+  allLatencyPassed: boolean;
+  /** How many repeats supplied each optional metric. */
+  metricCoverage: {
+    reasoning: number;
+    cacheRead: number;
+    cacheWrite: number;
+    cost: number;
+    uncachedInput: number;
+  };
+}
+
+export interface RepeatedScenarioReport {
+  schemaVersion: 1;
+  model: string;
+  generatedAt: string;
+  repeats: number;
+  results: ScenarioRepeatResult[];
+  routingAccuracy: number;
+  outcomePassRate: number;
+  privacyPassRate: number;
+  privacyGate: boolean;
+  p95LatencyMs: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  /**
+   * Aggregate cost across all observations. Absent when no observation
+   * supplied cost data, so consumers can distinguish "no data" from "zero cost".
+   */
+  totalCost?: number;
+  passed: boolean;
+}
+
+function buildRepeatStats(values: number[]): RepeatStats {
+  return {
+    min: values.length === 0 ? 0 : Math.min(...values),
+    max: values.length === 0 ? 0 : Math.max(...values),
+    mean: mean(values),
+    median: median(values),
+    p95: percentile95(values),
+    stdDev: stdDev(values),
+    count: values.length,
+  };
+}
+
+function optionalRepeatStats(values: Array<number | undefined>): RepeatStats | undefined {
+  const defined = values.filter((v): v is number => v !== undefined);
+  return defined.length > 0 ? buildRepeatStats(defined) : undefined;
+}
+
+function evaluateScenario(observation: ScenarioObservation, scenario: AgentScenario): { passed: boolean; routingPassed: boolean; outcomePassed: boolean; latencyPassed: boolean; privacyPassed: boolean } {
+  const routingPassed = observation.routedMode === scenario.expectedMode
+    && (!scenario.expectedSkill || observation.selectedSkills.includes(scenario.expectedSkill));
+  const missingEvidence = scenario.requiredEvidence.filter((item) => !observation.evidence.includes(item));
+  const anyEvidencePassed = !scenario.requiredAnyEvidence?.length
+    || scenario.requiredAnyEvidence.some((item) => observation.evidence.includes(item));
+  const outputPolicyPassed = observation.outputPolicyPassed !== false;
+  const privacyPassed = outputPolicyPassed;
+  const outcomePassed = observation.terminalStatus === "completed"
+    && missingEvidence.length === 0
+    && anyEvidencePassed
+    && outputPolicyPassed;
+  const latencyPassed = observation.latencyMs <= scenario.maxLatencyMs;
+  return { passed: routingPassed && outcomePassed && latencyPassed && privacyPassed, routingPassed, outcomePassed, latencyPassed, privacyPassed };
+}
+
+/**
+ * Run each scenario `repeats` times and aggregate per-scenario statistics
+ * including pass-rate variance, token distribution, cost, privacy and coverage.
+ *
+ * @param ctx Optional observation context for isolation/provisioning hooks.
+ */
+export async function runRepeatedScenarioEval(
+  model: string,
+  scenarios: AgentScenario[],
+  runner: ScenarioRunner,
+  repeats: number,
+  ctx?: ObservationContext,
+): Promise<RepeatedScenarioReport> {
+  if (repeats < 1) throw new Error("repeats must be >= 1");
+  const scenarioResults: ScenarioRepeatResult[] = [];
+
+  for (const scenario of scenarios) {
+    const observations: ScenarioObservation[] = [];
+    for (let i = 0; i < repeats; i++) {
+      // Isolation hook: provision a fresh fixture before each observation.
+      if (ctx?.beforeObservation) {
+        await ctx.beforeObservation(scenario, model, i);
+      }
+      observations.push(await runner(scenario, model));
+    }
+
+    const evaluations = observations.map((obs) => evaluateScenario(obs, scenario));
+    const passCount = evaluations.filter((e) => e.passed).length;
+    const privacyPassCount = evaluations.filter((e) => e.privacyPassed).length;
+    const allRoutingPassed = evaluations.every((e) => e.routingPassed);
+    const allOutcomePassed = evaluations.every((e) => e.outcomePassed);
+    const allLatencyPassed = evaluations.every((e) => e.latencyPassed);
+
+    // Uncached input: compute over observations where cacheReadTokens is defined.
+    // Clamp each derived value to max(0, input - cacheRead) because provider
+    // counters may use different scopes and negative uncached input is not meaningful.
+    const observationsWithCacheRead = observations.filter(
+      (o) => typeof o.cacheReadTokens === "number",
+    );
+    const uncachedValues = observationsWithCacheRead.length > 0
+      ? observationsWithCacheRead.map((o) => Math.max(0, o.inputTokens - (o.cacheReadTokens ?? 0)))
+      : undefined;
+
+    // Metric coverage: how many repeats supplied each optional metric.
+    const metricCoverage = {
+      reasoning: observations.filter((o) => o.reasoningTokens !== undefined).length,
+      cacheRead: observations.filter((o) => o.cacheReadTokens !== undefined).length,
+      cacheWrite: observations.filter((o) => o.cacheWriteTokens !== undefined).length,
+      cost: observations.filter((o) => o.cost !== undefined).length,
+      uncachedInput: observationsWithCacheRead.length,
+    };
+
+    scenarioResults.push({
+      scenarioId: scenario.id,
+      repeats: observations,
+      passCount,
+      failCount: repeats - passCount,
+      passRate: passCount / repeats,
+      latency: buildRepeatStats(observations.map((o) => o.latencyMs)),
+      inputTokens: buildRepeatStats(observations.map((o) => o.inputTokens)),
+      outputTokens: buildRepeatStats(observations.map((o) => o.outputTokens)),
+      reasoningTokens: optionalRepeatStats(observations.map((o) => o.reasoningTokens)),
+      cacheReadTokens: optionalRepeatStats(observations.map((o) => o.cacheReadTokens)),
+      cacheWriteTokens: optionalRepeatStats(observations.map((o) => o.cacheWriteTokens)),
+      cost: optionalRepeatStats(observations.map((o) => o.cost)),
+      uncachedInput: uncachedValues ? buildRepeatStats(uncachedValues) : undefined,
+      privacyPassCount,
+      privacyPassRate: privacyPassCount / repeats,
+      privacyAllPassed: privacyPassCount === repeats,
+      allRoutingPassed,
+      allOutcomePassed,
+      allLatencyPassed,
+      metricCoverage,
+    });
+  }
+
+  // Observation-level pass rates across all scenario-repeat observations.
+  let totalObservations = 0;
+  let routingPassedCount = 0;
+  let outcomePassedCount = 0;
+  let privacyPassedCount = 0;
+  for (let si = 0; si < scenarioResults.length; si++) {
+    const scenario = scenarios[si]!;
+    for (const obs of scenarioResults[si]!.repeats) {
+      totalObservations++;
+      const eval_ = evaluateScenario(obs, scenario);
+      if (eval_.routingPassed) routingPassedCount++;
+      if (eval_.outcomePassed) outcomePassedCount++;
+      if (eval_.privacyPassed) privacyPassedCount++;
+    }
+  }
+  const observationCount = Math.max(1, totalObservations);
+  const routingAccuracy = routingPassedCount / observationCount;
+  const outcomePassRate = outcomePassedCount / observationCount;
+  const privacyPassRate = privacyPassedCount / observationCount;
+  // Aggregate p95 across all observations
+  const allLatencies = scenarioResults.flatMap((r) => r.repeats.map((o) => o.latencyMs));
+
+  // Only include totalCost when at least one observation supplied cost data.
+  const allCosts = scenarioResults.flatMap((r) => r.repeats.map((o) => o.cost).filter((c): c is number => c !== undefined));
+  const totalCost = allCosts.length > 0 ? allCosts.reduce((s, c) => s + c, 0) : undefined;
+
+  return {
+    schemaVersion: 1,
+    model,
+    generatedAt: new Date().toISOString(),
+    repeats,
+    results: scenarioResults,
+    routingAccuracy,
+    outcomePassRate,
+    privacyPassRate,
+    privacyGate: privacyPassRate >= 0.9,
+    p95LatencyMs: percentile95(allLatencies),
+    totalInputTokens: scenarioResults.reduce((s, r) => s + r.repeats.reduce((ts, o) => ts + o.inputTokens, 0), 0),
+    totalOutputTokens: scenarioResults.reduce((s, r) => s + r.repeats.reduce((ts, o) => ts + o.outputTokens, 0), 0),
+    ...(totalCost !== undefined ? { totalCost } : {}),
+    passed: routingAccuracy >= 0.9 && outcomePassRate >= 0.9 && privacyPassRate >= 0.9 && scenarioResults.every((r) => r.allLatencyPassed),
   };
 }

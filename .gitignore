@@ -27,6 +27,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 scripts/
+!agent-bridge/scripts/
+agent-bridge/scripts/*
+!agent-bridge/scripts/run-agent-canary.ts
 
 # Agent config (codex not tracked)
 .codex/

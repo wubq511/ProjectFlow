@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { exportTrajectory } from "../../src/evaluation/trajectory-exporter.js";
-import { RELEASE_SCENARIOS, runScenarioEval, type AgentScenario } from "../../src/evaluation/scenario-eval.js";
+import { RELEASE_SCENARIOS, runScenarioEval, runRepeatedScenarioEval, type AgentScenario, type ObservationContext } from "../../src/evaluation/scenario-eval.js";
 import { runModelCanary } from "../../src/evaluation/model-conformance.js";
 import { createHttpPublicSeamRunner } from "../../src/evaluation/http-public-seam-runner.js";
 import { createSkillIndex } from "../../src/skills/skill-index.js";
@@ -249,5 +249,497 @@ describe("operational Agent evaluation", () => {
     expect(report.passed).toBe(false);
     expect(report.results[0]!.failures).toContain("outcome:any_evidence");
     expect(report.results[0]!.failures).toContain("outcome:output_policy");
+  });
+
+  it("parses cache and reasoning tokens from HTTP/SSE metrics", async () => {
+    const fetchFn = async () => new Response([
+      'event: status\ndata: {"phase":"planning","run_id":"run-cache","request_mode":"answer","selected_skills":[]}',
+      'event: done\ndata: {"run_id":"run-cache","status":"completed","final_content":"ok","metrics":{"latency_ms":100,"input_tokens":500,"output_tokens":50,"reasoning_tokens":120,"cache_read_tokens":300,"cache_write_tokens":80,"total_cost":0.005}}',
+    ].join("\n\n"), { status: 200 }) as Promise<Response>;
+    const httpRunner = createHttpPublicSeamRunner({
+      baseUrl: "http://sidecar.test",
+      identity: { conversationId: "c", workspaceId: "w", projectId: "p", viewerUserId: "u", workspaceState: {} },
+      fetchFn: fetchFn as typeof fetch,
+    });
+    const obs = await httpRunner({ id: "answer", prompt: "test", expectedMode: "answer", requiredEvidence: [], maxLatencyMs: 5000 }, "mock:a");
+    expect(obs.reasoningTokens).toBe(120);
+    expect(obs.cacheReadTokens).toBe(300);
+    expect(obs.cacheWriteTokens).toBe(80);
+    expect(obs.inputTokens).toBe(500);
+    expect(obs.outputTokens).toBe(50);
+    expect(obs.cost).toBe(0.005);
+  });
+
+  it("sets cache tokens to undefined when provider does not supply them", async () => {
+    const fetchFn = async () => new Response([
+      'event: status\ndata: {"phase":"planning","run_id":"run-nocache","request_mode":"answer","selected_skills":[]}',
+      'event: done\ndata: {"run_id":"run-nocache","status":"completed","final_content":"ok","metrics":{"latency_ms":50,"input_tokens":100,"output_tokens":20,"total_cost":0.001}}',
+    ].join("\n\n"), { status: 200 }) as Promise<Response>;
+    const httpRunner = createHttpPublicSeamRunner({
+      baseUrl: "http://sidecar.test",
+      identity: { conversationId: "c", workspaceId: "w", projectId: "p", viewerUserId: "u", workspaceState: {} },
+      fetchFn: fetchFn as typeof fetch,
+    });
+    const obs = await httpRunner({ id: "answer", prompt: "test", expectedMode: "answer", requiredEvidence: [], maxLatencyMs: 5000 }, "mock:a");
+    expect(obs.reasoningTokens).toBeUndefined();
+    expect(obs.cacheReadTokens).toBeUndefined();
+    expect(obs.cacheWriteTokens).toBeUndefined();
+  });
+
+  it("runRepeatedScenarioEval aggregates per-scenario statistics", async () => {
+    const wideLatencyScenario: AgentScenario = {
+      id: "status",
+      prompt: "查看项目现状",
+      expectedMode: "action",
+      expectedSkill: "project-status",
+      requiredEvidence: ["get_project_state"],
+      maxLatencyMs: 10_000,
+    };
+    let callCount = 0;
+    const repeatRunner = async () => {
+      callCount++;
+      return {
+        routedMode: "action" as const,
+        selectedSkills: ["project-status"],
+        evidence: ["get_project_state"],
+        terminalStatus: "completed" as const,
+        latencyMs: 100 + callCount * 10, // varying latency
+        inputTokens: 200 + callCount * 5,
+        outputTokens: 50,
+        reasoningTokens: 30,
+        cacheReadTokens: 150,
+        cacheWriteTokens: 20,
+        cost: 0.01 + callCount * 0.001,
+        outputPolicyPassed: true,
+      };
+    };
+    const report = await runRepeatedScenarioEval("mock:a", [wideLatencyScenario], repeatRunner, 3);
+    expect(report.repeats).toBe(3);
+    expect(report.results).toHaveLength(1);
+    const result = report.results[0]!;
+    expect(result.scenarioId).toBe("status");
+    expect(result.passCount).toBe(3);
+    expect(result.failCount).toBe(0);
+    expect(result.passRate).toBe(1);
+    expect(result.repeats).toHaveLength(3);
+    expect(result.latency.count).toBe(3);
+    expect(result.latency.min).toBe(110);
+    expect(result.latency.max).toBe(130);
+    expect(result.latency.stdDev).toBeGreaterThan(0);
+    expect(result.inputTokens.count).toBe(3);
+    expect(result.reasoningTokens).toBeDefined();
+    expect(result.reasoningTokens!.count).toBe(3);
+    expect(result.reasoningTokens!.mean).toBe(30);
+    expect(result.cacheReadTokens).toBeDefined();
+    expect(result.cacheReadTokens!.mean).toBe(150);
+    expect(result.cacheWriteTokens).toBeDefined();
+    expect(result.cacheWriteTokens!.mean).toBe(20);
+    expect(result.cost.count).toBe(3);
+    expect(callCount).toBe(3); // each scenario ran 3 times
+  });
+
+  it("runRepeatedScenarioEval reports partial pass when some repeats fail", async () => {
+    let callCount = 0;
+    const flakyRunner = async () => {
+      callCount++;
+      return {
+        routedMode: "action" as const,
+        selectedSkills: ["project-status"],
+        evidence: callCount === 2 ? [] : ["get_project_state"], // fail on 2nd call
+        terminalStatus: callCount === 2 ? "failed" as const : "completed" as const,
+        latencyMs: 10,
+        inputTokens: 20,
+        outputTokens: 10,
+        cost: 0.01,
+        outputPolicyPassed: true,
+      };
+    };
+    const report = await runRepeatedScenarioEval("mock:a", scenarios, flakyRunner, 3);
+    expect(report.results[0]!.passCount).toBe(2);
+    expect(report.results[0]!.failCount).toBe(1);
+    expect(report.results[0]!.passRate).toBeCloseTo(2 / 3);
+    expect(report.results[0]!.allOutcomePassed).toBe(false);
+  });
+
+  it("runRepeatedScenarioEval cache tokens absent when no repeat supplies them", async () => {
+    const noCacheRunner = async () => ({
+      routedMode: "action" as const,
+      selectedSkills: ["project-status"],
+      evidence: ["get_project_state"],
+      terminalStatus: "completed" as const,
+      latencyMs: 10,
+      inputTokens: 20,
+      outputTokens: 10,
+      cost: 0.01,
+      outputPolicyPassed: true,
+    });
+    const report = await runRepeatedScenarioEval("mock:a", scenarios, noCacheRunner, 3);
+    expect(report.results[0]!.reasoningTokens).toBeUndefined();
+    expect(report.results[0]!.cacheReadTokens).toBeUndefined();
+    expect(report.results[0]!.cacheWriteTokens).toBeUndefined();
+  });
+
+  it("runModelCanary with repeats>1 uses repeated evaluation", async () => {
+    let primaryCalls = 0;
+    let fallbackCalls = 0;
+    const countingRunner = async (_scenario: AgentScenario, model: string) => {
+      if (model === "mock:a") primaryCalls++;
+      else fallbackCalls++;
+      return {
+        routedMode: "action" as const,
+        selectedSkills: ["project-status"],
+        evidence: ["get_project_state"],
+        terminalStatus: "completed" as const,
+        latencyMs: 10,
+        inputTokens: 20,
+        outputTokens: 10,
+        cost: 0.01,
+        outputPolicyPassed: true,
+      };
+    };
+    const report = await runModelCanary("mock:a", "mock:b", scenarios, countingRunner, 3);
+    expect(report.passed).toBe(true);
+    expect(primaryCalls).toBe(3); // 1 scenario × 3 repeats
+    expect(fallbackCalls).toBe(3);
+    // With repeats>1, report should contain RepeatedScenarioReport
+    expect("repeats" in report.primary).toBe(true);
+    expect((report.primary as any).repeats).toBe(3);
+  });
+
+  // ── Absent cost stays undefined through HTTP seam ──
+
+  it("cost stays undefined when provider does not supply total_cost in SSE metrics", async () => {
+    const fetchFn = async () => new Response([
+      'event: status\ndata: {"phase":"planning","run_id":"run-nocost","request_mode":"answer","selected_skills":[]}',
+      'event: done\ndata: {"run_id":"run-nocost","status":"completed","final_content":"ok","metrics":{"latency_ms":50,"input_tokens":100,"output_tokens":20}}',
+    ].join("\n\n"), { status: 200 }) as Promise<Response>;
+    const httpRunner = createHttpPublicSeamRunner({
+      baseUrl: "http://sidecar.test",
+      identity: { conversationId: "c", workspaceId: "w", projectId: "p", viewerUserId: "u", workspaceState: {} },
+      fetchFn: fetchFn as typeof fetch,
+    });
+    const obs = await httpRunner({ id: "answer", prompt: "test", expectedMode: "answer", requiredEvidence: [], maxLatencyMs: 5000 }, "mock:a");
+    // Provider-unknown cost must remain undefined, not synthetic zero.
+    expect(obs.cost).toBeUndefined();
+    expect(obs.reasoningTokens).toBeUndefined();
+    expect(obs.cacheReadTokens).toBeUndefined();
+    expect(obs.cacheWriteTokens).toBeUndefined();
+  });
+
+  it("one-pass report keeps unknown total cost absent and exposes privacy rate", async () => {
+    const noCostRunner = async () => ({
+      routedMode: "action" as const,
+      selectedSkills: ["project-status"],
+      evidence: ["get_project_state"],
+      terminalStatus: "completed" as const,
+      latencyMs: 10,
+      inputTokens: 20,
+      outputTokens: 10,
+      outputPolicyPassed: true,
+    });
+    const report = await runScenarioEval("mock:a", scenarios, noCostRunner);
+    expect(report.totalCost).toBeUndefined();
+    expect(report.privacyPassRate).toBe(1);
+    expect(report.privacyGate).toBe(true);
+  });
+
+  it("explicit provider zero cost stays zero, not absent", async () => {
+    const fetchFn = async () => new Response([
+      'event: status\ndata: {"phase":"planning","run_id":"run-zero","request_mode":"answer","selected_skills":[]}',
+      'event: done\ndata: {"run_id":"run-zero","status":"completed","final_content":"ok","metrics":{"latency_ms":50,"input_tokens":100,"output_tokens":20,"reasoning_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"total_cost":0}}',
+    ].join("\n\n"), { status: 200 }) as Promise<Response>;
+    const httpRunner = createHttpPublicSeamRunner({
+      baseUrl: "http://sidecar.test",
+      identity: { conversationId: "c", workspaceId: "w", projectId: "p", viewerUserId: "u", workspaceState: {} },
+      fetchFn: fetchFn as typeof fetch,
+    });
+    const obs = await httpRunner({ id: "answer", prompt: "test", expectedMode: "answer", requiredEvidence: [], maxLatencyMs: 5000 }, "mock:a");
+    // Explicit provider zero must remain as observed zero.
+    expect(obs.cost).toBe(0);
+    expect(obs.reasoningTokens).toBe(0);
+    expect(obs.cacheReadTokens).toBe(0);
+    expect(obs.cacheWriteTokens).toBe(0);
+  });
+
+  // ── Repeated report: absent metrics stay undefined, explicit zeros preserved ──
+
+  it("repeated report preserves absent cost as undefined and explicit zero as zero", async () => {
+    let callCount = 0;
+    const mixedRunner = async () => {
+      callCount++;
+      return {
+        routedMode: "action" as const,
+        selectedSkills: ["project-status"],
+        evidence: ["get_project_state"],
+        terminalStatus: "completed" as const,
+        latencyMs: 10,
+        inputTokens: 20,
+        outputTokens: 10,
+        // First call: cost absent. Second call: explicit zero.
+        cost: callCount === 1 ? undefined : 0,
+        outputPolicyPassed: true,
+      };
+    };
+    const report = await runRepeatedScenarioEval("mock:a", scenarios, mixedRunner, 2);
+    const result = report.results[0]!;
+    // Only 1 of 2 repeats supplied cost → coverage = 1.
+    expect(result.metricCoverage.cost).toBe(1);
+    // Cost stats computed over the 1 observation that supplied it.
+    expect(result.cost).toBeDefined();
+    expect(result.cost!.count).toBe(1);
+    expect(result.cost!.min).toBe(0);
+    expect(result.cost!.max).toBe(0);
+    // Total cost sums only observed values: 0 (from repeat 2).
+    expect(report.totalCost).toBe(0);
+  });
+
+  // ── Uncached input: only when both input + cache-read known ──
+
+  it("computes uncached input only when cache-read is observed on every repeat", async () => {
+    const withCacheRunner = async () => ({
+      routedMode: "action" as const,
+      selectedSkills: ["project-status"],
+      evidence: ["get_project_state"],
+      terminalStatus: "completed" as const,
+      latencyMs: 10,
+      inputTokens: 500,
+      outputTokens: 50,
+      cacheReadTokens: 300,
+      cost: 0.01,
+      outputPolicyPassed: true,
+    });
+    const report = await runRepeatedScenarioEval("mock:a", scenarios, withCacheRunner, 3);
+    const result = report.results[0]!;
+    // All repeats have cacheRead → uncachedInput defined.
+    expect(result.uncachedInput).toBeDefined();
+    expect(result.uncachedInput!.count).toBe(3);
+    // 500 - 300 = 200 per repeat.
+    expect(result.uncachedInput!.mean).toBe(200);
+    expect(result.uncachedInput!.min).toBe(200);
+  });
+
+  it("uncached input computed over repeats where cache-read is observed", async () => {
+    let callCount = 0;
+    const partialCacheRunner = async () => {
+      callCount++;
+      return {
+        routedMode: "action" as const,
+        selectedSkills: ["project-status"],
+        evidence: ["get_project_state"],
+        terminalStatus: "completed" as const,
+        latencyMs: 10,
+        inputTokens: 500,
+        outputTokens: 50,
+        cacheReadTokens: callCount === 1 ? 300 : undefined,
+        cost: 0.01,
+        outputPolicyPassed: true,
+      };
+    };
+    const report = await runRepeatedScenarioEval("mock:a", scenarios, partialCacheRunner, 2);
+    const result = report.results[0]!;
+    // 1 of 2 repeats has cacheRead → uncachedInput computed over that 1 observation.
+    expect(result.uncachedInput).toBeDefined();
+    expect(result.uncachedInput!.count).toBe(1);
+    expect(result.uncachedInput!.mean).toBe(200); // 500 - 300 = 200
+    expect(result.metricCoverage.cacheRead).toBe(1);
+    expect(result.metricCoverage.uncachedInput).toBe(1);
+  });
+
+  it("uncached input never goes negative even with oversized cache-read", async () => {
+    const oversizedCacheRunner = async () => ({
+      routedMode: "action" as const,
+      selectedSkills: ["project-status"],
+      evidence: ["get_project_state"],
+      terminalStatus: "completed" as const,
+      latencyMs: 10,
+      inputTokens: 100,
+      outputTokens: 50,
+      cacheReadTokens: 200, // More than input — provider anomaly.
+      cost: 0.01,
+      outputPolicyPassed: true,
+    });
+    const report = await runRepeatedScenarioEval("mock:a", scenarios, oversizedCacheRunner, 1);
+    const result = report.results[0]!;
+    expect(result.uncachedInput).toBeDefined();
+    // 100 - 200 = -100 but clamped to max(0, ...) because provider counters
+    // may use different scopes and negative uncached input is not meaningful.
+    expect(result.uncachedInput!.min).toBe(0);
+    expect(result.uncachedInput!.max).toBe(0);
+    expect(result.metricCoverage.uncachedInput).toBe(1);
+  });
+
+  // ── Privacy pass counts/rates per scenario and top-level ──
+
+  it("exposes privacy pass counts and rates per scenario and top-level", async () => {
+    let callCount = 0;
+    const privacyRunner = async () => {
+      callCount++;
+      return {
+        routedMode: "action" as const,
+        selectedSkills: ["project-status"],
+        evidence: ["get_project_state"],
+        terminalStatus: "completed" as const,
+        latencyMs: 10,
+        inputTokens: 20,
+        outputTokens: 10,
+        cost: 0.01,
+        // Fail privacy on 2nd call.
+        outputPolicyPassed: callCount !== 2,
+      };
+    };
+    const report = await runRepeatedScenarioEval("mock:a", scenarios, privacyRunner, 3);
+    const result = report.results[0]!;
+    expect(result.privacyPassCount).toBe(2);
+    expect(result.privacyPassRate).toBeCloseTo(2 / 3);
+    expect(result.privacyAllPassed).toBe(false);
+    // Top-level: observation-level privacy pass rate = 2/3 (2 of 3 observations passed).
+    expect(report.privacyPassRate).toBeCloseTo(2 / 3);
+    // Gate fails because 2/3 < 0.9.
+    expect(report.privacyGate).toBe(false);
+  });
+
+  it("privacy gate passes when all scenarios pass all repeats", async () => {
+    const report = await runRepeatedScenarioEval("mock:a", scenarios, runner, 3);
+    expect(report.privacyPassRate).toBe(1);
+    expect(report.privacyGate).toBe(true);
+    expect(report.results[0]!.privacyAllPassed).toBe(true);
+  });
+
+  // ── Metric coverage counts ──
+
+  it("tracks metric coverage counts showing how many repeats supplied each optional metric", async () => {
+    let callCount = 0;
+    const partialMetricsRunner = async () => {
+      callCount++;
+      return {
+        routedMode: "action" as const,
+        selectedSkills: ["project-status"],
+        evidence: ["get_project_state"],
+        terminalStatus: "completed" as const,
+        latencyMs: 10,
+        inputTokens: 20,
+        outputTokens: 10,
+        reasoningTokens: callCount <= 2 ? 30 : undefined,
+        cacheReadTokens: callCount === 1 ? 150 : undefined,
+        cacheWriteTokens: undefined,
+        cost: 0.01,
+        outputPolicyPassed: true,
+      };
+    };
+    const report = await runRepeatedScenarioEval("mock:a", scenarios, partialMetricsRunner, 3);
+    const result = report.results[0]!;
+    expect(result.metricCoverage.reasoning).toBe(2);
+    expect(result.metricCoverage.cacheRead).toBe(1);
+    expect(result.metricCoverage.cacheWrite).toBe(0);
+    expect(result.metricCoverage.cost).toBe(3);
+    expect(result.metricCoverage.uncachedInput).toBe(1); // same as cacheRead
+  });
+
+  // ── Sequential model execution and isolation hook ──
+
+  it("primary and fallback models execute sequentially, not in parallel", async () => {
+    const executionOrder: string[] = [];
+    const sequencingRunner = async (_scenario: AgentScenario, model: string) => {
+      executionOrder.push(`start:${model}`);
+      // Small delay to ensure parallel execution would interleave.
+      await new Promise((r) => setTimeout(r, 5));
+      executionOrder.push(`end:${model}`);
+      return {
+        routedMode: "action" as const,
+        selectedSkills: ["project-status"],
+        evidence: ["get_project_state"],
+        terminalStatus: "completed" as const,
+        latencyMs: 10,
+        inputTokens: 20,
+        outputTokens: 10,
+        cost: 0.01,
+        outputPolicyPassed: true,
+      };
+    };
+    await runModelCanary("mock:a", "mock:b", scenarios, sequencingRunner, 1);
+    // Sequential: primary fully completes before fallback starts.
+    const primaryEnd = executionOrder.indexOf("end:mock:a");
+    const fallbackStart = executionOrder.indexOf("start:mock:b");
+    expect(primaryEnd).toBeLessThan(fallbackStart);
+  });
+
+  it("each scenario repeat invokes the isolation hook exactly once before the public run", async () => {
+    const hookCalls: Array<{ scenario: string; model: string; repeat: number }> = [];
+    const ctx: ObservationContext = {
+      beforeObservation: async (scenario, model, repeatIndex) => {
+        hookCalls.push({ scenario: scenario.id, model, repeat: repeatIndex });
+      },
+    };
+    await runRepeatedScenarioEval("mock:a", scenarios, runner, 3, ctx);
+    // 1 scenario × 3 repeats = 3 hook invocations.
+    expect(hookCalls).toHaveLength(3);
+    expect(hookCalls[0]!).toEqual({ scenario: "status", model: "mock:a", repeat: 0 });
+    expect(hookCalls[1]!).toEqual({ scenario: "status", model: "mock:a", repeat: 1 });
+    expect(hookCalls[2]!).toEqual({ scenario: "status", model: "mock:a", repeat: 2 });
+  });
+
+  it("runModelCanary passes ctx through to runRepeatedScenarioEval", async () => {
+    const hookCalls: string[] = [];
+    const ctx: ObservationContext = {
+      beforeObservation: async (_scenario, model, _repeatIndex) => {
+        hookCalls.push(model);
+      },
+    };
+    await runModelCanary("mock:a", "mock:b", scenarios, runner, 2, ctx);
+    // 1 scenario × 2 repeats × 2 models = 4 hook calls.
+    expect(hookCalls).toHaveLength(4);
+    // Sequential: primary hooks first, then fallback hooks.
+    expect(hookCalls[0]).toBe("mock:a");
+    expect(hookCalls[1]).toBe("mock:a");
+    expect(hookCalls[2]).toBe("mock:b");
+    expect(hookCalls[3]).toBe("mock:b");
+  });
+
+  it("fail closed if isolation hook provisioning fails", async () => {
+    const ctx: ObservationContext = {
+      beforeObservation: async () => {
+        throw new Error("provisioning failed: fixture unavailable");
+      },
+    };
+    await expect(
+      runRepeatedScenarioEval("mock:a", scenarios, runner, 3, ctx),
+    ).rejects.toThrow("provisioning failed: fixture unavailable");
+  });
+
+  it("fail closed on provisioning failure even for first repeat", async () => {
+    const ctx: ObservationContext = {
+      beforeObservation: async (_scenario, _model, repeatIndex) => {
+        if (repeatIndex === 0) throw new Error("cannot provision fixture");
+      },
+    };
+    await expect(
+      runRepeatedScenarioEval("mock:a", scenarios, runner, 3, ctx),
+    ).rejects.toThrow("cannot provision fixture");
+  });
+
+  // ── Repeated report: privacy is included in passed gate ──
+
+  it("repeated report failed when privacy fails", async () => {
+    const privacyFailRunner = async () => ({
+      routedMode: "action" as const,
+      selectedSkills: ["project-status"],
+      evidence: ["get_project_state"],
+      terminalStatus: "completed" as const,
+      latencyMs: 10,
+      inputTokens: 20,
+      outputTokens: 10,
+      cost: 0.01,
+      outputPolicyPassed: false, // Privacy always fails.
+    });
+    const report = await runRepeatedScenarioEval("mock:a", scenarios, privacyFailRunner, 3);
+    // Per-scenario diagnostics.
+    expect(report.results[0]!.allRoutingPassed).toBe(true);
+    expect(report.results[0]!.allOutcomePassed).toBe(false); // outcome includes outputPolicy
+    expect(report.results[0]!.privacyAllPassed).toBe(false);
+    // Observation-level: privacy 0/3, outcome 0/3 (outputPolicy fails → outcome fails).
+    expect(report.privacyPassRate).toBe(0);
+    expect(report.privacyGate).toBe(false);
+    expect(report.outcomePassRate).toBe(0);
+    expect(report.passed).toBe(false);
   });
 });

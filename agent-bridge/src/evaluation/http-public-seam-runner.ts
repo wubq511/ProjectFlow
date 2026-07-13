@@ -10,7 +10,14 @@ export interface PublicSeamIdentity {
 
 export interface HttpPublicSeamRunnerOptions {
   baseUrl: string;
-  identity: PublicSeamIdentity;
+  identity?: PublicSeamIdentity;
+  /**
+   * Async provider called before each run to get the current identity.
+   * Takes precedence over `identity` when present.
+   * Used by the production CLI to supply a freshly provisioned fixture
+   * (new conversation, fresh workspace state) before each observation.
+   */
+  identityProvider?: () => Promise<PublicSeamIdentity>;
   fetchFn?: typeof fetch;
 }
 
@@ -57,9 +64,15 @@ function parseSse(text: string): Array<{ event: string; data: Record<string, unk
 
 /** Build a runner that exercises the real POST /runs/stream HTTP/SSE seam. */
 export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions): ScenarioRunner {
+  if (!options.identity && !options.identityProvider) {
+    throw new Error("Either identity or identityProvider must be provided");
+  }
   const fetchFn = options.fetchFn ?? fetch;
   const baseUrl = options.baseUrl.replace(/\/$/, "");
   return async (scenario: AgentScenario, model: string): Promise<ScenarioObservation> => {
+    const identity = options.identityProvider
+      ? await options.identityProvider()
+      : options.identity!;
     const [provider, ...nameParts] = model.split(":");
     if (!provider || nameParts.length === 0) throw new Error(`Invalid model ref: ${model}`);
     const started = Date.now();
@@ -67,12 +80,12 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        conversation_id: options.identity.conversationId,
-        workspace_id: options.identity.workspaceId,
-        project_id: options.identity.projectId,
-        viewer_user_id: options.identity.viewerUserId,
+        conversation_id: identity.conversationId,
+        workspace_id: identity.workspaceId,
+        project_id: identity.projectId,
+        viewer_user_id: identity.viewerUserId,
         user_content: scenario.prompt,
-        workspace_state: options.identity.workspaceState,
+        workspace_state: identity.workspaceState,
         runtime_config: { model: { provider, name: nameParts.join(":") }, max_steps: 10, max_tool_calls: 20 },
       }),
     });
@@ -88,7 +101,7 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
     const outputPolicyPassed = (scenario.forbiddenOutputPatterns ?? []).every((pattern) => {
       pattern.lastIndex = 0;
       return !pattern.test(finalContent);
-    }) && (!scenario.forbidRawIds || !containsRawId(finalContent, options.identity.workspaceState));
+    }) && (!scenario.forbidRawIds || !containsRawId(finalContent, identity.workspaceState));
     const toolNames = events
       .filter((item) => item.event === "tool" && typeof item.data.tool_name === "string")
       .map((item) => item.data.tool_name as string);
@@ -102,7 +115,10 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
       latencyMs: typeof metrics.latency_ms === "number" ? metrics.latency_ms : Date.now() - started,
       inputTokens: typeof metrics.input_tokens === "number" ? metrics.input_tokens : 0,
       outputTokens: typeof metrics.output_tokens === "number" ? metrics.output_tokens : 0,
-      cost: typeof metrics.total_cost === "number" ? metrics.total_cost : 0,
+      reasoningTokens: typeof metrics.reasoning_tokens === "number" ? metrics.reasoning_tokens : undefined,
+      cacheReadTokens: typeof metrics.cache_read_tokens === "number" ? metrics.cache_read_tokens : undefined,
+      cacheWriteTokens: typeof metrics.cache_write_tokens === "number" ? metrics.cache_write_tokens : undefined,
+      cost: typeof metrics.total_cost === "number" ? metrics.total_cost : undefined,
       outputPolicyPassed,
     };
   };
