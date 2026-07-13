@@ -377,6 +377,12 @@ describe("operational Agent evaluation", () => {
     expect(report.results[0]!.reasoningTokens).toBeUndefined();
     expect(report.results[0]!.cacheReadTokens).toBeUndefined();
     expect(report.results[0]!.cacheWriteTokens).toBeUndefined();
+    expect(report.results[0]!.promptTokens).toBeUndefined();
+    expect(report.results[0]!.cacheHitRate).toBeUndefined();
+    expect(report.totalCacheReadTokens).toBeUndefined();
+    expect(report.totalPromptTokens).toBeUndefined();
+    expect(report.cacheHitRate).toBeUndefined();
+    expect(report.cacheMetricCoverage).toBe(0);
   });
 
   it("runModelCanary with repeats>1 uses repeated evaluation", async () => {
@@ -493,9 +499,9 @@ describe("operational Agent evaluation", () => {
     expect(report.totalCost).toBe(0);
   });
 
-  // ── Uncached input: only when both input + cache-read known ──
+  // ── Pi-normalized uncached input and cache-hit semantics ──
 
-  it("computes uncached input only when cache-read is observed on every repeat", async () => {
+  it("uses Pi input directly as uncached input and computes cache-hit rate", async () => {
     const withCacheRunner = async () => ({
       routedMode: "action" as const,
       selectedSkills: ["project-status"],
@@ -505,17 +511,21 @@ describe("operational Agent evaluation", () => {
       inputTokens: 500,
       outputTokens: 50,
       cacheReadTokens: 300,
+      cacheWriteTokens: 0,
       cost: 0.01,
       outputPolicyPassed: true,
     });
     const report = await runRepeatedScenarioEval("mock:a", scenarios, withCacheRunner, 3);
     const result = report.results[0]!;
-    // All repeats have cacheRead → uncachedInput defined.
-    expect(result.uncachedInput).toBeDefined();
-    expect(result.uncachedInput!.count).toBe(3);
-    // 500 - 300 = 200 per repeat.
-    expect(result.uncachedInput!.mean).toBe(200);
-    expect(result.uncachedInput!.min).toBe(200);
+    // Pi Usage.input is already the uncached input bucket.
+    expect(result.uncachedInput.count).toBe(3);
+    expect(result.uncachedInput.mean).toBe(500);
+    expect(result.promptTokens!.mean).toBe(800);
+    expect(result.cacheHitRate!.mean).toBe(0.375);
+    expect(report.totalCacheReadTokens).toBe(900);
+    expect(report.totalPromptTokens).toBe(2400);
+    expect(report.cacheHitRate).toBe(0.375);
+    expect(report.cacheMetricCoverage).toBe(3);
   });
 
   it("uncached input computed over repeats where cache-read is observed", async () => {
@@ -531,18 +541,23 @@ describe("operational Agent evaluation", () => {
         inputTokens: 500,
         outputTokens: 50,
         cacheReadTokens: callCount === 1 ? 300 : undefined,
+        cacheWriteTokens: callCount === 1 ? 0 : undefined,
         cost: 0.01,
         outputPolicyPassed: true,
       };
     };
     const report = await runRepeatedScenarioEval("mock:a", scenarios, partialCacheRunner, 2);
     const result = report.results[0]!;
-    // 1 of 2 repeats has cacheRead → uncachedInput computed over that 1 observation.
-    expect(result.uncachedInput).toBeDefined();
-    expect(result.uncachedInput!.count).toBe(1);
-    expect(result.uncachedInput!.mean).toBe(200); // 500 - 300 = 200
+    // Uncached input is directly available for both observations; cache hit
+    // rate is available only for the observation with complete cache metrics.
+    expect(result.uncachedInput.count).toBe(2);
+    expect(result.uncachedInput.mean).toBe(500);
+    expect(result.promptTokens!.count).toBe(1);
+    expect(result.cacheHitRate!.count).toBe(1);
+    expect(result.cacheHitRate!.mean).toBe(0.375);
     expect(result.metricCoverage.cacheRead).toBe(1);
-    expect(result.metricCoverage.uncachedInput).toBe(1);
+    expect(result.metricCoverage.uncachedInput).toBe(2);
+    expect(result.metricCoverage.cacheHitRate).toBe(1);
   });
 
   it("uncached input never goes negative even with oversized cache-read", async () => {
@@ -555,16 +570,17 @@ describe("operational Agent evaluation", () => {
       inputTokens: 100,
       outputTokens: 50,
       cacheReadTokens: 200, // More than input — provider anomaly.
+      cacheWriteTokens: 0,
       cost: 0.01,
       outputPolicyPassed: true,
     });
     const report = await runRepeatedScenarioEval("mock:a", scenarios, oversizedCacheRunner, 1);
     const result = report.results[0]!;
-    expect(result.uncachedInput).toBeDefined();
-    // 100 - 200 = -100 but clamped to max(0, ...) because provider counters
-    // may use different scopes and negative uncached input is not meaningful.
-    expect(result.uncachedInput!.min).toBe(0);
-    expect(result.uncachedInput!.max).toBe(0);
+    // Cache-read tokens are a separate Pi bucket, so cacheRead > input is valid.
+    expect(result.uncachedInput.min).toBe(100);
+    expect(result.uncachedInput.max).toBe(100);
+    expect(result.promptTokens!.mean).toBe(300);
+    expect(result.cacheHitRate!.mean).toBeCloseTo(2 / 3);
     expect(result.metricCoverage.uncachedInput).toBe(1);
   });
 
@@ -632,7 +648,9 @@ describe("operational Agent evaluation", () => {
     expect(result.metricCoverage.cacheRead).toBe(1);
     expect(result.metricCoverage.cacheWrite).toBe(0);
     expect(result.metricCoverage.cost).toBe(3);
-    expect(result.metricCoverage.uncachedInput).toBe(1); // same as cacheRead
+    expect(result.metricCoverage.uncachedInput).toBe(3); // input is always normalized
+    expect(result.metricCoverage.cacheHitRate).toBe(0); // cacheWrite is unknown
+    expect(result.metricCoverage.promptTokens).toBe(0);
   });
 
   // ── Sequential model execution and isolation hook ──

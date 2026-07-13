@@ -197,8 +197,12 @@ export interface ScenarioRepeatResult {
   cacheReadTokens?: RepeatStats;
   cacheWriteTokens?: RepeatStats;
   cost?: RepeatStats;
-  /** Uncached input tokens (input - cacheRead). Only defined when both input and cacheRead are observed. */
-  uncachedInput?: RepeatStats;
+  /** Pi-normalized non-cached input. `inputTokens` already excludes cache reads/writes. */
+  uncachedInput: RepeatStats;
+  /** Total prompt tokens: input + cacheRead + cacheWrite. */
+  promptTokens?: RepeatStats;
+  /** Per-observation cache-read share of total prompt tokens. */
+  cacheHitRate?: RepeatStats;
   privacyPassCount: number;
   privacyPassRate: number;
   privacyAllPassed: boolean;
@@ -212,6 +216,8 @@ export interface ScenarioRepeatResult {
     cacheWrite: number;
     cost: number;
     uncachedInput: number;
+    promptTokens: number;
+    cacheHitRate: number;
   };
 }
 
@@ -228,6 +234,11 @@ export interface RepeatedScenarioReport {
   p95LatencyMs: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCacheReadTokens?: number;
+  totalCacheWriteTokens?: number;
+  totalPromptTokens?: number;
+  cacheHitRate?: number;
+  cacheMetricCoverage: number;
   /**
    * Aggregate cost across all observations. Absent when no observation
    * supplied cost data, so consumers can distinguish "no data" from "zero cost".
@@ -302,15 +313,20 @@ export async function runRepeatedScenarioEval(
     const allOutcomePassed = evaluations.every((e) => e.outcomePassed);
     const allLatencyPassed = evaluations.every((e) => e.latencyPassed);
 
-    // Uncached input: compute over observations where cacheReadTokens is defined.
-    // Clamp each derived value to max(0, input - cacheRead) because provider
-    // counters may use different scopes and negative uncached input is not meaningful.
-    const observationsWithCacheRead = observations.filter(
-      (o) => typeof o.cacheReadTokens === "number",
+    // Pi normalizes Usage.input to non-cached input. Its OpenAI-compatible
+    // adapter already subtracts cacheRead/cacheWrite from provider prompt
+    // tokens, so subtracting cacheRead again would double-count the cache.
+    const uncachedValues = observations.map((o) => o.inputTokens);
+    const observationsWithCompleteCache = observations.filter(
+      (o) => typeof o.cacheReadTokens === "number" && typeof o.cacheWriteTokens === "number",
     );
-    const uncachedValues = observationsWithCacheRead.length > 0
-      ? observationsWithCacheRead.map((o) => Math.max(0, o.inputTokens - (o.cacheReadTokens ?? 0)))
-      : undefined;
+    const promptValues = observationsWithCompleteCache.map(
+      (o) => o.inputTokens + (o.cacheReadTokens ?? 0) + (o.cacheWriteTokens ?? 0),
+    );
+    const cacheHitValues = observationsWithCompleteCache.map((o, index) => {
+      const promptTokens = promptValues[index] ?? 0;
+      return promptTokens > 0 ? (o.cacheReadTokens ?? 0) / promptTokens : 0;
+    });
 
     // Metric coverage: how many repeats supplied each optional metric.
     const metricCoverage = {
@@ -318,7 +334,9 @@ export async function runRepeatedScenarioEval(
       cacheRead: observations.filter((o) => o.cacheReadTokens !== undefined).length,
       cacheWrite: observations.filter((o) => o.cacheWriteTokens !== undefined).length,
       cost: observations.filter((o) => o.cost !== undefined).length,
-      uncachedInput: observationsWithCacheRead.length,
+      uncachedInput: observations.length,
+      promptTokens: observationsWithCompleteCache.length,
+      cacheHitRate: observationsWithCompleteCache.length,
     };
 
     scenarioResults.push({
@@ -334,7 +352,9 @@ export async function runRepeatedScenarioEval(
       cacheReadTokens: optionalRepeatStats(observations.map((o) => o.cacheReadTokens)),
       cacheWriteTokens: optionalRepeatStats(observations.map((o) => o.cacheWriteTokens)),
       cost: optionalRepeatStats(observations.map((o) => o.cost)),
-      uncachedInput: uncachedValues ? buildRepeatStats(uncachedValues) : undefined,
+      uncachedInput: buildRepeatStats(uncachedValues),
+      promptTokens: promptValues.length > 0 ? buildRepeatStats(promptValues) : undefined,
+      cacheHitRate: cacheHitValues.length > 0 ? buildRepeatStats(cacheHitValues) : undefined,
       privacyPassCount,
       privacyPassRate: privacyPassCount / repeats,
       privacyAllPassed: privacyPassCount === repeats,
@@ -366,6 +386,25 @@ export async function runRepeatedScenarioEval(
   const privacyPassRate = privacyPassedCount / observationCount;
   // Aggregate p95 across all observations
   const allLatencies = scenarioResults.flatMap((r) => r.repeats.map((o) => o.latencyMs));
+  const allObservations = scenarioResults.flatMap((r) => r.repeats);
+  const cacheObservations = allObservations.filter(
+    (o) => typeof o.cacheReadTokens === "number" && typeof o.cacheWriteTokens === "number",
+  );
+  const totalCacheReadTokens = cacheObservations.length > 0
+    ? cacheObservations.reduce((sum, o) => sum + (o.cacheReadTokens ?? 0), 0)
+    : undefined;
+  const totalCacheWriteTokens = cacheObservations.length > 0
+    ? cacheObservations.reduce((sum, o) => sum + (o.cacheWriteTokens ?? 0), 0)
+    : undefined;
+  const totalPromptTokens = cacheObservations.length > 0
+    ? cacheObservations.reduce(
+      (sum, o) => sum + o.inputTokens + (o.cacheReadTokens ?? 0) + (o.cacheWriteTokens ?? 0),
+      0,
+    )
+    : undefined;
+  const cacheHitRate = totalPromptTokens !== undefined && totalPromptTokens > 0
+    ? (totalCacheReadTokens ?? 0) / totalPromptTokens
+    : undefined;
 
   // Only include totalCost when at least one observation supplied cost data.
   const allCosts = scenarioResults.flatMap((r) => r.repeats.map((o) => o.cost).filter((c): c is number => c !== undefined));
@@ -384,6 +423,11 @@ export async function runRepeatedScenarioEval(
     p95LatencyMs: percentile95(allLatencies),
     totalInputTokens: scenarioResults.reduce((s, r) => s + r.repeats.reduce((ts, o) => ts + o.inputTokens, 0), 0),
     totalOutputTokens: scenarioResults.reduce((s, r) => s + r.repeats.reduce((ts, o) => ts + o.outputTokens, 0), 0),
+    ...(totalCacheReadTokens !== undefined ? { totalCacheReadTokens } : {}),
+    ...(totalCacheWriteTokens !== undefined ? { totalCacheWriteTokens } : {}),
+    ...(totalPromptTokens !== undefined ? { totalPromptTokens } : {}),
+    ...(cacheHitRate !== undefined ? { cacheHitRate } : {}),
+    cacheMetricCoverage: cacheObservations.length,
     ...(totalCost !== undefined ? { totalCost } : {}),
     passed: routingAccuracy >= 0.9 && outcomePassRate >= 0.9 && privacyPassRate >= 0.9 && scenarioResults.every((r) => r.allLatencyPassed),
   };
