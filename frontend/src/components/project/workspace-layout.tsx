@@ -37,7 +37,7 @@ interface WorkspaceLayoutProps {
   onShowWorkspace: (show: boolean) => void;
   onNavigateView: (view: ProjectView) => void;
   onRunAgent?: (action: AgentAction, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => void;
-  onSendAgentMessage?: (content: string) => void | Promise<void>;
+  onSendAgentMessage?: (content: string, options?: { model?: string; thinkingLevel?: string }) => void | Promise<void>;
   onRespondToAssignment?: (
     proposalId: string,
     userId: string,

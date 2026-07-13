@@ -42,18 +42,36 @@ loadDotEnv(envPath); // Startup: don't overwrite existing env vars
 
 import { createServer } from "./server/app.js";
 import { loadConfig } from "./server/config.js";
-import { ModelConfigStore } from "./config/model-config-store.js";
+import { ModelConfigStore, type CatalogValidator } from "./config/model-config-store.js";
 import { DotEnvWriter } from "./config/dotenv-writer.js";
 import { ModelRouter } from "./runtime/model-router.js";
 import { FileWatcher } from "./config/file-watcher.js";
 import { initSkillIndex, getSkillIndex } from "./skills/skill-index.js";
+import { getProviderCatalogModels } from "./runtime/pi-runtime.js";
 
 async function main() {
   const config = loadConfig();
 
+  // Catalog validator: resolves model against Pi SDK catalog to derive capabilities
+  const catalogValidator: CatalogValidator = async (provider, name) => {
+    const models = await getProviderCatalogModels(provider);
+    const found = models.find((m) => m.id === name || m.name === name);
+    if (!found) return null;
+    return {
+      id: found.id,
+      name: found.name,
+      reasoning: found.reasoning,
+      input: found.input,
+      contextWindow: found.contextWindow,
+      maxTokens: found.maxTokens,
+      thinkingLevelMap: found.thinkingLevelMap,
+    };
+  };
+
   // Initialize model config infrastructure
   const modelConfigStore = new ModelConfigStore({
     filePath: config.modelConfigsPath,
+    catalogValidator,
   });
   const dotenvWriter = new DotEnvWriter({
     filePath: config.dotenvPath,

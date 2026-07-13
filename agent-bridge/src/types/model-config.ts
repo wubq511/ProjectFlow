@@ -15,6 +15,17 @@ export interface ModelCapabilities {
    * It controls context assembly compaction, not the actual API limit.
    */
   contextTokens?: number;
+  /**
+   * Maximum output tokens for this model (from Pi SDK catalog).
+   * Used by runtime to configure model output limits.
+   */
+  maxTokens?: number;
+  /**
+   * Supported thinking/reasoning levels derived from Pi SDK catalog.
+   * Each entry is a Pi SDK thinking level key (e.g. "low", "medium", "high").
+   * Used by frontend to show only supported thinking level options.
+   */
+  supportedThinkingLevels?: string[];
 }
 
 /**

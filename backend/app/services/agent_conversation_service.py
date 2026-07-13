@@ -110,6 +110,8 @@ def process_conversation_message_stream(
     content: str,
     *,
     viewer_user_id: str | None = None,
+    model: str | None = None,
+    thinking_level: str | None = None,
 ) -> Iterator[str]:
     """Yield SSE events by proxying to the sidecar Pi runtime."""
     conversation = session.get(AgentConversation, conversation_id)
@@ -155,6 +157,8 @@ def process_conversation_message_stream(
             "max_steps": 10,
             "max_tool_calls": 20,
             **({"skill": skill_name} if skill_name else {}),
+            **(_parse_model(model) if model else {}),
+            **({"thinking_level": thinking_level} if thinking_level else {}),
         },
     }
 
@@ -704,3 +708,17 @@ def _extract_skill_name(content: str) -> str | None:
 
     # 6. No match → answer mode
     return None
+
+
+def _parse_model(model: str) -> dict[str, Any]:
+    """Parse a 'provider:name' composite model key into runtime_config.model dict.
+
+    Returns {"model": {"provider": ..., "name": ...}} for the sidecar request.
+    If the format is invalid, returns an empty dict (ignores the value gracefully).
+    """
+    if ":" not in model:
+        return {}
+    provider, _, name = model.partition(":")
+    if not provider or not name:
+        return {}
+    return {"model": {"provider": provider, "name": name}}

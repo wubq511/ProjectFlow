@@ -77,6 +77,8 @@ def api_send_agent_conversation_message_stream(
                 conversation_id,
                 data.content,
                 viewer_user_id=viewer_user_id,
+                model=data.model,
+                thinking_level=data.thinking_level,
             ),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

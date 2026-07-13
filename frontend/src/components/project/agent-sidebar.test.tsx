@@ -6,6 +6,7 @@ import type {
   AgentConversation,
   ArchivedAgentStreamTurn,
   AgentSuggestion,
+  ModelConfigEntry,
   ProjectState,
 } from "@/lib/types";
 import { AgentSidebar } from "./agent-sidebar";
@@ -241,7 +242,7 @@ describe("AgentSidebar", () => {
     const button = screen.getByRole("button", { name: "根据签到调整计划" });
     fireEvent.click(button);
 
-    expect(onSendMessage).toHaveBeenCalledWith("根据签到调整计划");
+    expect(onSendMessage).toHaveBeenCalledWith("根据签到调整计划", expect.not.objectContaining({ thinkingLevel: expect.anything() }));
   });
 
   it("shows pending instruction and run status while Agent is working", () => {
@@ -387,7 +388,7 @@ describe("AgentSidebar", () => {
     const button = screen.getByRole("button", { name: "旧格式建议" });
     fireEvent.click(button);
 
-    expect(onSendMessage).toHaveBeenCalledWith("旧格式建议");
+    expect(onSendMessage).toHaveBeenCalledWith("旧格式建议", expect.not.objectContaining({ thinkingLevel: expect.anything() }));
   });
 
   it("disables suggestion buttons while pending conversation", () => {
@@ -426,7 +427,7 @@ describe("AgentSidebar", () => {
     const retryButton = screen.getByText("重新发送");
     fireEvent.click(retryButton);
 
-    expect(onSendMessage).toHaveBeenCalledWith("分析当前风险");
+    expect(onSendMessage).toHaveBeenCalledWith("分析当前风险", expect.not.objectContaining({ thinkingLevel: expect.anything() }));
   });
 
   it("disables artifact action buttons while pending conversation", () => {
@@ -472,7 +473,7 @@ describe("AgentSidebar", () => {
     // Plain Enter should send
     fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
     expect(onSendMessage).toHaveBeenCalledTimes(1);
-    expect(onSendMessage).toHaveBeenCalledWith("分析当前风险");
+    expect(onSendMessage).toHaveBeenCalledWith("分析当前风险", expect.not.objectContaining({ thinkingLevel: expect.anything() }));
   });
 
   it("sends explicit executable instruction for fallback quick reply labeled '根据签到调整计划'", () => {
@@ -653,6 +654,33 @@ describe("AgentSidebar", () => {
     // Component filters out confirmed artifacts from visible list
     expect(screen.queryByText("调整计划草案")).toBeNull();
     expect(screen.queryByRole("button", { name: "确认应用" })).toBeNull();
+  });
+
+  it("sends no invalid thinking override when model does not support selected level", () => {
+    // Simulates the scenario: user selected a thinking level, then switches to a
+    // model whose supportedThinkingLevels does not include it. The component
+    // validates the level before sending and omits unsupported overrides.
+    const onSendMessage = vi.fn();
+    const onRunAgent = vi.fn();
+
+    render(
+      <AgentSidebar
+        state={baseProjectState}
+        conversation={conversationFixture}
+        onRunAgent={onRunAgent}
+        onSendMessage={onSendMessage}
+      />
+    );
+
+    // The sidebar correctly omits thinkingLevel from message options when
+    // no model config is loaded (thinking unsupported).
+    const button = screen.getByRole("button", { name: "根据签到调整计划" });
+    fireEvent.click(button);
+
+    expect(onSendMessage).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.not.objectContaining({ thinkingLevel: expect.anything() }),
+    );
   });
 
   it("dismissed proposal artifact is filtered out of visible list", () => {

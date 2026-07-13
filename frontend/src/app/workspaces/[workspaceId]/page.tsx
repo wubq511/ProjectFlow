@@ -387,7 +387,7 @@ export default function WorkspaceDashboardPage() {
     }
   };
 
-  const handleSendAgentMessage = async (content: string) => {
+  const handleSendAgentMessage = async (content: string, options?: { model?: string; thinkingLevel?: string }) => {
     if (!agentConversation) return;
     setPendingAgentConversation(true);
     setPendingAgentInstruction(content);
@@ -396,7 +396,7 @@ export default function WorkspaceDashboardPage() {
     setActionSuccess(null);
 
     try {
-      await sendStream(agentConversation.id, content, currentUserId ?? "");
+      await sendStream(agentConversation.id, content, currentUserId ?? "", options);
     } finally {
       setPendingAgentConversation(false);
     }

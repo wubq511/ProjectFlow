@@ -231,6 +231,11 @@ class AgentRuntimeService:
             current_step=run.current_step,
             last_event_seq=run.last_event_seq,
             state_version=run.state_version,
+            model_provider=run.model_provider,
+            model_name=run.model_name,
+            resolved_model_provider=run.resolved_model_provider,
+            resolved_model_name=run.resolved_model_name,
+            model_fallback_reason=run.model_fallback_reason,
             created_at=run.created_at,
             updated_at=run.updated_at,
             completed_at=run.completed_at,
@@ -547,6 +552,12 @@ class AgentRuntimeService:
             run.model_provider = str(patch["model_provider"])
         if "model_name" in patch:
             run.model_name = str(patch["model_name"])
+        if "resolved_model_provider" in patch:
+            run.resolved_model_provider = str(patch["resolved_model_provider"])
+        if "resolved_model_name" in patch:
+            run.resolved_model_name = str(patch["resolved_model_name"])
+        if "model_fallback_reason" in patch:
+            run.model_fallback_reason = patch["model_fallback_reason"]
         if "pending_tool_call_id" in patch:
             run.pending_tool_call_id = patch["pending_tool_call_id"]
         if "pending_tool_name" in patch:
@@ -692,6 +703,9 @@ class AgentRuntimeService:
             "state_version": run.state_version,
             "model_provider": run.model_provider,
             "model_name": run.model_name,
+            "resolved_model_provider": run.resolved_model_provider,
+            "resolved_model_name": run.resolved_model_name,
+            "model_fallback_reason": run.model_fallback_reason,
             "created_at": run.created_at.isoformat(),
             "updated_at": run.updated_at.isoformat(),
             "completed_at": run.completed_at.isoformat() if run.completed_at else None,

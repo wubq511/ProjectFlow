@@ -109,7 +109,7 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
   useEffect(() => { onDisconnectRef.current = options.onDisconnect; });
 
   const send = useCallback(
-    async (conversationId: string, content: string, viewerUserId: string) => {
+    async (conversationId: string, content: string, viewerUserId: string, options?: { model?: string; thinkingLevel?: string }) => {
       // Abort any previous in-flight request and invalidate its callbacks
       abortRef.current?.abort();
       const gen = ++generationRef.current;
@@ -220,6 +220,7 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
             },
           },
           controller.signal,
+          options,
         );
       } catch (err) {
         // Stale request — ignore entirely

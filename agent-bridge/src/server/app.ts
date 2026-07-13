@@ -27,7 +27,8 @@ import { ToolRegistry } from "@/tools/registry.js";
 import { registerMockTools } from "@/tools/mock-tools.js";
 import { registerDefaultTools } from "@/tools/register-defaults.js";
 import { EventStream } from "@/events/stream.js";
-import { ModelConfigStore } from "@/config/model-config-store.js";
+import { ModelConfigStore, type CatalogValidator } from "@/config/model-config-store.js";
+import { getProviderCatalogModels } from "@/runtime/pi-runtime.js";
 import { DotEnvWriter } from "@/config/dotenv-writer.js";
 import { ModelRouter } from "@/runtime/model-router.js";
 import { SkillLoader } from "@/skills/skill-loader.js";
@@ -82,9 +83,26 @@ export function createServer(config: SidecarConfig, serverCtx?: Partial<ServerCo
   registerDefaultTools(toolRegistry, fastapiClient);
   const stream = new EventStream();
 
+  // Catalog validator: resolves model against Pi SDK catalog to derive capabilities
+  const catalogValidator: CatalogValidator = async (provider, name) => {
+    const models = await getProviderCatalogModels(provider);
+    const found = models.find((m) => m.id === name || m.name === name);
+    if (!found) return null;
+    return {
+      id: found.id,
+      name: found.name,
+      reasoning: found.reasoning,
+      input: found.input,
+      contextWindow: found.contextWindow,
+      maxTokens: found.maxTokens,
+      thinkingLevelMap: found.thinkingLevelMap,
+    };
+  };
+
   // Model config infrastructure
   const modelConfigStore = serverCtx?.modelConfigStore ?? new ModelConfigStore({
     filePath: config.modelConfigsPath,
+    catalogValidator,
   });
   const dotenvWriter = serverCtx?.dotenvWriter ?? new DotEnvWriter({
     filePath: config.dotenvPath,

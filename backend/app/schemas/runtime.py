@@ -447,6 +447,11 @@ class RunStatusResponse(BaseModel):
     current_step: int = 0
     last_event_seq: int = 0
     state_version: int = 0
+    model_provider: str = ""
+    model_name: str = ""
+    resolved_model_provider: str = ""
+    resolved_model_name: str = ""
+    model_fallback_reason: str | None = None
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None = None
@@ -482,6 +487,11 @@ class RunSnapshotResponse(BaseModel):
     current_step: int = 0
     last_event_seq: int = 0
     state_version: int = 0
+    model_provider: str = ""
+    model_name: str = ""
+    resolved_model_provider: str = ""
+    resolved_model_name: str = ""
+    model_fallback_reason: str | None = None
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None = None

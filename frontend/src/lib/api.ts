@@ -729,11 +729,17 @@ export async function sendAgentConversationMessageStream(
   viewerUserId: string,
   callbacks: AgentStreamCallbacks,
   signal?: AbortSignal,
+  options?: { model?: string; thinkingLevel?: string },
 ): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/agent/conversations/${conversationId}/messages/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content, viewer_user_id: viewerUserId }),
+    body: JSON.stringify({
+      content,
+      viewer_user_id: viewerUserId,
+      ...(options?.model ? { model: options.model } : {}),
+      ...(options?.thinkingLevel ? { thinking_level: options.thinkingLevel } : {}),
+    }),
     signal,
   });
 

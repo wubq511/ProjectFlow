@@ -635,7 +635,7 @@ export type ModelConfigEntry = {
   apiKeySet: boolean;
   apiKeySuffix?: string | null;
   isDefault: boolean;
-  capabilities: { thinking: boolean; vision: boolean };
+  capabilities: { thinking: boolean; vision: boolean; supportedThinkingLevels?: string[] };
   valid: boolean;
   invalidReason?: string | null;
 };

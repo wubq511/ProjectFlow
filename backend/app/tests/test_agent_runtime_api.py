@@ -272,6 +272,40 @@ class TestAppendEvents:
         assert status_data["status"] == "context_building"
         assert status_data["current_turn"] == 1
 
+    def test_state_patch_model_attribution(self, client):
+        """Test that resolved model attribution fields are persisted and returned."""
+        create_response = client.post("/internal/agent-runs", json={
+            "viewer_user_id": "user_runtime",
+            "conversation_id": "conv_123",
+            "workspace_id": "ws_456",
+            "project_id": "proj_789",
+            "user_content": "test",
+        })
+        run_id = create_response.json()["run_id"]
+
+        # Apply state patch with model attribution
+        response = client.post(f"/internal/agent-runs/{run_id}/events:append", json={
+            "idempotency_key": f"{run_id}:model_attr:v1",
+            "state_patch": {
+                "status": "context_building",
+                "model_provider": "deepseek",
+                "model_name": "deepseek-v4-pro",
+                "resolved_model_provider": "deepseek",
+                "resolved_model_name": "deepseek-v4-flash",
+                "model_fallback_reason": "requested model unavailable, using default",
+            },
+        })
+        assert response.status_code == 200
+
+        # Verify attribution persisted
+        status_response = client.get(f"/internal/agent-runs/{run_id}")
+        data = status_response.json()
+        assert data["model_provider"] == "deepseek"
+        assert data["model_name"] == "deepseek-v4-pro"
+        assert data["resolved_model_provider"] == "deepseek"
+        assert data["resolved_model_name"] == "deepseek-v4-flash"
+        assert data["model_fallback_reason"] == "requested model unavailable, using default"
+
     def test_append_events(self, client):
         """Test appending events."""
         # Create a run

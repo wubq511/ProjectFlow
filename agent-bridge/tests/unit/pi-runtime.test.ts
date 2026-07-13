@@ -36,14 +36,34 @@ function defaultSkillContext() {
   };
 }
 
+/** Mock model config entry matching the test's createRunState model. */
+const MOCK_MODEL_ENTRY: import("../../src/types/model-config.js").ModelConfigEntryRuntime = {
+  id: "mock-model",
+  provider: "mock",
+  name: "mock-model",
+  displayName: "Mock Model",
+  apiKeyEnvVar: "",
+  isDefault: true,
+  capabilities: { thinking: true, vision: false },
+  apiKeySet: true,
+  apiKeySuffix: null,
+  valid: true,
+  invalidReason: null,
+  resolvedBaseUrl: undefined,
+};
+
 function createModelRouter(): ModelRouter {
-  // Create a minimal mock ModelConfigStore for the mock provider
+  // Create a minimal mock ModelConfigStore with the mock model entry
+  const entries = [MOCK_MODEL_ENTRY];
   const mockStore = {
-    list: () => [],
-    listWire: () => [],
-    get: () => undefined,
-    getValid: () => undefined,
-    getDefault: () => undefined,
+    list: () => entries,
+    listWire: () => entries,
+    get: (id: string) => entries.find((e) => e.id === id),
+    getValid: (id: string) => {
+      const e = entries.find((e) => e.id === id);
+      return e?.valid ? e : undefined;
+    },
+    getDefault: () => entries.find((e) => e.isDefault && e.valid),
     load: async () => {},
     add: async () => { throw new Error("not implemented"); },
     update: async () => { throw new Error("not implemented"); },

@@ -57,6 +57,9 @@ const SIDEBAR_DEFAULT_WIDTH = 352; // 默认宽度 22rem
 const SIDEBAR_WIDTH_STORAGE_KEY = "agent-sidebar-width";
 const OPTIMISTIC_MESSAGE_MATCH_WINDOW_MS = 2 * 60 * 1000;
 
+/** Fallback thinking levels for reasoning models that lack catalog metadata. */
+const FALLBACK_THINKING_LEVELS: ThinkingLevel[] = ["low", "medium", "high", "xhigh", "max"];
+
 const ALL_AGENT_ACTIONS: {
   id: AgentAction;
   label: string;
@@ -142,7 +145,7 @@ interface AgentSidebarProps {
   actionError?: string | null;
   conversationError?: string | null;
   onRunAgent: (action: AgentAction, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => void;
-  onSendMessage?: (content: string) => void | Promise<void>;
+  onSendMessage?: (content: string, options?: { model?: string; thinkingLevel?: string }) => void | Promise<void>;
   streamTurn?: AgentStreamTurn | null;
   archivedStreamTurns?: ArchivedAgentStreamTurn[];
   streamStatus?: AgentStreamStatus | null;
@@ -182,7 +185,8 @@ export function AgentSidebar({
 }: AgentSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("medium");
+  /** null = auto (no explicit override); non-null = user explicitly chose this level. */
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel | null>(null);
   const [modelConfigs, setModelConfigs] = useState<ModelConfigEntry[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [modelsLoaded, setModelsLoaded] = useState(false);
@@ -221,7 +225,7 @@ export function AgentSidebar({
 
   // 拖动调整宽度状态
   const [sidebarWidth, setSidebarWidth] = useState(() => {
-    if (typeof window === "undefined") return SIDEBAR_DEFAULT_WIDTH;
+    if (typeof window === "undefined" || typeof localStorage === "undefined") return SIDEBAR_DEFAULT_WIDTH;
     const stored = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
     if (stored) {
       const parsed = parseInt(stored, 10);
@@ -414,7 +418,18 @@ export function AgentSidebar({
     const trimmed = content.trim();
     if (!trimmed || !onSendMessage || pendingConversation) return;
     setDraft("");
-    await onSendMessage(trimmed);
+    // Build model composite key from selectedModelId
+    const selectedModel = selectedModelId ? modelConfigs.find((c) => c.id === selectedModelId) : undefined;
+    const modelKey = selectedModel ? `${selectedModel.provider}:${selectedModel.name}` : undefined;
+    // Only send thinkingLevel when explicitly chosen by the user AND the model supports it
+    const supportsThinking = selectedModel?.capabilities?.thinking ?? false;
+    const supportedLevels = selectedModel?.capabilities?.supportedThinkingLevels;
+    const levelIsSupported = thinkingLevel !== null && (!supportedLevels || supportedLevels.length === 0 || supportedLevels.includes(thinkingLevel));
+    const explicitThinking = thinkingLevel !== null && supportsThinking && levelIsSupported ? thinkingLevel : undefined;
+    await onSendMessage(trimmed, {
+      ...(modelKey ? { model: modelKey } : {}),
+      ...(explicitThinking ? { thinkingLevel: explicitThinking } : {}),
+    });
   };
 
   return (
@@ -803,6 +818,12 @@ export function AgentSidebar({
                                   if (v) {
                                     setSelectedModelId(v);
                                     localStorage.setItem("pf:selected-model-id", v);
+                                    // Reset thinkingLevel if the new model doesn't support it
+                                    const newModel = modelConfigs.find((c) => c.id === v);
+                                    const supportedLevels = newModel?.capabilities?.supportedThinkingLevels;
+                                    if (thinkingLevel !== null && supportedLevels && !supportedLevels.includes(thinkingLevel)) {
+                                      setThinkingLevel(null);
+                                    }
                                   }
                                 }}
                               >
@@ -821,21 +842,31 @@ export function AgentSidebar({
                               </Select>
                             </div>
                           )}
-                          <div className="flex items-center gap-2 px-2">
-                            <span className="text-[10px] font-medium text-neutral-400">思考强度</span>
-                            <Select value={thinkingLevel} onValueChange={(v) => setThinkingLevel(v as ThinkingLevel)}>
-                              <SelectTrigger size="sm" className="h-6 w-auto min-w-20 text-[11px]">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="low">low</SelectItem>
-                                <SelectItem value="medium">medium</SelectItem>
-                                <SelectItem value="high">high</SelectItem>
-                                <SelectItem value="xhigh">xhigh</SelectItem>
-                                <SelectItem value="max">max</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
+                          {(() => {
+                            const selectedModelConfig = selectedModelId ? modelConfigs.find((c) => c.id === selectedModelId) : undefined;
+                            const supportsThinking = selectedModelConfig?.capabilities?.thinking ?? false;
+                            if (!supportsThinking) return null;
+                            const supportedLevels = selectedModelConfig?.capabilities?.supportedThinkingLevels;
+                            const levels = supportedLevels && supportedLevels.length > 0
+                              ? supportedLevels as ThinkingLevel[]
+                              : FALLBACK_THINKING_LEVELS;
+                            return (
+                              <div className="flex items-center gap-2 px-2">
+                                <span className="text-[10px] font-medium text-neutral-400">思考强度</span>
+                                <Select value={thinkingLevel ?? "auto"} onValueChange={(v) => setThinkingLevel(v === "auto" ? null : v as ThinkingLevel)}>
+                                  <SelectTrigger size="sm" className="h-6 w-auto min-w-20 text-[11px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="auto">自动</SelectItem>
+                                    {levels.map((level) => (
+                                      <SelectItem key={level} value={level}>{level}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            );
+                          })()}
                           {ACTION_CATEGORIES.map((category) => {
                             const actions = ALL_AGENT_ACTIONS.filter((a) => a.category === category);
                             return (
@@ -855,7 +886,11 @@ export function AgentSidebar({
                                         onClick={() => {
                                           const selectedModel = selectedModelId ? modelConfigs.find((c) => c.id === selectedModelId) : undefined;
                                           const modelRef = selectedModel ? { provider: selectedModel.provider, name: selectedModel.name } : undefined;
-                                          onRunAgent(action.id, thinkingLevel, modelRef);
+                                          const supportsThinking = selectedModel?.capabilities?.thinking ?? false;
+                                          const supportedLevels = selectedModel?.capabilities?.supportedThinkingLevels;
+                                          const levelIsSupported = thinkingLevel !== null && (!supportedLevels || supportedLevels.length === 0 || supportedLevels.includes(thinkingLevel));
+                                          const validThinking = thinkingLevel !== null && supportsThinking && levelIsSupported ? thinkingLevel : undefined;
+                                          onRunAgent(action.id, validThinking, modelRef);
                                         }}
                                       >
                                         {isPending ? (

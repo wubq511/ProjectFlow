@@ -161,9 +161,37 @@ class AgentTurnPlan(BaseModel):
     requires_confirmation: bool = False
 
 
+_VALID_THINKING_LEVELS = {"low", "medium", "high", "xhigh", "max"}
+
+
 class AgentConversationMessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
     viewer_user_id: str | None = None
+    """Optional model override — provider:name composite key (e.g. "deepseek:deepseek-v4-pro")."""
+    model: str | None = None
+    """Optional thinking/reasoning level for models that support it."""
+    thinking_level: str | None = None
+
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if ":" not in v:
+            raise ValueError(f"模型格式无效，必须为 'provider:name'，收到: {v!r}")
+        provider, _, name = v.partition(":")
+        if not provider or not name:
+            raise ValueError(f"模型格式无效，provider 和 name 均不能为空，收到: {v!r}")
+        return v
+
+    @field_validator("thinking_level")
+    @classmethod
+    def validate_thinking_level(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if v not in _VALID_THINKING_LEVELS:
+            raise ValueError(f"思考强度无效，必须为 {_VALID_THINKING_LEVELS} 之一，收到: {v!r}")
+        return v
 
 
 class AgentMessageRead(BaseModel):
@@ -185,6 +213,9 @@ class AgentRunRead(BaseModel):
     selected_module: str
     status: str
     model: str
+    resolved_model_provider: str = ""
+    resolved_model_name: str = ""
+    model_fallback_reason: str | None = None
     attempts: int
     verifier_status: str
     agent_event_id: str | None

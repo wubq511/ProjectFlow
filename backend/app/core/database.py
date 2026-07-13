@@ -71,7 +71,22 @@ def _migrate_agent_runs_v2() -> None:
         columns = _get_sqlite_columns("agent_runs_v2")
         if "viewer_user_id" not in columns:
             conn.execute(text("ALTER TABLE agent_runs_v2 ADD COLUMN viewer_user_id TEXT NOT NULL DEFAULT ''"))
-            conn.commit()
+        conn.commit()
+
+
+def _migrate_agent_runs_v2_attribution() -> None:
+    """Add resolved model attribution columns to agent_runs_v2 if missing."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    with engine.connect() as conn:
+        columns = _get_sqlite_columns("agent_runs_v2")
+        if "resolved_model_provider" not in columns:
+            conn.execute(text("ALTER TABLE agent_runs_v2 ADD COLUMN resolved_model_provider TEXT NOT NULL DEFAULT ''"))
+        if "resolved_model_name" not in columns:
+            conn.execute(text("ALTER TABLE agent_runs_v2 ADD COLUMN resolved_model_name TEXT NOT NULL DEFAULT ''"))
+        if "model_fallback_reason" not in columns:
+            conn.execute(text("ALTER TABLE agent_runs_v2 ADD COLUMN model_fallback_reason TEXT"))
+        conn.commit()
 
 
 def create_db_and_tables() -> None:
@@ -80,6 +95,7 @@ def create_db_and_tables() -> None:
     _migrate_tasks_order_index()
     _migrate_workspaces()
     _migrate_agent_runs_v2()
+    _migrate_agent_runs_v2_attribution()
 
 
 def get_session():

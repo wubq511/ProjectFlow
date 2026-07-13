@@ -564,9 +564,17 @@ export async function executeRun(
     const isAnswerMode = !input.skillContext;
 
     // Resolve model config early to get context budget.
-    const earlyModelConfig = modelRouter.resolve(
+    const earlyResolveResult = modelRouter.resolveWithMeta(
       `${runState.model.provider}:${runState.model.name}`,
     );
+    // Explicit invalid model selection must fail, not silently fall back
+    if (earlyResolveResult.resolutionFailed) {
+      throw new Error(earlyResolveResult.fallbackReason ?? `模型 "${runState.model.provider}:${runState.model.name}" 无效或不存在`);
+    }
+    if (earlyResolveResult.fallbackReason) {
+      console.warn(`[agent-bridge] 模型回退: ${earlyResolveResult.fallbackReason}`);
+    }
+    const earlyModelConfig = earlyResolveResult.entry;
     const contextBudget = earlyModelConfig?.capabilities?.contextTokens ?? DEFAULT_CONTEXT_TOKENS;
 
     // Merge multi-skill contexts if composition is active.
@@ -867,10 +875,21 @@ export async function executeRun(
     // The runState.model.provider/name come from the frontend's model selection.
     // We look up the corresponding ModelConfigEntryRuntime to get the full config
     // (including apiKeyEnvVar, baseUrl, capabilities, etc.).
-    const modelConfigEntry = modelRouter.resolve(
+    const modelResolveResult = modelRouter.resolveWithMeta(
       // Use provider:name as a composite id lookup, or fall back to default
       `${runState.model.provider}:${runState.model.name}`,
     );
+    // Explicit invalid model selection must fail, not silently fall back
+    if (modelResolveResult.resolutionFailed) {
+      throw new Error(modelResolveResult.fallbackReason ?? `模型 "${runState.model.provider}:${runState.model.name}" 无效或不存在`);
+    }
+    const modelConfigEntry = modelResolveResult.entry;
+
+    // Record fallback reason from config resolution
+    if (modelResolveResult.fallbackReason) {
+      runState.modelFallbackReason = modelResolveResult.fallbackReason;
+      console.warn(`[agent-bridge] 模型回退: ${modelResolveResult.fallbackReason}`);
+    }
 
     // Step 5: Create model instance — real provider when configured, mock fallback
     const resolved = await resolveRealModel(
@@ -879,6 +898,10 @@ export async function executeRun(
         : { provider: runState.model.provider, name: runState.model.name },
     );
     const model = options.model ?? resolved.model;
+
+    // Record actual resolved model from the real Pi Model object (not config entry)
+    // This captures the true provider:name after catalog lookup or custom construction
+    runState.resolvedModel = { provider: String(resolved.model.provider), name: resolved.model.name };
     const configuredStreamFn = options.streamFn ?? ((modelConfigEntry?.provider ?? runState.model.provider) === "mock" ? createMockStreamFn() : undefined);
     const streamFn = shouldGuardMemoryOutput(input.memoryContext, input.userContent)
       ? createMemoryGuardedStreamFn(configuredStreamFn ?? (streamSimple as StreamFn), {
@@ -1334,6 +1357,9 @@ function buildStatePatch(runState: AgentRunState): Record<string, unknown> {
     current_step: runState.currentStep,
     model_provider: runState.model.provider,
     model_name: runState.model.name,
+    resolved_model_provider: runState.resolvedModel?.provider ?? runState.model.provider,
+    resolved_model_name: runState.resolvedModel?.name ?? runState.model.name,
+    ...(runState.modelFallbackReason ? { model_fallback_reason: runState.modelFallbackReason } : {}),
     pending_tool_call_id: runState.pendingToolCall?.toolCallId ?? null,
     pending_tool_name: runState.pendingToolCall?.toolName ?? null,
     pending_tool_version: runState.pendingToolCall?.toolVersion ?? null,
@@ -1659,7 +1685,7 @@ async function getPiProvider(provider: string): Promise<Provider | undefined> {
 /**
  * Get catalog models for a provider (used by /config/providers/:provider/models).
  */
-export async function getProviderCatalogModels(provider: string): Promise<{ id: string; name: string; reasoning: boolean; input: ("text" | "image")[] }[]> {
+export async function getProviderCatalogModels(provider: string): Promise<{ id: string; name: string; reasoning: boolean; input: ("text" | "image")[]; contextWindow: number; maxTokens: number; thinkingLevelMap?: Record<string, string | null> }[]> {
   if (provider === "mock") return [];
   const piProvider = await getPiProvider(provider);
   if (!piProvider) return [];
@@ -1668,5 +1694,8 @@ export async function getProviderCatalogModels(provider: string): Promise<{ id: 
     name: m.name,
     reasoning: m.reasoning,
     input: m.input as ("text" | "image")[],
+    contextWindow: m.contextWindow,
+    maxTokens: m.maxTokens,
+    thinkingLevelMap: m.thinkingLevelMap as Record<string, string | null> | undefined,
   }));
 }

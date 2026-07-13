@@ -94,21 +94,22 @@ describe("ModelRouter", () => {
       expect(config?.provider).toBe("xiaomi");
     });
 
-    it("falls back to default for invalid entry id", () => {
+    it("returns undefined for invalid entry id (no silent fallback)", () => {
       const store = createMockStore([VALID_DEEPSEEK, INVALID_ENTRY]);
       const router = new ModelRouter(store);
       const config = router.resolve("bad-model");
 
-      // Invalid entries are skipped, falls back to default
-      expect(config?.id).toBe("deepseek-v4-flash");
+      // Invalid entries are NOT silently resolved — caller must handle
+      expect(config).toBeUndefined();
     });
 
-    it("falls back to default when id not found", () => {
+    it("returns undefined when id not found (no silent fallback)", () => {
       const store = createMockStore([VALID_DEEPSEEK]);
       const router = new ModelRouter(store);
       const config = router.resolve("nonexistent");
 
-      expect(config?.id).toBe("deepseek-v4-flash");
+      // Unknown id is NOT silently resolved — caller must handle
+      expect(config).toBeUndefined();
     });
 
     it("returns undefined when no entries exist", () => {
@@ -117,6 +118,69 @@ describe("ModelRouter", () => {
       const config = router.resolve();
 
       expect(config).toBeUndefined();
+    });
+  });
+
+  describe("resolveWithMeta", () => {
+    it("returns entry without fallback reason for valid id", () => {
+      const store = createMockStore([VALID_DEEPSEEK, VALID_XIAOMI]);
+      const router = new ModelRouter(store);
+      const result = router.resolveWithMeta("mimo-v2.5");
+
+      expect(result.entry?.id).toBe("mimo-v2.5");
+      expect(result.fallbackReason).toBeUndefined();
+      expect(result.requestedId).toBe("mimo-v2.5");
+    });
+
+    it("returns entry without fallback reason when no id", () => {
+      const store = createMockStore([VALID_DEEPSEEK, VALID_XIAOMI]);
+      const router = new ModelRouter(store);
+      const result = router.resolveWithMeta();
+
+      expect(result.entry?.id).toBe("deepseek-v4-flash");
+      expect(result.fallbackReason).toBeUndefined();
+      expect(result.requestedId).toBeUndefined();
+    });
+
+    it("returns resolutionFailed for invalid entry id", () => {
+      const store = createMockStore([VALID_DEEPSEEK, INVALID_ENTRY]);
+      const router = new ModelRouter(store);
+      const result = router.resolveWithMeta("bad-model");
+
+      expect(result.entry).toBeUndefined();
+      expect(result.resolutionFailed).toBe(true);
+      expect(result.fallbackReason).toContain("bad-model");
+      expect(result.requestedId).toBe("bad-model");
+    });
+
+    it("returns resolutionFailed for nonexistent id", () => {
+      const store = createMockStore([VALID_DEEPSEEK]);
+      const router = new ModelRouter(store);
+      const result = router.resolveWithMeta("nonexistent");
+
+      expect(result.entry).toBeUndefined();
+      expect(result.resolutionFailed).toBe(true);
+      expect(result.fallbackReason).toContain("nonexistent");
+      expect(result.requestedId).toBe("nonexistent");
+    });
+
+    it("resolves by provider:name composite key", () => {
+      const store = createMockStore([VALID_DEEPSEEK, VALID_XIAOMI]);
+      const router = new ModelRouter(store);
+      const result = router.resolveWithMeta("xiaomi:mimo-v2.5");
+
+      expect(result.entry?.id).toBe("mimo-v2.5");
+      expect(result.fallbackReason).toBeUndefined();
+    });
+
+    it("returns resolutionFailed when explicit id and no default exists", () => {
+      const store = createMockStore([INVALID_ENTRY]);
+      const router = new ModelRouter(store);
+      const result = router.resolveWithMeta("nonexistent");
+
+      expect(result.entry).toBeUndefined();
+      expect(result.resolutionFailed).toBe(true);
+      expect(result.fallbackReason).toContain("nonexistent");
     });
   });
 

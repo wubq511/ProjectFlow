@@ -18,7 +18,7 @@
       "name": "deepseek-v4-pro",
       "displayName": "DeepSeek V4 Pro",
       "apiKeyEnvVar": "DEEPSEEK_API_KEY",
-      "isDefault": true,
+      "isDefault": false,
       "capabilities": {
         "thinking": true,
         "vision": false

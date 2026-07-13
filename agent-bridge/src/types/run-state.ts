@@ -78,7 +78,12 @@ export interface AgentRunState {
   status: RunStatus;
   currentTurn: number;
   currentStep: number;
+  /** Requested model (from frontend selection or default). */
   model: { provider: string; name: string };
+  /** Actual resolved model (may differ from requested if fallback occurred). */
+  resolvedModel?: { provider: string; name: string };
+  /** If resolved model differs from requested, the machine-readable reason. */
+  modelFallbackReason?: string;
   thinkingLevel?: ThinkingLevel;
   pendingToolCall?: PendingToolCall;
   sideEffects: SideEffect[];

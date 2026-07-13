@@ -15,24 +15,128 @@ import type {
   ModelConfigEntryWire,
 } from "@/types/model-config.js";
 
+/** Catalog model info from Pi SDK (subset of Model fields relevant for validation). */
+export interface CatalogModelInfo {
+  id: string;
+  name: string;
+  reasoning: boolean;
+  input: ("text" | "image")[];
+  contextWindow: number;
+  maxTokens: number;
+  thinkingLevelMap?: Record<string, string | null>;
+}
+
+/** Async validator that checks a provider/name against the Pi SDK catalog. */
+export type CatalogValidator = (provider: string, name: string) => Promise<CatalogModelInfo | null>;
+
 export interface ModelConfigStoreConfig {
   /** Absolute path to model-configs.json */
   filePath: string;
+  /** Optional async catalog validator (e.g. backed by getProviderCatalogModels). */
+  catalogValidator?: CatalogValidator;
 }
 
 export class ModelConfigStore {
   private readonly filePath: string;
+  private readonly catalogValidator?: CatalogValidator;
   private entries: ModelConfigEntryRuntime[] = [];
 
   constructor(config: ModelConfigStoreConfig) {
     this.filePath = config.filePath;
+    this.catalogValidator = config.catalogValidator;
   }
 
-  /** Load and validate from disk. Call on startup and reload. */
+  /** Load and validate from disk. Call on startup and reload. Copy-on-write: preserves last valid entries on failure. */
   async load(env: Record<string, string | undefined> = process.env): Promise<void> {
     const raw = await readFile(this.filePath, "utf-8");
     const parsed: ModelConfigsFile = JSON.parse(raw);
-    this.entries = validateAndEnrich(parsed.models, env);
+    // Work on a temporary array — don't touch this.entries until all validation passes
+    const candidates = validateAndEnrich(parsed.models, env);
+
+    // Catalog validation: derive capabilities from Pi SDK catalog where available
+    if (this.catalogValidator) {
+      await this.validateCatalog(candidates);
+    }
+
+    // Validate exactly one valid default
+    const validDefaults = candidates.filter((e) => e.isDefault && e.valid);
+    if (validDefaults.length === 0) {
+      throw new Error("模型配置必须有且只有一个有效默认项，当前无有效默认项");
+    }
+    if (validDefaults.length > 1) {
+      throw new Error(
+        `模型配置必须有且只有一个有效默认项，当前有 ${validDefaults.length} 个: ${validDefaults.map((e) => e.id).join(", ")}`,
+      );
+    }
+
+    // All validation passed — atomic swap
+    this.entries = candidates;
+  }
+
+  /**
+   * Validate entries against Pi SDK catalog and derive capability facts.
+   *
+   * For known built-in providers (not mock/openai-compatible/openrouter):
+   * - Model must exist in catalog; missing → mark invalid
+   * - Derive contextTokens from catalog contextWindow
+   * - Derive thinking from catalog reasoning
+   *
+   * For openai-compatible/openrouter:
+   * - Catalog lookup is best-effort; missing model is OK (custom names allowed)
+   * - Still derive capabilities when catalog hit occurs
+   *
+   * Catalog infrastructure failure (e.g. import error) is always non-fatal.
+   */
+  private async validateCatalog(entries: ModelConfigEntryRuntime[]): Promise<void> {
+    /** Providers where catalog is authoritative (missing model = invalid). */
+    const AUTHORITATIVE_PROVIDERS = new Set(["deepseek", "openai", "anthropic", "xiaomi", "xiaomi-token-plan-cn"]);
+
+    for (const entry of entries) {
+      // Skip mock — catalog is not applicable
+      if (entry.provider === "mock") continue;
+
+      const isAuthoritative = AUTHORITATIVE_PROVIDERS.has(entry.provider);
+
+      try {
+        const catalogInfo = await this.catalogValidator!(entry.provider, entry.name);
+        if (catalogInfo) {
+          // Derive capabilities from catalog
+          entry.capabilities.contextTokens = catalogInfo.contextWindow;
+          entry.capabilities.maxTokens = catalogInfo.maxTokens;
+          // Derive thinking support from catalog reasoning flag
+          entry.capabilities.thinking = catalogInfo.reasoning;
+          // Derive supported thinking levels from catalog thinkingLevelMap
+          if (catalogInfo.thinkingLevelMap) {
+            entry.capabilities.supportedThinkingLevels = Object.entries(catalogInfo.thinkingLevelMap)
+              .filter(([, v]) => v !== null)
+              .map(([k]) => k);
+          }
+          // Derive vision from catalog input types
+          entry.capabilities.vision = catalogInfo.input.includes("image");
+        } else {
+          // Model not found in catalog
+          if (isAuthoritative) {
+            // Built-in provider model must exist in catalog
+            entry.valid = false;
+            entry.invalidReason = `模型 "${entry.name}" 未在 ${entry.provider} catalog 中找到`;
+            console.warn(
+              `[agent-bridge] 模型 "${entry.id}" (${entry.provider}:${entry.name}) 未在 catalog 中找到，已标记无效`,
+            );
+          } else {
+            // openai-compatible/openrouter: custom names are allowed
+            console.info(
+              `[agent-bridge] 模型 "${entry.id}" (${entry.provider}:${entry.name}) 未在 catalog 中找到（自定义模型允许）`,
+            );
+          }
+        }
+      } catch (err) {
+        // Catalog infrastructure failure — non-fatal, log and continue
+        // Distinguish from model-not-found: the lookup itself failed
+        console.warn(
+          `[agent-bridge] 模型 "${entry.id}" catalog 查询异常（非模型不存在）: ${(err as Error).message}`,
+        );
+      }
+    }
   }
 
   /** Get all entries (runtime-enriched). */
@@ -61,20 +165,49 @@ export class ModelConfigStore {
     return entry?.valid ? entry : undefined;
   }
 
-  /** Add a new entry. Validates and persists. */
+  /** Add a new entry. Validates and persists. Copy-on-write: never mutates this.entries until persist succeeds. */
   async add(entry: ModelConfigEntry, env: Record<string, string | undefined> = process.env): Promise<ModelConfigEntryRuntime> {
     const existing = this.entries.find((e) => e.id === entry.id);
     if (existing) {
       throw new Error(`模型配置 ID "${entry.id}" 已存在`);
     }
 
-    const enriched = validateAndEnrich([entry], env)[0]!;
-    this.entries.push(enriched);
-    await this.persist();
+    // Work on a copy: clear defaults on copies, not the live array
+    const copiedEntries = this.entries.map((e) => ({ ...e }));
+    if (entry.isDefault) {
+      for (const e of copiedEntries) {
+        if (e.isDefault) e.isDefault = false;
+      }
+    }
+
+    const enriched = validateAndEnrich([entry], env, copiedEntries)[0]!;
+
+    // Build the new entries array and validate exactly one default
+    const newEntries = [...copiedEntries, enriched];
+    const validDefaults = newEntries.filter((e) => e.isDefault && e.valid);
+    if (validDefaults.length === 0) {
+      throw new Error("模型配置必须有且只有一个有效默认项，当前无有效默认项");
+    }
+    if (validDefaults.length > 1) {
+      throw new Error(
+        `模型配置必须有且只有一个有效默认项，当前有 ${validDefaults.length} 个: ${validDefaults.map((e) => e.id).join(", ")}`,
+      );
+    }
+
+    // Atomic: replace in-memory and persist together
+    const previousEntries = this.entries;
+    this.entries = newEntries;
+    try {
+      await this.persist();
+    } catch (err) {
+      // Rollback in-memory on persist failure — restore exact pre-mutation state
+      this.entries = previousEntries;
+      throw err;
+    }
     return enriched;
   }
 
-  /** Update an existing entry. Validates and persists. */
+  /** Update an existing entry. Validates and persists. Copy-on-write: never mutates this.entries until persist succeeds. */
   async update(id: string, patch: Partial<ModelConfigEntry>, env: Record<string, string | undefined> = process.env): Promise<ModelConfigEntryRuntime> {
     const idx = this.entries.findIndex((e) => e.id === id);
     if (idx === -1) {
@@ -94,26 +227,78 @@ export class ModelConfigStore {
       capabilities: patch.capabilities ?? current.capabilities,
     };
 
-    const enriched = validateAndEnrich([updated], env)[0]!;
-
-    // If id changed, check for conflict
+    // If id changed, check for conflict (before touching copies)
     if (updated.id !== id && this.entries.some((e) => e.id === updated.id)) {
       throw new Error(`模型配置 ID "${updated.id}" 已存在`);
     }
 
-    this.entries[idx] = enriched;
-    await this.persist();
+    // Work on a copy: clear defaults on copies, not the live array
+    const copiedEntries = this.entries.map((e) => ({ ...e }));
+    if (updated.isDefault && !current.isDefault) {
+      for (const e of copiedEntries) {
+        if (e.id !== id && e.isDefault) e.isDefault = false;
+      }
+    }
+
+    const enriched = validateAndEnrich([updated], env, copiedEntries)[0]!;
+
+    // Build new entries array with the update applied
+    const newEntries = [...copiedEntries];
+    newEntries[idx] = enriched;
+
+    // Validate exactly one valid default
+    const validDefaults = newEntries.filter((e) => e.isDefault && e.valid);
+    if (validDefaults.length === 0) {
+      throw new Error("模型配置必须有且只有一个有效默认项，不能移除最后一个默认项");
+    }
+    if (validDefaults.length > 1) {
+      throw new Error(
+        `模型配置必须有且只有一个有效默认项，当前有 ${validDefaults.length} 个: ${validDefaults.map((e) => e.id).join(", ")}`,
+      );
+    }
+
+    // Atomic: replace in-memory and persist together
+    const previousEntries = this.entries;
+    this.entries = newEntries;
+    try {
+      await this.persist();
+    } catch (err) {
+      // Rollback in-memory on persist failure
+      this.entries = previousEntries;
+      throw err;
+    }
     return enriched;
   }
 
-  /** Delete an entry by id. Persists. */
+  /** Delete an entry by id. Persists. Copy-on-write: never mutates this.entries until validation passes. */
   async delete(id: string): Promise<void> {
     const idx = this.entries.findIndex((e) => e.id === id);
     if (idx === -1) {
       throw new Error(`模型配置 ID "${id}" 不存在`);
     }
-    this.entries.splice(idx, 1);
-    await this.persist();
+    const entry = this.entries[idx]!;
+
+    // Build new entries array (without the deleted entry) and validate
+    const newEntries = this.entries.filter((_, i) => i !== idx);
+
+    // Prevent deleting the last valid default
+    if (entry.isDefault && entry.valid) {
+      const remainingDefaults = newEntries.filter((e) => e.isDefault && e.valid);
+      if (remainingDefaults.length === 0) {
+        throw new Error("不能删除最后一个有效默认模型配置，请先设置其他模型为默认");
+      }
+    }
+
+    // Atomic: replace in-memory and persist together
+    const previousEntries = this.entries;
+    this.entries = newEntries;
+    try {
+      await this.persist();
+    } catch (err) {
+      // Rollback in-memory on persist failure
+      this.entries = previousEntries;
+      throw err;
+    }
   }
 
   /** Persist current entries to disk (atomic write). */
@@ -149,9 +334,17 @@ export class ModelConfigStore {
 function validateAndEnrich(
   entries: ModelConfigEntry[],
   env: Record<string, string | undefined>,
+  existingEntries?: ModelConfigEntryRuntime[],
 ): ModelConfigEntryRuntime[] {
   const ids = new Set<string>();
   let defaultCount = 0;
+
+  // Count defaults among existing entries (for add/update context)
+  if (existingEntries) {
+    for (const e of existingEntries) {
+      if (e.isDefault && e.valid) defaultCount++;
+    }
+  }
 
   return entries.map((entry) => {
     const reasons: string[] = [];
@@ -168,7 +361,7 @@ function validateAndEnrich(
     if (!entry.displayName) reasons.push("displayName 不能为空");
     if (!entry.apiKeyEnvVar && entry.provider !== "mock") reasons.push("apiKeyEnvVar 不能为空");
 
-    // Check isDefault
+    // Check isDefault — count for validation
     if (entry.isDefault) defaultCount++;
 
     // Check capabilities
