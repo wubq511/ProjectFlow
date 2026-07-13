@@ -1,6 +1,6 @@
 import { createHttpPublicSeamRunner, type PublicSeamIdentity } from "../src/evaluation/http-public-seam-runner.js";
 import { runModelCanary } from "../src/evaluation/model-conformance.js";
-import { RELEASE_SCENARIOS, type ObservationContext } from "../src/evaluation/scenario-eval.js";
+import { selectReleaseScenarios, type ObservationContext } from "../src/evaluation/scenario-eval.js";
 import { provisionObservationFixture } from "../src/evaluation/fixture-provisioner.js";
 
 const required = (name: string): string => {
@@ -10,6 +10,7 @@ const required = (name: string): string => {
 };
 
 const repeats = Math.max(1, parseInt(process.env.EVAL_REPEATS ?? "1", 10) || 1);
+const scenarios = selectReleaseScenarios(process.env.EVAL_SCENARIO_IDS);
 
 // Provisioner path: EVAL_REPEATS > 1 requires backend provisioning for isolation.
 // Static path: EVAL_REPEATS = 1 uses the existing static EVAL_CONVERSATION_ID + EVAL_WORKSPACE_STATE_JSON.
@@ -50,7 +51,7 @@ if (repeats > 1) {
   const report = await runModelCanary(
     required("EVAL_PRIMARY_MODEL"),
     required("EVAL_FALLBACK_MODEL"),
-    RELEASE_SCENARIOS,
+    scenarios,
     runner,
     repeats,
     ctx,
@@ -74,7 +75,7 @@ if (repeats > 1) {
   const report = await runModelCanary(
     required("EVAL_PRIMARY_MODEL"),
     required("EVAL_FALLBACK_MODEL"),
-    RELEASE_SCENARIOS,
+    scenarios,
     runner,
     repeats,
   );

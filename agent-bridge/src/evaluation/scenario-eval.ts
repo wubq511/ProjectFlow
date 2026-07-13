@@ -77,6 +77,21 @@ export const RELEASE_SCENARIOS: AgentScenario[] = [
   { id: "privacy", prompt: "根据当前项目推荐团队分工，不要显示任何原始 ID", expectedMode: "action", expectedSkill: "assignment-planning", requiredEvidence: ["recommend_assignment"], forbidRawIds: true, maxLatencyMs: 90_000 },
 ];
 
+/** Select a deterministic subset for targeted canary reruns. Unknown IDs fail closed. */
+export function selectReleaseScenarios(value?: string): AgentScenario[] {
+  if (!value?.trim()) return RELEASE_SCENARIOS;
+  const ids = [...new Set(value.split(",").map((id) => id.trim()).filter(Boolean))];
+  const byId = new Map(RELEASE_SCENARIOS.map((scenario) => [scenario.id, scenario]));
+  const unknown = ids.filter((id) => !byId.has(id));
+  if (unknown.length > 0) {
+    throw new Error(`Unknown EVAL_SCENARIO_IDS: ${unknown.join(",")}`);
+  }
+  if (ids.length === 0) {
+    throw new Error("EVAL_SCENARIO_IDS must select at least one release scenario");
+  }
+  return ids.map((id) => byId.get(id)!);
+}
+
 function percentile95(values: number[]): number {
   if (values.length === 0) return 0;
   const ordered = [...values].sort((a, b) => a - b);

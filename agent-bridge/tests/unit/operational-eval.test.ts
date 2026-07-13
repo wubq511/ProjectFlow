@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { exportTrajectory } from "../../src/evaluation/trajectory-exporter.js";
-import { RELEASE_SCENARIOS, runScenarioEval, runRepeatedScenarioEval, type AgentScenario, type ObservationContext } from "../../src/evaluation/scenario-eval.js";
+import { RELEASE_SCENARIOS, runScenarioEval, runRepeatedScenarioEval, selectReleaseScenarios, type AgentScenario, type ObservationContext } from "../../src/evaluation/scenario-eval.js";
 import { runModelCanary } from "../../src/evaluation/model-conformance.js";
 import { createHttpPublicSeamRunner } from "../../src/evaluation/http-public-seam-runner.js";
 import { createSkillIndex } from "../../src/skills/skill-index.js";
@@ -29,6 +29,14 @@ const runner = async () => ({
 });
 
 describe("operational Agent evaluation", () => {
+  it("selects a deterministic scenario subset and rejects unknown IDs", () => {
+    expect(selectReleaseScenarios("risk-proposal,answer-no-tool").map((scenario) => scenario.id))
+      .toEqual(["risk-proposal", "answer-no-tool"]);
+    expect(selectReleaseScenarios("risk-proposal,risk-proposal").map((scenario) => scenario.id))
+      .toEqual(["risk-proposal"]);
+    expect(() => selectReleaseScenarios("not-a-scenario")).toThrow("Unknown EVAL_SCENARIO_IDS");
+  });
+
   it("exports a redacted trajectory with usage and verifier evidence", () => {
     const trajectory = exportTrajectory("run-secret", [
       { type: "run.started", event_seq: 1, created_at: "2026-07-12T00:00:00Z", payload: { model: "mock:a" } },
