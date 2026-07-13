@@ -15,9 +15,10 @@ import type { SkillLoader } from "@/skills/skill-loader.js";
 import type { SkillIndex } from "@/skills/skill-index.js";
 import type { SkillContext } from "./context-builder.js";
 import { prepareSkillContext } from "@/skills/skill-resolver.js";
-import { classifyRequest, type OutcomeContract, type EffectCeiling } from "./outcome-contract.js";
+import { classifyRequest, type OutcomeContract } from "./outcome-contract.js";
 import { routeSkills } from "@/skills/skill-router.js";
 import type { SkillMetadataV2 } from "@/skills/skill-v2-metadata.js";
+import { combineEffectCeilings, defaultV2Metadata, type SkillEffectCeiling } from "@/skills/skill-v2-metadata.js";
 
 /**
  * Result of preparing a run request.
@@ -85,6 +86,7 @@ export async function prepareRunRequest(
   let skillContext: SkillContext | undefined;
   let allSkillContexts: SkillContext[] = [];
   let routingReason = "";
+  let routedEffectCeiling: SkillEffectCeiling = "none";
 
   const explicitSkill = validated.runtime_config?.skill;
 
@@ -111,6 +113,7 @@ export async function prepareRunRequest(
     if (skillResult.status === "resolved") {
       skillContext = skillResult.context;
       allSkillContexts = [skillContext];
+      routedEffectCeiling = skillContext.effectCeiling ?? defaultV2Metadata().allowedEffects;
       routingReason = `explicit skill: ${explicitSkill}`;
     }
   } else {
@@ -125,6 +128,7 @@ export async function prepareRunRequest(
     });
 
     routingReason = routeResult.reason;
+    routedEffectCeiling = routeResult.combinedEffectCeiling;
 
     if (routeResult.selected.length > 0) {
       // Load skill bodies for selected skills
@@ -158,12 +162,20 @@ export async function prepareRunRequest(
     hasDirectionCard: options?.hasDirectionCard,
   });
 
-  // Step 4: Update effect ceiling based on router's combined result
-  // (overrides the per-skill classification from classifyRequest)
-  if (allSkillContexts.length > 1) {
-    // Multi-skill composition — use the most restrictive effect ceiling
-    const combinedCeiling = computeCombinedEffectCeiling(allSkillContexts);
-    outcomeContract.effectCeiling = combinedCeiling;
+  // Step 4: Skill V2 metadata is the canonical authority for action ceilings.
+  // Reconcile the loaded contexts defensively so explicit and routed runs share
+  // exactly the same ceiling in prompts, traces, filtering, and verification.
+  if (skillContext) {
+    const loadedEffectCeiling = combineEffectCeilings(
+      allSkillContexts.map((context) => context.effectCeiling ?? defaultV2Metadata().allowedEffects),
+    );
+    outcomeContract.effectCeiling = combineEffectCeilings([
+      routedEffectCeiling,
+      loadedEffectCeiling,
+    ]);
+    outcomeContract.verificationLevel = outcomeContract.effectCeiling === "none"
+      ? "none"
+      : "deterministic";
   }
 
   return {
@@ -174,24 +186,6 @@ export async function prepareRunRequest(
     outcomeContract,
     routingReason,
   };
-}
-
-/**
- * Compute combined effect ceiling for multi-skill composition.
- * Takes the most restrictive ceiling from all skills.
- */
-function computeCombinedEffectCeiling(skills: SkillContext[]): EffectCeiling {
-  const rank: Record<EffectCeiling, number> = {
-    none: 0,
-    advisory_only: 1,
-    proposal_only: 2,
-    full: 3,
-  };
-
-  // Default to proposal_only if skill doesn't specify
-  const ceilings: EffectCeiling[] = skills.map(() => "proposal_only");
-  const minRank = Math.min(...ceilings.map((c) => rank[c]));
-  return (Object.entries(rank).find(([, r]) => r === minRank)?.[0] ?? "none") as EffectCeiling;
 }
 
 /**

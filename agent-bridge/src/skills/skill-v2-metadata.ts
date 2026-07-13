@@ -13,6 +13,26 @@
  */
 export type SkillEffectCeiling = "none" | "advisory_only" | "proposal_only" | "full";
 
+const EFFECT_CEILING_RANK: Record<SkillEffectCeiling, number> = {
+  none: 0,
+  advisory_only: 1,
+  proposal_only: 2,
+  full: 3,
+};
+
+/** Return the strictest effect ceiling. Empty inputs fail closed to the fallback. */
+export function combineEffectCeilings(
+  ceilings: SkillEffectCeiling[],
+  fallback: SkillEffectCeiling = "proposal_only",
+): SkillEffectCeiling {
+  if (ceilings.length === 0) return fallback;
+  return ceilings.reduce((strictest, ceiling) =>
+    EFFECT_CEILING_RANK[ceiling] < EFFECT_CEILING_RANK[strictest]
+      ? ceiling
+      : strictest,
+  );
+}
+
 /**
  * Outcome type the skill produces.
  */

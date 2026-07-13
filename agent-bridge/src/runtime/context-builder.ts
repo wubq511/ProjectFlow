@@ -11,6 +11,7 @@
  */
 
 import type { ProjectFlowToolManifest } from "@/types/tool-manifest.js";
+import { evaluatePolicy } from "@/policy/policy-engine.js";
 import { ContextLedger, createBlock, needsCurrentTime, type BlockSource, type RetentionPolicy, type ContextReceipt } from "./context-blocks.js";
 
 export interface MemoryContext {
@@ -70,6 +71,8 @@ export interface SkillContext {
   body: string;
   allowedTools: string[];
   references?: string[];
+  /** Canonical effect ceiling for this skill (from V2 metadata). */
+  effectCeiling?: import("@/skills/skill-v2-metadata.js").SkillEffectCeiling;
 }
 
 export interface CompactionMetadata {
@@ -338,10 +341,11 @@ export function filterModelCallableManifests(
   skillContext?: SkillContext,
 ): ProjectFlowToolManifest[] {
   const allowedTools = skillContext?.allowedTools;
+  const effectCeiling = skillContext?.effectCeiling ?? "proposal_only";
   return manifests.filter((manifest) => {
     if (!manifest.modelCallable || manifest.humanTriggeredOnly) return false;
     if (allowedTools && !allowedTools.includes(manifest.name) && manifest.name !== "read_tool_resource") return false;
-    return true;
+    return evaluatePolicy(manifest, effectCeiling).decision === "allow";
   });
 }
 

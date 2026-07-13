@@ -16,6 +16,7 @@
  */
 
 import type { ProjectFlowToolManifest, RiskCategory } from "@/types/tool-manifest.js";
+import type { SkillEffectCeiling } from "@/skills/skill-v2-metadata.js";
 
 export type PolicyDecision = "allow" | "deny" | "block";
 
@@ -27,7 +28,10 @@ export interface PolicyResult {
 /**
  * Evaluate whether a tool call is allowed by policy.
  */
-export function evaluatePolicy(manifest: ProjectFlowToolManifest): PolicyResult {
+export function evaluatePolicy(
+  manifest: ProjectFlowToolManifest,
+  effectCeiling?: SkillEffectCeiling,
+): PolicyResult {
   // Human-only actions are always blocked for model calls
   if (manifest.humanTriggeredOnly || !manifest.modelCallable) {
     return {
@@ -36,7 +40,36 @@ export function evaluatePolicy(manifest: ProjectFlowToolManifest): PolicyResult 
     };
   }
 
-  return evaluateByRiskCategory(manifest.riskCategory, manifest);
+  const policyResult = evaluateByRiskCategory(manifest.riskCategory, manifest);
+  if (policyResult.decision !== "allow" || !effectCeiling) return policyResult;
+
+  if (!isWithinEffectCeiling(manifest.riskCategory, effectCeiling)) {
+    return {
+      decision: "block",
+      reason: `工具 ${manifest.name} 的风险类别 ${manifest.riskCategory} 超出当前效果上限 ${effectCeiling}`,
+    };
+  }
+
+  return policyResult;
+}
+
+/** Enforce the ordered ceiling: none < advisory_only < proposal_only < full. */
+export function isWithinEffectCeiling(
+  riskCategory: RiskCategory,
+  ceiling: SkillEffectCeiling,
+): boolean {
+  if (riskCategory === "destructive" || riskCategory === "open_world") return false;
+
+  switch (ceiling) {
+    case "none":
+      return riskCategory === "read_only";
+    case "advisory_only":
+      return riskCategory === "read_only" || riskCategory === "analysis" || riskCategory === "advisory_write";
+    case "proposal_only":
+      return riskCategory === "read_only" || riskCategory === "analysis" || riskCategory === "advisory_write" || riskCategory === "draft_only";
+    case "full":
+      return true;
+  }
 }
 
 function evaluateByRiskCategory(category: RiskCategory, manifest: ProjectFlowToolManifest): PolicyResult {

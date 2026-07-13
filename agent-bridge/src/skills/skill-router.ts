@@ -11,7 +11,7 @@
  */
 
 import type { SkillMetadataV2, SkillEffectCeiling, SkillV2Metadata } from "./skill-v2-metadata.js";
-import { defaultV2Metadata } from "./skill-v2-metadata.js";
+import { combineEffectCeilings, defaultV2Metadata } from "./skill-v2-metadata.js";
 import type { SkillContext } from "@/runtime/context-builder.js";
 
 /**
@@ -231,7 +231,7 @@ function selectAndCombine(
   const selected = topCandidates.slice(0, 2).map((c) => c.metadata);
 
   // Compute combined effect ceiling (most restrictive)
-  const combinedEffectCeiling = computeCombinedEffectCeiling(
+  const combinedEffectCeiling = combineEffectCeilings(
     selected.map((s) => s.v2?.allowedEffects ?? "proposal_only"),
   );
 
@@ -345,23 +345,6 @@ function detectConflicts(candidates: SkillCandidate[]): string | null {
 }
 
 /**
- * Compute combined effect ceiling (most restrictive wins).
- */
-function computeCombinedEffectCeiling(
-  ceilings: SkillEffectCeiling[],
-): SkillEffectCeiling {
-  const rank: Record<SkillEffectCeiling, number> = {
-    none: 0,
-    advisory_only: 1,
-    proposal_only: 2,
-    full: 3,
-  };
-
-  const minRank = Math.min(...ceilings.map((c) => rank[c]));
-  return (Object.entries(rank).find(([, r]) => r === minRank)?.[0] ?? "none") as SkillEffectCeiling;
-}
-
-/**
  * Match V2 skill intent from user-visible Chinese phrases.
  */
 function matchIntent(skillName: string, userContent: string): number {
@@ -393,5 +376,6 @@ export function skillMetadataToContext(skill: SkillMetadataV2): SkillContext {
     description: skill.description,
     body: "", // body is loaded separately by SkillLoader
     allowedTools: skill.allowedTools,
+    effectCeiling: skill.v2?.allowedEffects ?? defaultV2Metadata().allowedEffects,
   };
 }

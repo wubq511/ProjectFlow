@@ -7,6 +7,7 @@ from app.models import (
     AssignmentNegotiation,
     AssignmentProposal,
     AssignmentResponse,
+    MemberProfile,
     Project,
     Stage,
     Task,
@@ -26,8 +27,53 @@ from app.schemas.assignment import (
 )
 
 
+def _validate_constraint_evidence(
+    session: Session,
+    workspace_id: str,
+    data: AssignmentProposalCreate,
+) -> None:
+    """Require non-empty constraint_respected evidence when the recommended
+    owner or backup owner has non-empty stored MemberProfile.constraints.
+
+    This is evidence COMPLETENESS — it checks that the proposal payload
+    acknowledges the member's constraints exist. It does NOT perform semantic
+    validation of natural-language constraint text.
+
+    Raises ValueError if evidence is missing.
+    """
+    candidate_user_ids = {
+        user_id
+        for user_id in [data.recommended_owner_user_id, data.backup_owner_user_id]
+        if user_id
+    }
+    profiles = session.exec(
+        select(MemberProfile).where(
+            MemberProfile.workspace_id == workspace_id,
+            MemberProfile.user_id.in_(candidate_user_ids),
+        )
+    ).all()
+    has_constrained_member = any(
+        profile.constraints and profile.constraints.strip()
+        for profile in profiles
+    )
+
+    if has_constrained_member:
+        # Require non-empty constraint_respected field
+        if not data.constraint_respected or not data.constraint_respected.strip():
+            raise ValueError(
+                "推荐负责人或备选负责人存在已记录的约束条件，"
+                "提案必须包含 constraint_respected 字段作为约束证据"
+            )
+
+
 def _validate_proposal_relationships(session: Session, data: AssignmentProposalCreate) -> None:
-    """Verify all entity relationships and state constraints for a new proposal."""
+    """Verify all entity relationships and state constraints for a new proposal.
+
+    Includes constraint-evidence gate: when a recommended/backup owner has
+    non-empty stored MemberProfile.constraints, the proposal must include
+    non-empty constraint_respected evidence. This is evidence COMPLETENESS,
+    NOT semantic validation of natural-language constraints.
+    """
     project = require_row(session, Project, data.project_id, "Project")
     stage = require_row(session, Stage, data.stage_id, "Stage")
     task = require_row(session, Task, data.task_id, "Task")
@@ -95,6 +141,11 @@ def _validate_proposal_relationships(session: Session, data: AssignmentProposalC
         raise ValueError(
             "(task, owner) pair was previously rejected; recommend a different owner"
         )
+
+    # Constraint-evidence gate: require non-empty constraint_respected when
+    # the recommended owner or backup owner has non-empty stored constraints.
+    # This is evidence COMPLETENESS — NOT semantic validation.
+    _validate_constraint_evidence(session, project.workspace_id, data)
 
 
 def _resolve_stale_negotiations_for_task(

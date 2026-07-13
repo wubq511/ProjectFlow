@@ -6,6 +6,7 @@
 import type { SkillMetadata } from "./skill-index.js";
 import type { SkillLoader } from "./skill-loader.js";
 import type { SkillContext } from "@/runtime/context-builder.js";
+import { defaultV2Metadata } from "./skill-v2-metadata.js";
 
 export interface SkillMatchInput {
   userMessage: string;
@@ -141,5 +142,6 @@ export async function buildSkillContext(
     body: loaded.body,
     allowedTools: skill.allowedTools,
     references: referenceContents.length > 0 ? referenceContents : undefined,
+    effectCeiling: skill.v2?.allowedEffects ?? defaultV2Metadata().allowedEffects,
   };
 }

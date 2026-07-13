@@ -498,7 +498,10 @@ const recommendAssignmentManifest: ProjectFlowToolManifest = {
       skill_match: { type: "string", description: "技能匹配说明（可选）" },
       availability_match: { type: "string", description: "时间匹配说明（可选）" },
       preference_match: { type: "string", description: "意向匹配说明（可选）" },
-      constraint_respected: { type: "string", description: "限制条件遵守说明（可选）" },
+      constraint_respected: {
+        type: "string",
+        description: "限制条件检查证据；推荐负责人或备选负责人存在已记录约束时必填。仅用于证明已检查，不代表系统已完成语义合规判断。",
+      },
       risk_note: { type: "string", description: "风险提示（可选）" },
     },
     required: ["stage_id", "task_id", "recommended_owner_user_id", "reason"],

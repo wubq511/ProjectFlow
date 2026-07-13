@@ -11,6 +11,7 @@
 import { getSkillIndex, type SkillIndex } from "./skill-index.js";
 import type { SkillLoader } from "./skill-loader.js";
 import type { SkillContext } from "@/runtime/context-builder.js";
+import { defaultV2Metadata } from "./skill-v2-metadata.js";
 
 export interface ResolveSkillInput {
   /** Explicit skill name from runtime_config.skill */
@@ -68,6 +69,7 @@ export async function prepareSkillContext(
         description: skillMeta.description,
         body: loaded.body,
         allowedTools: skillMeta.allowedTools,
+        effectCeiling: skillMeta.v2?.allowedEffects ?? defaultV2Metadata().allowedEffects,
       },
     };
   } catch (err) {

@@ -37,6 +37,7 @@ import { createCheckpoint } from "./checkpoint.js";
 import { hashValue } from "@/utils/hash.js";
 // normalizeResult is used internally by ToolExecutor
 import { canExecuteInParallel, evaluatePolicy } from "@/policy/policy-engine.js";
+import { combineEffectCeilings, defaultV2Metadata } from "@/skills/skill-v2-metadata.js";
 import { BudgetManager } from "@/policy/budget.js";
 // createToolTrace is used internally by ToolExecutor
 import {
@@ -437,6 +438,7 @@ function applyPiEventToRunState(event: AgentEvent, runState: AgentRunState): voi
 /**
  * Merge multiple skill contexts for composition.
  * Combines bodies and allowed tools (union), with primary skill's metadata.
+ * Preserves the STRICTEST effect ceiling from all skills.
  */
 function mergeSkillContexts(contexts: SkillContext[]): SkillContext {
   if (contexts.length === 0) throw new Error("Cannot merge empty skill contexts");
@@ -448,11 +450,17 @@ function mergeSkillContexts(contexts: SkillContext[]): SkillContext {
     .map((c) => `### ${c.name}\n${c.body}`)
     .join("\n\n---\n\n");
 
+  // Preserve the strictest (lowest) effect ceiling
+  const strictestCeiling = combineEffectCeilings(
+    contexts.map((context) => context.effectCeiling ?? defaultV2Metadata().allowedEffects),
+  );
+
   return {
     name: primary.name,
     description: `组合技能: ${contexts.map((c) => c.name).join(" + ")}`,
     body: combinedBody,
     allowedTools: allTools,
+    effectCeiling: strictestCeiling,
   };
 }
 
@@ -581,9 +589,24 @@ export async function executeRun(
     // Merge multi-skill contexts if composition is active.
     // allSkillContexts[0] is the primary; additional entries are secondary.
     const allContexts = input.allSkillContexts ?? (input.skillContext ? [input.skillContext] : []);
-    const mergedSkillContext = allContexts.length > 1
+    const combinedSkillContext = allContexts.length > 1
       ? mergeSkillContexts(allContexts)
       : input.skillContext;
+    const canonicalEffectCeiling = combinedSkillContext
+      ? combineEffectCeilings([
+          combinedSkillContext.effectCeiling ?? defaultV2Metadata().allowedEffects,
+          input.outcomeContract?.effectCeiling ?? defaultV2Metadata().allowedEffects,
+        ])
+      : "none";
+    const mergedSkillContext = combinedSkillContext
+      ? { ...combinedSkillContext, effectCeiling: canonicalEffectCeiling }
+      : undefined;
+    if (input.outcomeContract) {
+      input.outcomeContract.effectCeiling = canonicalEffectCeiling;
+      input.outcomeContract.verificationLevel = canonicalEffectCeiling === "none"
+        ? "none"
+        : "deterministic";
+    }
 
     // Time gating: only inject timestamp when request is date-sensitive
     const currentTime = needsCurrentTime(
@@ -975,7 +998,7 @@ export async function executeRun(
         const toolName = _ctx.toolCall.name;
         const tool = toolRegistry.get(toolName);
         if (tool) {
-          const policy = evaluatePolicy(tool.manifest);
+          const policy = evaluatePolicy(tool.manifest, canonicalEffectCeiling);
           if (policy.decision === "block" || policy.decision === "deny") {
             return { block: true, reason: policy.reason };
           }
