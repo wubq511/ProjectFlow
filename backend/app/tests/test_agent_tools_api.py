@@ -11,6 +11,7 @@ Read-only tools return side_effect_status=no_side_effect.
 Proposal tools return side_effect_status=proposal_persisted.
 """
 
+import json
 import os
 
 os.environ["INTERNAL_SERVICE_TOKEN"] = "test-internal-service-token"
@@ -710,6 +711,14 @@ class TestInternalAgentTools:
         assert data["links"]["agent_event_id"] is not None
         assert data["links"]["created_ids"]
         assert data["data"]["replan_signal"]["requires_replan_proposal"] is True
+        # The full model-generated analysis is already persisted in AgentEvent.
+        # Echoing it here makes the tool result exceed the sidecar's resource
+        # threshold and forces an unnecessary read_tool_resource/model turn.
+        assert "checkin_analysis" not in data["data"]
+        assert "risk_analysis" not in data["data"]
+        assert "created_ids" not in data["data"]
+        assert "related_event_ids" not in data["data"]
+        assert len(json.dumps(data["data"], ensure_ascii=False).encode()) < 4096
         # Sidecar path does not infer task_changes; risks are persisted directly from risk_analysis_output.
 
         task_after = client.get(f"/api/tasks/{task['id']}").json()

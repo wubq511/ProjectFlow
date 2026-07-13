@@ -303,11 +303,7 @@ def execute_agent_tool(
         data = {
             "event_type": "checkin_and_risk_analysis",
             "status": "success",
-            "checkin_analysis": checkin_output.model_dump(mode="json") if checkin_output else None,
-            "risk_analysis": risk_output.model_dump(mode="json") if risk_output else None,
             "replan_signal": replan_signal,
-            "created_ids": created_ids,
-            "related_event_ids": [agent_event_id],
         }
         observation = _build_checkin_risk_observation(created_ids, replan_signal)
         _tag_agent_event_with_tool_request(
