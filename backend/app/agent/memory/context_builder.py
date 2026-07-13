@@ -72,6 +72,7 @@ def build_memory_context(
     token_budget: int = 2000,
     max_memories: int = 10,
     prefer_vector: bool = False,
+    conversation_visibility: str | None = None,
 ) -> MemoryContext:
     """Build a memory context string for prompt injection.
 
@@ -80,6 +81,10 @@ def build_memory_context(
     - Truncates by token budget (character heuristic) and hard count limit
     - Header/footer wrapping text is counted against the budget
     - Returns metadata needed for AgentEvent output_snapshot
+
+    Privacy: when conversation_visibility="team", subject_and_owner memories
+    are excluded at source to prevent private constraints from entering shared
+    conversation context.
     """
     retrieval = retrieve_memory_ids(
         session,
@@ -113,6 +118,9 @@ def build_memory_context(
             break
         memory = session.get(ProjectMemory, memory_id)
         if memory is None:
+            continue
+        # Privacy: team conversations must not receive subject_and_owner memories
+        if conversation_visibility == "team" and memory.visibility == "subject_and_owner":
             continue
         line = _format_memory(len(used_memory_ids) + 1, memory)
         line_chars = len(line)

@@ -31,8 +31,11 @@ def seeded_project(client):
         },
     ).json()
 
-    # Get conversation
-    conv_resp = client.get(f"/api/projects/{project['id']}/agent-conversation")
+    # Create conversation using the new API
+    conv_resp = client.post(
+        f"/api/projects/{project['id']}/agent-conversations",
+        json={"viewer_user_id": owner["id"]},
+    )
     assert conv_resp.status_code == 200
     conv_id = conv_resp.json()["id"]
 
@@ -196,7 +199,10 @@ class TestExecutionStepsInApi:
             session.close()
 
         # Fetch conversation
-        resp = client.get(f"/api/projects/{seeded_project['project_id']}/agent-conversation")
+        resp = client.get(
+            f"/api/projects/{seeded_project['project_id']}/agent-conversation",
+            params={"viewer_user_id": seeded_project["owner_id"]},
+        )
         assert resp.status_code == 200
         messages = resp.json()["messages"]
         assistant_msgs = [m for m in messages if m["role"] == "assistant"]
@@ -229,7 +235,10 @@ class TestExecutionStepsInApi:
         finally:
             session.close()
 
-        resp = client.get(f"/api/projects/{seeded_project['project_id']}/agent-conversation")
+        resp = client.get(
+            f"/api/projects/{seeded_project['project_id']}/agent-conversation",
+            params={"viewer_user_id": seeded_project["owner_id"]},
+        )
         messages = resp.json()["messages"]
         assistant_msgs = [m for m in messages if m["role"] == "assistant"]
         last_msg = assistant_msgs[-1]

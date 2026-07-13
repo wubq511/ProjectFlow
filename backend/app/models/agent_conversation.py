@@ -2,17 +2,23 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Column, Index, Text, UniqueConstraint
+from sqlalchemy import Column, Index, Text
 from sqlmodel import Field, SQLModel
 
 
 class AgentConversation(SQLModel, table=True):
     __tablename__ = "agent_conversations"
-    __table_args__ = (UniqueConstraint("project_id", name="uq_agent_conversations_project_id"),)
+    __table_args__ = (
+        Index("ix_agent_conversations_project_updated", "project_id", "updated_at"),
+        Index("ix_agent_conversations_project_creator", "project_id", "creator_user_id"),
+    )
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     workspace_id: str = Field(foreign_key="workspaces.id", index=True)
     project_id: str = Field(foreign_key="projects.id", index=True)
+    creator_user_id: str = Field(default="", index=True)
+    title: str = Field(default="")
+    visibility: str = Field(default="private", index=True)
     status: str = Field(default="active", index=True)
     summary: str = Field(default="")
     current_focus: str = Field(default="")

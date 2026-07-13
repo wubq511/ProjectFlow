@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator, m
 
 AgentConversationStatus = Literal["active", "archived"]
 AgentMessageRole = Literal["user", "assistant", "tool"]
+ConversationVisibility = Literal["private", "team"]
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +195,11 @@ class AgentConversationMessageCreate(BaseModel):
         return v
 
 
+class ConversationCreateRequest(BaseModel):
+    """Request to create a new conversation. Title is derived from first message."""
+    viewer_user_id: str
+
+
 class AgentMessageRead(BaseModel):
     id: str
     conversation_id: str
@@ -228,12 +234,42 @@ class AgentConversationRead(BaseModel):
     id: str
     workspace_id: str
     project_id: str
+    creator_user_id: str = ""
+    title: str = ""
+    visibility: ConversationVisibility | str = "private"
     status: AgentConversationStatus | str
     summary: str
     current_focus: str
     messages: list[AgentMessageRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class AgentConversationSummary(BaseModel):
+    """Lightweight summary for list endpoints — no full messages."""
+    id: str
+    project_id: str
+    creator_user_id: str = ""
+    title: str = ""
+    visibility: ConversationVisibility | str = "private"
+    status: AgentConversationStatus | str
+    message_count: int = 0
+    last_message_preview: str = ""
+    created_at: datetime
+    updated_at: datetime
+
+
+class MessageCursor(BaseModel):
+    """Cursor for stable message pagination."""
+    created_at: datetime
+    id: str
+
+
+class MessagePage(BaseModel):
+    """Paginated message response."""
+    messages: list[AgentMessageRead] = Field(default_factory=list)
+    has_older: bool = False
+    older_cursor: MessageCursor | None = None
 
 
 class AgentSuggestionRead(BaseModel):

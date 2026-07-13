@@ -97,7 +97,12 @@ def _create_fixture(client: TestClient):
             "created_by": owner["id"],
         },
     ).json()
-    return workspace, project, owner, member, outsider
+    # Create a conversation for tests that start agent runs
+    conversation = client.post(
+        f"/api/projects/{project['id']}/agent-conversations",
+        json={"viewer_user_id": owner["id"]},
+    ).json()
+    return workspace, project, owner, member, outsider, conversation
 
 
 def _write_memory(
@@ -275,7 +280,7 @@ def test_retrieve_filters_stale_memories(session: Session, client: TestClient):
 
 def test_retrieve_filters_invisible_memories(session: Session, client: TestClient):
     """subject_and_owner memory is invisible to non-subject/non-owner viewers."""
-    workspace, project, owner, member, outsider = _create_fixture(client)
+    workspace, project, owner, member, outsider, *_ = _create_fixture(client)
     _write_memory(
         session,
         workspace_id=workspace["id"],
@@ -487,13 +492,13 @@ def test_side_effects_does_not_record_memory_usage(client: TestClient, engine):
     """AgentRunV2 side_effects never contains memory usage metadata."""
     from app.models.agent_run_state import AgentRunV2
 
-    workspace, project, owner, *_ = _create_fixture(client)
+    workspace, project, owner, *_, conversation = _create_fixture(client)
 
     response = client.post(
         "/internal/agent-runs",
         json={
             "viewer_user_id": owner["id"],
-            "conversation_id": "conv_123",
+            "conversation_id": conversation["id"],
             "workspace_id": workspace["id"],
             "project_id": project["id"],
             "user_content": "test",
@@ -540,7 +545,7 @@ def test_start_run_missing_viewer_returns_400(client: TestClient):
 
 def test_start_run_outsider_viewer_returns_404(client: TestClient):
     """T41 start_run with viewer outside workspace returns 404."""
-    workspace, project, *_owner, outsider = _create_fixture(client)
+    workspace, project, *_owner, outsider, _ = _create_fixture(client)
 
     response = client.post(
         "/internal/agent-runs",
@@ -559,8 +564,10 @@ def test_start_run_outsider_viewer_returns_404(client: TestClient):
 def test_conversation_message_missing_viewer_returns_410(client: TestClient):
     """Non-stream conversation endpoint is deprecated (410 Gone)."""
     workspace, project, owner, *_ = _create_fixture(client)
-    conversation = client.get(
-        f"/api/projects/{project['id']}/agent-conversation"
+    # Create a conversation using the new API
+    conversation = client.post(
+        f"/api/projects/{project['id']}/agent-conversations",
+        json={"viewer_user_id": owner["id"]},
     ).json()
 
     response = client.post(
@@ -572,9 +579,11 @@ def test_conversation_message_missing_viewer_returns_410(client: TestClient):
 
 def test_conversation_message_outsider_returns_410(client: TestClient):
     """Non-stream conversation endpoint is deprecated (410 Gone)."""
-    workspace, project, owner, _member, outsider = _create_fixture(client)
-    conversation = client.get(
-        f"/api/projects/{project['id']}/agent-conversation"
+    workspace, project, owner, _member, outsider, *_ = _create_fixture(client)
+    # Create a conversation using the new API
+    conversation = client.post(
+        f"/api/projects/{project['id']}/agent-conversations",
+        json={"viewer_user_id": owner["id"]},
     ).json()
 
     response = client.post(
@@ -589,13 +598,13 @@ def test_conversation_message_outsider_returns_410(client: TestClient):
 
 def test_sidecar_context_built_by_fastapi(client: TestClient):
     """RunStartResponse includes memory_context so sidecar does not query DB."""
-    workspace, project, owner, *_ = _create_fixture(client)
+    workspace, project, owner, *_, conversation = _create_fixture(client)
 
     response = client.post(
         "/internal/agent-runs",
         json={
             "viewer_user_id": owner["id"],
-            "conversation_id": "conv_123",
+            "conversation_id": conversation["id"],
             "workspace_id": workspace["id"],
             "project_id": project["id"],
             "user_content": "方向",
@@ -613,7 +622,7 @@ def test_start_run_memory_mode_disabled_skips_fastapi_context_build(
     monkeypatch,
 ):
     """R8 A group must not build or inject memory context at all."""
-    workspace, project, owner, *_ = _create_fixture(client)
+    workspace, project, owner, *_, conversation = _create_fixture(client)
     calls = []
 
     def record_context_build(*_args, **_kwargs):
@@ -628,7 +637,7 @@ def test_start_run_memory_mode_disabled_skips_fastapi_context_build(
         "/internal/agent-runs",
         json={
             "viewer_user_id": owner["id"],
-            "conversation_id": "conv_123",
+            "conversation_id": conversation["id"],
             "workspace_id": workspace["id"],
             "project_id": project["id"],
             "user_content": "请制定下一步计划",

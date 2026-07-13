@@ -41,7 +41,7 @@ from app.schemas.risk import RiskCreate, RiskRead
 from app.schemas.runtime import ProjectFlowToolResult, ToolError, ToolExecutionRequest, ToolLinks
 from app.schemas.workspace_state import WorkspaceStateResponse
 from app.services.action_card_service import create_action_card
-from app.services.agent_conversation_service import read_project_conversation
+from app.services.agent_conversation_service import get_conversation
 from app.services.agent_proposal_service import create_proposal, list_proposals_by_project, to_proposal_read
 from app.services.assignment_service import create_assignment_proposal
 from app.services.checkin_service import create_checkin_cycle, create_checkin_response
@@ -121,13 +121,47 @@ def execute_agent_tool(
         return _success(_serialize(state), "workspace_state")
 
     if tool_name == "conversation":
+        # Resolve viewer identity from the persisted AgentRunV2 record,
+        # never from model-generated arguments or conversation.creator_user_id.
+        conversation_id = request.conversation_id
+        viewer_user_id = ""
+        if request.run_id:
+            from app.models.agent_run_state import AgentRunV2 as _AR
+            run = session.get(_AR, request.run_id)
+            if run is not None:
+                # Fail closed: run must reference the same conversation and project
+                if run.conversation_id != conversation_id:
+                    return ProjectFlowToolResult(
+                        status=ToolResultStatus.failed,
+                        side_effect_status=SideEffectStatus.no_side_effect,
+                        observation="对话与运行不匹配",
+                    )
+                if run.project_id != project_id:
+                    return ProjectFlowToolResult(
+                        status=ToolResultStatus.failed,
+                        side_effect_status=SideEffectStatus.no_side_effect,
+                        observation="项目与运行不匹配",
+                    )
+                viewer_user_id = run.viewer_user_id or ""
+        if not viewer_user_id:
+            return ProjectFlowToolResult(
+                status=ToolResultStatus.failed,
+                side_effect_status=SideEffectStatus.no_side_effect,
+                observation="无法验证查看者身份",
+            )
         try:
-            conversation = read_project_conversation(session, project_id)
+            conversation = get_conversation(session, conversation_id, viewer_user_id)
         except ValueError as exc:
             return ProjectFlowToolResult(
                 status=ToolResultStatus.failed,
                 side_effect_status=SideEffectStatus.no_side_effect,
                 observation=str(exc),
+            )
+        if conversation is None:
+            return ProjectFlowToolResult(
+                status=ToolResultStatus.failed,
+                side_effect_status=SideEffectStatus.no_side_effect,
+                observation="对话不存在或无权访问",
             )
         return _success(_serialize(conversation), "agent_conversation")
 

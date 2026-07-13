@@ -103,6 +103,26 @@ class AgentRuntimeService:
                 f"项目 {request.project_id} 不属于工作区 {request.workspace_id}"
             )
 
+        # Verify conversation belongs to the same project and viewer has access (fail closed).
+        # A nonexistent conversation is allowed — it may be created after the run starts.
+        # But an existing conversation must belong to the same project AND be accessible
+        # to the viewer (e.g. private conversations only accessible to their creator).
+        if request.conversation_id:
+            from app.models.agent_conversation import AgentConversation as _AC
+            conv = self.session.get(_AC, request.conversation_id)
+            if conv is not None:
+                if conv.project_id != request.project_id:
+                    raise ValueError(
+                        f"对话 {request.conversation_id} 不属于项目 {request.project_id}"
+                    )
+                from app.services.agent_conversation_service import check_conversation_access
+                if check_conversation_access(
+                    self.session, request.conversation_id, request.viewer_user_id
+                ) is None:
+                    raise ValueError(
+                        f"用户 {request.viewer_user_id} 无权访问对话 {request.conversation_id}"
+                    )
+
         run = AgentRunV2(
             id=str(uuid.uuid4()),
             conversation_id=request.conversation_id,
@@ -132,6 +152,7 @@ class AgentRuntimeService:
                 request.project_id,
                 request.viewer_user_id,
                 query=request.user_content,
+                conversation_id=request.conversation_id,
             )
 
         return RunStartResponse(
@@ -145,14 +166,40 @@ class AgentRuntimeService:
         project_id: str,
         viewer_user_id: str,
         query: str,
+        conversation_id: str | None = None,
     ):
-        """Build memory context for the sidecar; failures are non-blocking."""
+        """Build memory context for the sidecar; failures are non-blocking.
+
+        Looks up conversation visibility to enforce privacy: team conversations
+        never receive subject_and_owner ProjectMemory.
+
+        Validates that the conversation belongs to the project and is visible
+        to the viewer; mismatch fails closed (returns None).
+        """
+        conversation_visibility = None
+        if conversation_id:
+            from app.models.agent_conversation import AgentConversation
+            conversation = self.session.get(AgentConversation, conversation_id)
+            if conversation is None:
+                logger.warning(
+                    "Conversation %s not found for run memory context", conversation_id
+                )
+                return None
+            # Conversation must belong to the same project
+            if conversation.project_id != project_id:
+                logger.warning(
+                    "Conversation %s belongs to project %s, not %s",
+                    conversation_id, conversation.project_id, project_id,
+                )
+                return None
+            conversation_visibility = conversation.visibility
         try:
             return build_memory_context(
                 self.session,
                 project_id=project_id,
                 viewer_user_id=viewer_user_id,
                 query=query,
+                conversation_visibility=conversation_visibility,
             )
         except (KeyboardInterrupt, SystemExit):
             raise
@@ -202,6 +249,7 @@ class AgentRuntimeService:
             run.project_id,
             viewer_user_id,
             query="",  # no specific query for resume
+            conversation_id=run.conversation_id,
         )
 
         return {

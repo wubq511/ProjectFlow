@@ -9,11 +9,13 @@ Message persistence (user + assistant) remains in this service.
 import json
 import logging
 import re
+import unicodedata
 from datetime import UTC, datetime
 from typing import Any, Iterator
 
 import httpx
 from pydantic import ValidationError
+from sqlalchemy import func
 from sqlmodel import Session, desc, select
 
 from app.core.config import settings
@@ -21,19 +23,32 @@ from app.models import Project
 from app.models.agent_conversation import AgentConversation, AgentMessage
 from app.schemas.agent_conversation import (
     AgentConversationRead,
+    AgentConversationSummary,
     AgentConversationTurnRead,
     AgentMessageRead,
     AgentSuggestionRead,
+    MessageCursor,
+    MessagePage,
     StreamContentEventSchema,
     StreamDonePayloadSchema,
     StreamErrorEventSchema,
     StreamStatusEventSchema,
     StreamToolEventSchema,
 )
+from app.services.memory_service import validate_viewer
 from app.services.workspace_state_service import get_workspace_state
 
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of messages returned in a single page
+_PAGE_SIZE = 30
+
+
+# Authorization is delegated to the canonical validate_viewer predicate
+# in app.services.memory_service to prevent predicate drift.
+# Maximum title length derived from first message
+_MAX_TITLE_LENGTH = 50
 
 
 # ---------------------------------------------------------------------------
@@ -45,14 +60,274 @@ def _sse_event(event: str, data: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Authorization helpers
+# ---------------------------------------------------------------------------
+
+def check_conversation_access(
+    session: Session,
+    conversation_id: str,
+    viewer_user_id: str,
+    *,
+    require_write: bool = False,
+) -> AgentConversation | None:
+    """Check if viewer can access a conversation.
+
+    Returns the conversation if authorized, None if not found/unauthorized.
+    - Private conversations: only creator can read/write
+    - Team conversations: any project member can read/write
+    - Cross-project access returns None (not found semantics)
+
+    ``require_write`` is retained for existing callers; read and write have the
+    same membership policy for team conversations.
+    """
+    del require_write
+    conversation = session.get(AgentConversation, conversation_id)
+    if conversation is None:
+        return None
+
+    # Verify project exists and viewer is a workspace member (canonical check)
+    try:
+        validate_viewer(session, project_id=conversation.project_id, viewer_user_id=viewer_user_id)
+    except ValueError:
+        return None
+
+    # Private conversations: only creator
+    if conversation.visibility == "private":
+        if conversation.creator_user_id != viewer_user_id:
+            return None
+
+    return conversation
+
+
+# ---------------------------------------------------------------------------
 # Conversation CRUD
 # ---------------------------------------------------------------------------
+
+def create_conversation(
+    session: Session,
+    project_id: str,
+    viewer_user_id: str,
+) -> AgentConversation:
+    """Create a new private conversation for the viewer.
+
+    Title is derived from the first user message (set later).
+    """
+    project, _ = validate_viewer(session, project_id=project_id, viewer_user_id=viewer_user_id)
+
+    conversation = AgentConversation(
+        workspace_id=project.workspace_id,
+        project_id=project_id,
+        creator_user_id=viewer_user_id,
+        title="",
+        visibility="private",
+        status="active",
+    )
+    session.add(conversation)
+    session.commit()
+    session.refresh(conversation)
+    return conversation
+
+
+def list_conversations(
+    session: Session,
+    project_id: str,
+    viewer_user_id: str,
+) -> list[AgentConversationSummary]:
+    """List all conversations the viewer can access for a project.
+
+    Returns summaries only (no full messages), sorted by updated_at desc.
+    - Private: only creator's own
+    - Team: visible to all project members
+
+    Uses a constant number of queries (3) independent of conversation count:
+    1. Visible conversations with SQL-level visibility filtering
+    2. Aggregate message counts grouped by conversation_id
+    3. Latest assistant message preview per conversation
+    """
+    validate_viewer(session, project_id=project_id, viewer_user_id=viewer_user_id)
+
+    # Query 1: Get visible conversations (visibility filter in SQL, not Python)
+    conversations = session.exec(
+        select(AgentConversation)
+        .where(
+            AgentConversation.project_id == project_id,
+            AgentConversation.status == "active",
+            (
+                (AgentConversation.visibility == "team")
+                | (
+                    (AgentConversation.visibility == "private")
+                    & (AgentConversation.creator_user_id == viewer_user_id)
+                )
+            ),
+        )
+        .order_by(desc(AgentConversation.updated_at))
+    ).all()
+
+    if not conversations:
+        return []
+
+    conv_ids = [c.id for c in conversations]
+
+    # Query 2: Aggregate message counts in one query
+    count_rows = session.exec(
+        select(AgentMessage.conversation_id, func.count(AgentMessage.id))
+        .where(AgentMessage.conversation_id.in_(conv_ids))
+        .group_by(AgentMessage.conversation_id)
+    ).all()
+    count_map: dict[str, int] = {row[0]: row[1] for row in count_rows}
+
+    # Query 3: latest assistant preview with a deterministic ID tie-breaker.
+    ranked_assistant_subq = (
+        select(
+            AgentMessage.conversation_id,
+            AgentMessage.content,
+            func.row_number().over(
+                partition_by=AgentMessage.conversation_id,
+                order_by=(desc(AgentMessage.created_at), desc(AgentMessage.id)),
+            ).label("message_rank"),
+        )
+        .where(
+            AgentMessage.conversation_id.in_(conv_ids),
+            AgentMessage.role == "assistant",
+        )
+        .subquery()
+    )
+    preview_rows = session.exec(
+        select(ranked_assistant_subq.c.conversation_id, ranked_assistant_subq.c.content)
+        .where(ranked_assistant_subq.c.message_rank == 1)
+    ).all()
+    preview_map = {cid: (content or "")[:50] for cid, content in preview_rows}
+
+    # Build summaries
+    result: list[AgentConversationSummary] = []
+    for conv in conversations:
+        result.append(AgentConversationSummary(
+            id=conv.id,
+            project_id=conv.project_id,
+            creator_user_id=conv.creator_user_id,
+            title=conv.title or "新对话",
+            visibility=conv.visibility,
+            status=conv.status,
+            message_count=count_map.get(conv.id, 0),
+            last_message_preview=preview_map.get(conv.id, ""),
+            created_at=conv.created_at,
+            updated_at=conv.updated_at,
+        ))
+
+    return result
+
+
+def get_conversation(
+    session: Session,
+    conversation_id: str,
+    viewer_user_id: str,
+) -> AgentConversationRead | None:
+    """Get conversation detail with viewer validation.
+
+    Returns None if not found or unauthorized.
+    Does NOT create new rows.
+    """
+    conversation = check_conversation_access(session, conversation_id, viewer_user_id)
+    if conversation is None:
+        return None
+    return _conversation_to_read(session, conversation)
+
+
+def get_latest_accessible_conversation(
+    session: Session,
+    project_id: str,
+    viewer_user_id: str,
+) -> AgentConversationRead | None:
+    """Read the viewer's latest accessible active conversation without mutation."""
+    validate_viewer(session, project_id=project_id, viewer_user_id=viewer_user_id)
+    conversation = session.exec(
+        select(AgentConversation)
+        .where(
+            AgentConversation.project_id == project_id,
+            AgentConversation.status == "active",
+            (
+                (AgentConversation.visibility == "team")
+                | (
+                    (AgentConversation.visibility == "private")
+                    & (AgentConversation.creator_user_id == viewer_user_id)
+                )
+            ),
+        )
+        .order_by(desc(AgentConversation.updated_at), desc(AgentConversation.id))
+    ).first()
+    return _conversation_to_read(session, conversation) if conversation else None
+
+
+def get_messages_page(
+    session: Session,
+    conversation_id: str,
+    viewer_user_id: str,
+    *,
+    before_created_at: datetime | None = None,
+    before_id: str | None = None,
+) -> MessagePage | None:
+    """Get a page of messages with cursor pagination.
+
+    Returns None if conversation not found or unauthorized.
+    Uses (created_at, id) as stable cursor.
+    """
+    conversation = check_conversation_access(session, conversation_id, viewer_user_id)
+    if conversation is None:
+        return None
+
+    stmt = (
+        select(AgentMessage)
+        .where(AgentMessage.conversation_id == conversation_id)
+    )
+
+    if before_created_at is not None and before_id is not None:
+        # Cursor: get messages older than the cursor position
+        # Use (created_at, id) for stable ordering
+        stmt = stmt.where(
+            (AgentMessage.created_at < before_created_at)
+            | ((AgentMessage.created_at == before_created_at) & (AgentMessage.id < before_id))
+        )
+
+    stmt = stmt.order_by(desc(AgentMessage.created_at), desc(AgentMessage.id))
+    stmt = stmt.limit(_PAGE_SIZE + 1)  # fetch one extra to determine has_older
+
+    messages = session.exec(stmt).all()
+    has_older = len(messages) > _PAGE_SIZE
+    if has_older:
+        messages = messages[:_PAGE_SIZE]
+
+    # Build cursor for the next (older) page BEFORE reversing.
+    # The last element in descending order is the oldest message on this page;
+    # that is the correct cursor anchor for the next (older) page.
+    older_cursor = None
+    if has_older and messages:
+        last = messages[-1]
+        older_cursor = MessageCursor(
+            created_at=last.created_at,
+            id=last.id,
+        )
+
+    # Reverse to chronological order for rendering while keeping the
+    # stable descending cursor query intact.
+    messages.reverse()
+
+    return MessagePage(
+        messages=[_message_to_read(m) for m in messages],
+        has_older=has_older,
+        older_cursor=older_cursor,
+    )
+
 
 def get_or_create_project_conversation(
     session: Session,
     project_id: str,
 ) -> AgentConversation:
-    """Get or create an AgentConversation for a project."""
+    """Get or create an AgentConversation for a project.
+
+    DEPRECATED for multi-conversation mode. Kept for backward compatibility
+    with existing callers. Returns the most recently updated active conversation,
+    or creates a new team conversation if none exists.
+    """
     project = session.get(Project, project_id)
     if project is None:
         raise ValueError("Project not found")
@@ -72,6 +347,8 @@ def get_or_create_project_conversation(
     conversation = AgentConversation(
         workspace_id=project.workspace_id,
         project_id=project_id,
+        visibility="team",
+        title="新对话",
         status="active",
     )
     session.add(conversation)
@@ -81,8 +358,35 @@ def get_or_create_project_conversation(
 
 
 def read_project_conversation(session: Session, project_id: str) -> AgentConversationRead:
+    """Read the latest active conversation for a project.
+
+    DEPRECATED: does not require viewer. Use get_conversation() instead.
+    Kept for backward compatibility with internal tools during migration.
+    """
     conversation = get_or_create_project_conversation(session, project_id)
     return _conversation_to_read(session, conversation)
+
+
+# ---------------------------------------------------------------------------
+# Title derivation
+# ---------------------------------------------------------------------------
+
+def _derive_title(content: str) -> str:
+    """Derive a deterministic title from the first user message.
+
+    Normalizes whitespace, strips punctuation, truncates to _MAX_TITLE_LENGTH.
+    No LLM call.
+    """
+    # Normalize unicode
+    normalized = unicodedata.normalize("NFKC", content.strip())
+    # Collapse whitespace
+    normalized = re.sub(r"\s+", " ", normalized)
+    # Remove leading/trailing punctuation but keep meaningful chars
+    normalized = normalized.strip("。？！?.!,，、；;：:…""''\"' ")
+    # Truncate
+    if len(normalized) > _MAX_TITLE_LENGTH:
+        normalized = normalized[:_MAX_TITLE_LENGTH].rstrip() + "…"
+    return normalized or "新对话"
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +426,11 @@ def process_conversation_message_stream(
     if project is None:
         yield _sse_event("error", {"message": "项目不存在"})
         return
+
+    # Derive title from first user message if not yet set
+    if not conversation.title:
+        conversation.title = _derive_title(content)
+        session.add(conversation)
 
     # 1. Save user message
     user_message = AgentMessage(
@@ -420,6 +729,9 @@ def _conversation_to_read(session: Session, conversation: AgentConversation) -> 
         id=conversation.id,
         workspace_id=conversation.workspace_id,
         project_id=conversation.project_id,
+        creator_user_id=conversation.creator_user_id,
+        title=conversation.title,
+        visibility=conversation.visibility,
         status=conversation.status,
         summary=conversation.summary,
         current_focus=conversation.current_focus,

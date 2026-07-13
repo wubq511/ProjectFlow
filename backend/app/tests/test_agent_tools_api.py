@@ -22,6 +22,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.main import app
 from app.models import (
+    AgentConversation,
     AgentEvent,
     AgentProposal,
     CheckInCycle,
@@ -32,7 +33,8 @@ from app.models import (
     Workspace,
     WorkspaceMembership,
 )
-from app.models.enums import AgentEventType, AgentProposalStatus, TaskStatus
+from app.models.agent_run_state import AgentRunV2
+from app.models.enums import AgentEventType, AgentProposalStatus, AgentRunStatus, TaskStatus
 from app.core.database import get_session
 
 
@@ -86,6 +88,20 @@ def _seed(test_engine) -> dict:
                 created_by="u1",
             )
         )
+        # Conversation for internal tool tests
+        session.add(AgentConversation(
+            id="conv_test", workspace_id="ws1", project_id="p1",
+            creator_user_id="u1", title="测试对话", visibility="private",
+        ))
+        # Run record for conversation tool authorization
+        session.add(AgentRunV2(
+            id="run_test",
+            conversation_id="conv_test",
+            project_id="p1",
+            workspace_id="ws1",
+            viewer_user_id="u1",
+            status=AgentRunStatus.created,
+        ))
         # Timeline event
         event = AgentEvent(
             project_id="p1",
