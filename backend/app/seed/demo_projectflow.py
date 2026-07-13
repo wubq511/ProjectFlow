@@ -86,6 +86,7 @@ def seed_demo_data(session: Session) -> dict:
         user = User(id=USER_IDS[key], display_name=name, email=email, created_at=now)
         session.add(user)
         users[key] = user
+    session.flush()  # persist Users before Workspace references them
 
     # -- Workspace --
     workspace = Workspace(
@@ -97,6 +98,7 @@ def seed_demo_data(session: Session) -> dict:
         updated_at=now,
     )
     session.add(workspace)
+    session.flush()  # persist Workspace before Memberships/Invitations reference it
 
     # -- Memberships --
     for i, key in enumerate(USER_IDS):
@@ -226,6 +228,11 @@ def seed_demo_data(session: Session) -> dict:
     for p in profiles:
         session.add(p)
 
+    # Flush base entities so downstream FK references are satisfied.
+    # Without relationship() declarations, SQLAlchemy cannot auto-detect
+    # insertion order from FK constraints alone, so we flush explicitly.
+    session.flush()
+
     # -- Project --
     direction_card = json.dumps({
         "problem": "大学生项目小队缺乏持续的项目推进和风险感知能力",
@@ -271,7 +278,7 @@ def seed_demo_data(session: Session) -> dict:
         deadline="2026-06-09",
         deliverables="MVP demo, README, demo video, review summary",
         status="active",
-        current_stage_id=STAGE_IDS["implementation"],
+        current_stage_id=None,  # set after stages are flushed to break circular FK
         direction_card=direction_card,
         created_by=USER_IDS["xiaolin"],
         created_at=now,
@@ -362,6 +369,12 @@ def seed_demo_data(session: Session) -> dict:
     ]
     for s in stages:
         session.add(s)
+
+    # Flush Project + Stages so the circular FK (Project.current_stage_id ↔ Stage.project_id)
+    # is satisfied: Project exists before Stages reference it, Stages exist before
+    # Project.current_stage_id is set.
+    session.flush()
+    project.current_stage_id = STAGE_IDS["implementation"]
 
     # -- Tasks --
     tasks = [
@@ -542,6 +555,10 @@ def seed_demo_data(session: Session) -> dict:
     ]
     for t in tasks:
         session.add(t)
+
+    # Flush Tasks so downstream entities (proposals, check-ins, risks, action cards)
+    # can satisfy their FK references to task IDs.
+    session.flush()
 
     # -- Assignment Proposals (for active stage) --
     proposals = [
