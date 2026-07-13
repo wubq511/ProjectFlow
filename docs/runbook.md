@@ -142,8 +142,8 @@ npm audit --omit=dev
 
 Expected baseline as of 2026-07-13:
 
-- Backend tests pass: 824 passed, 4 skipped.
-- Agent bridge tests pass: 1110 tests across 57 unit files; `npm run typecheck` and `npm run build` pass in `agent-bridge/`.
+- Backend tests pass: 825 passed, 4 skipped.
+- Agent bridge tests pass: 1142 tests across 58 unit files; `npm run typecheck` and `npm run build` pass in `agent-bridge/`.
 - Frontend tests pass: 147 tests across 17 files.
 - Frontend lint passes.
 - Frontend production build passes.
@@ -162,9 +162,11 @@ cd agent-bridge
 ../scripts/npm run eval:canary
 ```
 
-The runner exercises the public HTTP/SSE seam with distinct primary and fallback models and reports routing, outcome, P95 latency, token usage, cost and output privacy. Provide `EVAL_WORKSPACE_STATE_JSON`, `EVAL_CONVERSATION_ID`, `EVAL_WORKSPACE_ID`, `EVAL_PROJECT_ID`, `EVAL_VIEWER_USER_ID`, `EVAL_PRIMARY_MODEL` and `EVAL_FALLBACK_MODEL`; model refs use `provider:name` format. Provider keys remain in `agent-bridge/.env` and must never be echoed into the command or report.
+The runner exercises the public HTTP/SSE seam with distinct primary and fallback models and reports routing, outcome, P95 latency, token usage, cost, metric coverage and output privacy. Model refs use `provider:name` format. Provider keys remain in `agent-bridge/.env` and must never be echoed into the command or report.
 
-The 2026-07-13 DeepSeek Flash/Pro canary passed with 100% routing and outcome rates. Frozen scenario latency gates are answer 30s, status/planning/privacy 90s and risk-replan 120s. The accepted pre-T44 evidence baseline is Flash P95 32.655s / $0.0170647008 and Pro P95 92.711s / $0.058729118. T44 was implemented after that run, so repeat the canary before claiming any cache, uncached-input, latency or cost improvement. Deterministic public-seam scenarios remain part of the normal Agent Bridge test suite.
+For a single observation per scenario, provide `EVAL_WORKSPACE_STATE_JSON`, `EVAL_CONVERSATION_ID`, `EVAL_WORKSPACE_ID`, `EVAL_PROJECT_ID`, `EVAL_VIEWER_USER_ID`, `EVAL_PRIMARY_MODEL` and `EVAL_FALLBACK_MODEL`. For repeated evidence, set `EVAL_REPEATS=3` and `EVAL_BACKEND_BASE_URL`; the runner resets/seeds the dedicated backend and creates a fresh private conversation for every observation, then executes all observations sequentially. Repeats fail closed without a provisioning backend. `EVAL_SCENARIO_IDS=risk-proposal` can bound a corrective rerun to one or more comma-separated scenarios.
+
+The repeated post-T44 DeepSeek Flash/Pro canary passed with 100% routing, outcome, privacy and latency rates across 15 isolated observations per model. Frozen scenario latency gates are answer 30s, status/planning/privacy 90s and risk-replan 120s. Flash/Pro cache hit was 93.01%/93.51%; Pi's `usage.input` is already non-cached input, so do not subtract `cacheRead` again. Flash remains the default and Pro remains explicit escalation. Full evidence and interpretation are in `docs/T44/post-t44-production-canary-2026-07-13.md`. Deterministic public-seam scenarios remain part of the normal Agent Bridge test suite.
 
 ### Conversation history smoke test
 

@@ -6,7 +6,7 @@ The primary Agent path uses the T41 TypeScript Agent Bridge Sidecar with Pi comp
 
 ## Current Status
 
-All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory V1 and T43 Agent Harness V2 P0 are implemented. On 2026-07-13, T44 hardened request deduplication, cache/cost telemetry, model-selection truthfulness, Prompt Kernel/context receipts, Skill effect ceilings and assignment constraint evidence. T45 added private multi-conversation history with legacy team-history migration, viewer-scoped APIs, cursor pagination, URL selection and streaming-safe history switching. The latest deterministic baseline is 824 backend tests passed / 4 skipped, 1110 agent-bridge tests passed across 57 files, and 147 frontend tests passed across 17 files; all lint/typecheck/build gates pass. Paid production-model re-baselining after T44 remains a separate measurement task.
+All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory V1 and T43 Agent Harness V2 P0 are implemented. On 2026-07-13, T44 hardened request deduplication, cache/cost telemetry, model-selection truthfulness, Prompt Kernel/context receipts, Skill effect ceilings and assignment constraint evidence. T45 added private multi-conversation history with legacy team-history migration, viewer-scoped APIs, cursor pagination, URL selection and streaming-safe history switching. The latest deterministic baseline is 825 backend tests passed / 4 skipped, 1142 agent-bridge tests passed across 58 files, and 147 frontend tests passed across 17 files; all lint/typecheck/build gates pass. The repeated post-T44 production canary passed all frozen routing, outcome, privacy and latency gates; Flash remains the default and Pro remains explicit escalation.
 
 - Phase 0 / GitHub #2 — Guardrails & Setup
 - Phase 1 / GitHub #3 — Account / Workspace / Member Profile
@@ -41,7 +41,7 @@ All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory 
 - T44 Agent efficiency and model integrity / GitHub #90 — exact-once input, normalized cache/cost telemetry, truthful model selection, stable Prompt Kernel and pre-execution Skill/tool safety (2026-07-13)
 - T45 private conversation history / GitHub #91 — private/team conversations, safe migration, viewer authorization, cursor pagination and Agent sidebar history UI (2026-07-13)
 
-Implemented: FastAPI backend with private multi-conversation persistence and service-token-protected internal runtime/tools; T41 typed domain tools and Proposal-Confirm; T42 governed ProjectMemory; T43 durable Agent Harness V2; and T44 request/model/prompt/Skill efficiency hardening. Current verification baseline: 824 backend tests passed / 4 skipped, 1110 agent-bridge tests passed across 57 files, 147 frontend tests passed across 17 files; backend ruff, agent-bridge typecheck/build, and frontend lint/build all pass.
+Implemented: FastAPI backend with private multi-conversation persistence and service-token-protected internal runtime/tools; T41 typed domain tools and Proposal-Confirm; T42 governed ProjectMemory; T43 durable Agent Harness V2; and T44 request/model/prompt/Skill efficiency hardening. Current verification baseline: 825 backend tests passed / 4 skipped, 1142 agent-bridge tests passed across 58 files, 147 frontend tests passed across 17 files; backend ruff, agent-bridge typecheck/build, and frontend lint/build all pass. See [the post-T44 production canary](docs/T44/post-t44-production-canary-2026-07-13.md) for repeated model evidence and cache/cost interpretation.
 
 ## Stack
 

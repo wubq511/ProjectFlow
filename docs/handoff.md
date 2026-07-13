@@ -6,7 +6,7 @@ Status: current as of 2026-07-13.
 
 ### T44/T45 — Agent Efficiency, Model Integrity and Private Conversation History (2026-07-13)
 
-T44 and T45 are implemented in bounded commits `e8bd6e0`, `22b7977`, `6027885`, `435f489`, `70bcb99` and `6ae1831`.
+T44 and T45 are implemented in bounded commits `e8bd6e0`, `22b7977`, `6027885`, `435f489`, `70bcb99` and `6ae1831`. Post-implementation canary hardening and evidence are in `38ffba0`, `299c6b9`, `bbb4359`, `bf5ebab`, `1d12236` and `e47d6b4`.
 
 - Current user input enters Pi exactly once and is excluded from recent history. Usage evidence distinguishes input/output/reasoning/cache-read/cache-write tokens, uncached input and detailed cost; unavailable provider fields remain unknown rather than zero.
 - Model configuration has exactly one valid default. Normal conversation propagates explicit model/thinking selection, invalid explicit models fail, and requested/resolved attribution plus fallback reason remain separate.
@@ -16,7 +16,9 @@ T44 and T45 are implemented in bounded commits `e8bd6e0`, `22b7977`, `6027885`, 
 - Projects support multiple Agent conversations. New conversations are creator-owned/private; legacy rows migrate to team history without breaking message/run foreign keys. All routes validate viewer access, GET is non-mutating, summaries are lightweight, and messages use stable cursor pagination.
 - The Agent sidebar provides local draft/new conversation, history Sheet, private/team labels, URL selection and older-message loading. Conversation changes are locked while streaming. Team conversations receive team-visible ProjectMemory only.
 
-Verification: backend 824 passed / 4 skipped plus Ruff; agent bridge 1110 passed across 57 files plus typecheck/build; frontend 147 passed across 17 files plus lint/build. No paid production-model calls were made for this implementation pass. The earlier 2026-07-13 Flash/Pro canary is a pre-T44 baseline and must not be presented as proof of improved cache rate or cost.
+Verification: backend 825 passed / 4 skipped plus Ruff; agent bridge 1142 passed across 58 files plus typecheck/build; frontend 147 passed across 17 files plus lint/build.
+
+Repeated post-T44 production evidence is complete: 15 isolated observations per model passed routing, outcome, privacy and frozen per-scenario latency gates. Flash/Pro cache hit was 93.01%/93.51%; mean non-cached input per observation fell 85.2%/77.2%, and measured cost per observation fell 68.5%/58.8% relative to the accepted pre-T44 baseline. Flash remains the default and Pro remains explicit escalation. The canonical measurement spend was $0.1242190356; an excluded delegated partial run has unrecoverable additional provider cost. See `docs/T44/post-t44-production-canary-2026-07-13.md`.
 
 ### T43 — Agent Harness V2 P0 (2026-07-12)
 
@@ -1035,7 +1037,7 @@ All 6 remediation slices (R1–R6, R8) completed. R7 (optional vector) remains s
 
 ## Verification Baseline
 
-Latest deterministic verification baseline after T44/T45 (2026-07-13):
+Latest deterministic verification baseline after T44/T45 and canary hardening (2026-07-13):
 
 ```bash
 cd backend
@@ -1052,8 +1054,8 @@ npm audit --omit=dev
 
 Results:
 
-- Backend: 824 tests passed, 4 skipped; Ruff passed.
-- Agent-bridge: 1110 tests passed across 57 files; typecheck/build passed.
+- Backend: 825 tests passed, 4 skipped; Ruff passed.
+- Agent-bridge: 1142 tests passed across 58 files; typecheck/build passed.
 - Frontend tests: 147 passed across 17 files.
 - Frontend lint and production build passed.
 - Frontend build passed.
@@ -1243,9 +1245,9 @@ Verification: backend 218/218 tests pass; frontend 24/24 tests pass; frontend li
 
 ## Next Work
 
-T41-T45 deterministic implementation is complete. The next Agent-specific task is a repeated paid production canary using the T43 public seam to measure post-T44 uncached input, cache read/write, latency and cost against the pre-T44 baseline. Do not change routing policy from a single run.
+T41-T45 deterministic implementation and the repeated post-T44 production canary are complete. Flash remains the default; Pro is an explicit quality escalation rather than automatic same-provider fallback. A future routing change still requires its own product criteria and evidence.
 
-The main accepted limitation is free-text member constraints: `constraint_respected` proves that the Agent supplied review evidence, not that the proposed assignment is semantically compliant. A stronger guarantee requires a structured constraint model and deterministic task/constraint matching. Post-MVP backlog also includes auth, deployment, collaboration permissions and broader UI hardening.
+The main accepted limitation is free-text member constraints: `constraint_respected` proves that the Agent supplied review evidence, not that the proposed assignment is semantically compliant. A stronger guarantee requires a structured constraint model and deterministic task/constraint matching. A second bounded optimization candidate is a compact workspace read view: one post-fix Pro risk observation still paged a large `get_workspace_state` result, although it remained within the latency gate. Post-MVP backlog also includes auth, deployment, collaboration permissions and broader UI hardening.
 
 ## Additional Completed Phases
 

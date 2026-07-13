@@ -132,7 +132,7 @@ cd backend
 .venv\Scripts\python -m ruff check app
 ```
 
-预期：后端测试全部通过，ruff 无问题。2026-07-13 的测试基线为 `824 passed, 4 skipped`。
+预期：后端测试全部通过，ruff 无问题。2026-07-13 的测试基线为 `825 passed, 4 skipped`。
 
 ### 前端验证
 

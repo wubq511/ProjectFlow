@@ -13,6 +13,7 @@ All notable changes to ProjectFlow are documented here. Format follows [Keep a C
 - Identity boundaries for project creation and proposal confirmation now require a real member of the target workspace; the frontend fails closed when no active member identity is available.
 - High-frequency model token and tool-progress deltas now remain live SSE events while final outputs and state boundaries stay durable, preventing per-token event/state double writes.
 - DeepSeek V4 Flash/Pro production canary with frozen per-scenario latency gates, real token/cost telemetry, tool-evidence outcomes and actual workspace-ID/UUID privacy checks.
+- Repeated post-T44 production canary provisioning creates fresh seed state and a private conversation per observation, supports targeted scenario reruns, and reports metric coverage plus cache semantics without reusing effectful state.
 
 ### Fixed
 
@@ -24,6 +25,9 @@ All notable changes to ProjectFlow are documented here. Format follows [Keep a C
 - Skills V2 prerequisites now gate eligibility without adding intent score; Chinese release prompts route deterministically instead of selecting the first prerequisite-satisfied skills.
 - Pi `message_end` usage and cost are extracted from the assistant message, so production canary telemetry no longer reports zero tokens or cost.
 - Operational evaluation accepts one-of read evidence where state is already injected and checks real workspace IDs instead of treating normal `project_*` terms as raw-ID leaks.
+- Pi cache telemetry now treats `usage.input` as already non-cached input and computes hit rate over `input + cacheRead + cacheWrite`, eliminating the former double subtraction.
+- Demo reset now clears every SQLModel table in foreign-key order, including durable Agent runs/resources and ProjectMemory synchronization records; seed resets no longer fail after repeated canary observations.
+- `checkins-and-risks-analysis` returns a compact replan signal instead of echoing full analysis already persisted in AgentEvent, removing an avoidable large-result resource read and extra model turn.
 
 - T42 ProjectMemory V1 remediation Batches A–D (R1–R6, R8): sidecar memory context injection, FTS5 project-scoped top-k, two-phase natural language retrieval (strict AND → relaxed OR), query normalization, 50-query stratified eval, memory observability via `agent.started` `_memory` payload, history memory display (active+superseded+archived), ProjectMemorySync status closure, streaming raw-ID sanitization, partial aggregate support, and a 5-scenario A/B eval harness with independent blind review.
 - R8 release evidence: the initial 150-pair/300-call sidecar Pilot and selective S1/S2 remediation runs completed without model-call errors; combined evidence passes 7/7 gates. A narrow member-constraint assignment output guard (review, one repair, re-review, deterministic check, conservative fallback) raises the final selective S1 B-group evidence from 80% to 10/10 and reports guard status/calls in SSE evidence.

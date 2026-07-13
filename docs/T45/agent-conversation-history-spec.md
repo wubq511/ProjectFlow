@@ -21,7 +21,7 @@ Implemented in two bounded batches:
 - `6027885`: removed the project-level unique-conversation invariant; added creator/title/visibility fields, safe SQLite table-copy migration, foreign-key enforcement, private/team access control, non-mutating compatibility GET, list/create/read/message/stream APIs, deterministic previews and `(created_at, id)` pagination. Team conversations filter ProjectMemory at the source to team-visible records.
 - `435f489`: added Agent sidebar “新对话” and history Sheet, private/team labels, active selection, deterministic previews, latest-page/older-page loading, URL `conversation` state, project/viewer reset, local unsaved draft and create-on-first-send behavior. Switching is locked during streaming and conflicting browser navigation is reverted to the active conversation.
 
-Validation baseline: backend conversation/migration/privacy coverage is included in `824 passed / 4 skipped`; frontend conversation history and stream-hook coverage is included in `147 passed`. Frontend lint/build and backend Ruff pass.
+Validation baseline: backend conversation/migration/privacy coverage is included in `825 passed / 4 skipped`; frontend conversation history and stream-hook coverage is included in `147 passed`. Frontend lint/build and backend Ruff pass.
 
 Deferred by design: manual rename, deletion/archive, sharing a private conversation, background streaming, mixed-visibility messages, cross-project conversations and automatic conversation-to-ProjectMemory conversion.
 

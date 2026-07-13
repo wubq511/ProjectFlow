@@ -20,10 +20,13 @@ Deterministic implementation is complete:
 - `22b7977`: model configuration enforces one valid default; explicit invalid selections fail; requested and resolved model attribution, fallback reason and supported thinking levels propagate through normal conversation.
 - `70bcb99`: Prompt Kernel 2.0 separates stable and dynamic blocks, injects time only when required, emits versioned Context receipts and hashes the assembled system/user/tool payload.
 - `6ae1831`: one strictest Skill V2 ceiling now drives Outcome Contract, prompt/trace metadata, manifest exposure, runtime policy and verification. Assignment persistence requires constraint-check evidence for members with stored constraints before adding the proposal row.
+- `299c6b9`, `38ffba0` and `bbb4359`: repeated canary observations now provision isolated fixtures and the demo reset clears all runtime/memory tables in foreign-key order.
+- `bf5ebab`: usage normalization follows Pi semantics: `input` is already non-cached input, while cache rate uses `cacheRead / (input + cacheRead + cacheWrite)`.
+- `1d12236` and `e47d6b4`: risk analysis stops echoing persisted content into the tool loop, and the canonical runner supports bounded scenario reruns.
 
-Validation baseline: backend `824 passed / 4 skipped` plus Ruff; agent bridge `1110 passed` across 57 files plus typecheck/build; frontend `147 passed` across 17 files plus lint/build. Public-seam and operational-eval fixtures pass without paid model calls.
+Validation baseline: backend `825 passed / 4 skipped` plus Ruff; agent bridge `1142 passed` across 58 files plus typecheck/build; frontend `147 passed` across 17 files plus lint/build.
 
-Measurement remains intentionally separate from implementation: the 2026-07-13 Flash/Pro canary predates these changes, so cache-hit, uncached-input, latency and cost improvements must not be claimed until a repeated production canary is run. Natural-language member constraints also remain semantically unverifiable; the shipped gate proves evidence completeness only. A future semantic guarantee requires a structured constraint model.
+The repeated post-T44 production canary is complete: 15 isolated observations per model passed routing, outcome, privacy and frozen per-scenario latency gates. Flash/Pro cache hit was 93.01%/93.51%; normalized non-cached input per observation fell 85.2%/77.2% and measured cost per observation fell 68.5%/58.8% relative to the accepted pre-T44 baseline. Flash remains the default; Pro remains explicit quality escalation. See `post-t44-production-canary-2026-07-13.md`. Natural-language member constraints remain semantically unverifiable; the shipped gate proves evidence completeness only.
 
 ## User Stories
 
