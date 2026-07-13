@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createConversation,
   exportProjectMemoriesMarkdown,
   getAgentConversation,
+  getConversationDetail,
+  getConversationMessages,
   getProjectState,
+  listConversations,
   listProjectMemories,
   rejectAgentProposal,
   runAgentNegotiate,
@@ -26,7 +30,7 @@ describe("frontend API layer", () => {
   it("loads the active project agent conversation", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/projects/project-1/agent-conversation")) {
+      if (url.endsWith("/projects/project-1/agent-conversation?viewer_user_id=user-1")) {
         return jsonResponse({
           id: "conversation-1",
           workspace_id: "workspace-1",
@@ -43,7 +47,7 @@ describe("frontend API layer", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const conversation = await getAgentConversation("project-1");
+    const conversation = await getAgentConversation("project-1", "user-1");
 
     expect(conversation.current_focus).toBe("阶段计划");
   });
@@ -850,5 +854,185 @@ describe("frontend API layer", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(listProjectMemories("project-1", "")).rejects.toThrow("viewer_user_id 不能为空");
+  });
+
+  // --- T45 Conversation History Tests ---
+
+  it("lists conversation summaries for a project", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/projects/project-1/agent-conversations?viewer_user_id=user-1")) {
+        return jsonResponse([
+          {
+            id: "conv-1",
+            project_id: "project-1",
+            title: "最新会话",
+            visibility: "private",
+            creator_user_id: "user-1",
+            message_count: 5,
+            last_message_preview: "最后一条消息",
+            created_at: "2026-07-12T10:00:00Z",
+            updated_at: "2026-07-12T12:00:00Z",
+          },
+        ]);
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await listConversations("project-1", "user-1");
+
+    expect(result).toHaveLength(1);
+    expect(result[0].title).toBe("最新会话");
+    expect(result[0].visibility).toBe("private");
+    expect(result[0].message_count).toBe(5);
+  });
+
+  it("creates a new conversation", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/projects/project-1/agent-conversations")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ viewer_user_id: "user-1" });
+        return jsonResponse({
+          id: "conv-new",
+          workspace_id: "ws-1",
+          project_id: "project-1",
+          status: "active",
+          visibility: "private",
+          creator_user_id: "user-1",
+          title: "新会话",
+          current_focus: "",
+          messages: [],
+          created_at: "2026-07-13T00:00:00Z",
+          updated_at: "2026-07-13T00:00:00Z",
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createConversation("project-1", "user-1");
+
+    expect(result.id).toBe("conv-new");
+    expect(result.visibility).toBe("private");
+    expect(result.creator_user_id).toBe("user-1");
+  });
+
+  it("gets conversation detail by ID", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/agent/conversations/conv-1?viewer_user_id=user-1")) {
+        return jsonResponse({
+          id: "conv-1",
+          workspace_id: "ws-1",
+          project_id: "project-1",
+          status: "active",
+          visibility: "private",
+          creator_user_id: "user-1",
+          title: "会话标题",
+          current_focus: "执行推进",
+          messages: [
+            {
+              id: "msg-1",
+              conversation_id: "conv-1",
+              role: "user",
+              content: "问题",
+              structured_payload: {},
+              created_at: "2026-07-12T10:00:00Z",
+            },
+          ],
+          created_at: "2026-07-12T10:00:00Z",
+          updated_at: "2026-07-12T12:00:00Z",
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getConversationDetail("conv-1", "user-1");
+
+    expect(result.title).toBe("会话标题");
+    expect(result.messages).toHaveLength(1);
+  });
+
+  it("gets conversation messages with cursor pagination", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/agent/conversations/conv-1/messages?viewer_user_id=user-1")) {
+        return jsonResponse({
+          messages: [
+            {
+              id: "msg-1",
+              conversation_id: "conv-1",
+              role: "user",
+              content: "更早的问题",
+              structured_payload: {},
+              created_at: "2026-07-12T10:00:00Z",
+            },
+          ],
+          has_older: false,
+          older_cursor: null,
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getConversationMessages("conv-1", "user-1");
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.has_older).toBe(false);
+    expect(result.older_cursor).toBeNull();
+  });
+
+  it("gets conversation messages with cursor params", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      // URLSearchParams encodes colons in timestamps
+      if (url.includes("before_created_at=2026-07-12T11") && url.includes("before_id=msg-2")) {
+        return jsonResponse({
+          messages: [],
+          has_older: false,
+          older_cursor: null,
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getConversationMessages(
+      "conv-1",
+      "user-1",
+      "2026-07-12T11:00:00Z",
+      "msg-2",
+    );
+
+    expect(result.messages).toHaveLength(0);
+  });
+
+  it("compatibility endpoint passes viewer_user_id when provided", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/projects/project-1/agent-conversation?viewer_user_id=user-1")) {
+        return jsonResponse({
+          id: "conversation-1",
+          workspace_id: "workspace-1",
+          project_id: "project-1",
+          status: "active",
+          summary: "",
+          current_focus: "阶段计划",
+          messages: [],
+          created_at: "2026-06-06T00:00:00Z",
+          updated_at: "2026-06-06T00:00:00Z",
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const conversation = await getAgentConversation("project-1", "user-1");
+
+    expect(conversation.current_focus).toBe("阶段计划");
   });
 });

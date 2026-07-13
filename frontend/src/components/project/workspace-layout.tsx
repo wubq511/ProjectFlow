@@ -6,7 +6,7 @@ import { ProjectSidebar, type ProjectView } from "./project-sidebar";
 import { AgentSidebar } from "./agent-sidebar";
 import { ProjectContent } from "./project-content";
 import { WorkspaceContent } from "./workspace-content";
-import type { AddResourceRequest, AgentArtifact, AgentConversation, AgentStreamPhase, AgentStreamTurn, ArchivedAgentStreamTurn, AgentSuggestion, ProjectState, WorkspaceState, ThinkingLevel } from "@/lib/types";
+import type { AddResourceRequest, AgentArtifact, AgentConversation, AgentConversationSummary, AgentStreamPhase, AgentStreamTurn, ArchivedAgentStreamTurn, AgentSuggestion, ProjectState, WorkspaceState, ThinkingLevel } from "@/lib/types";
 import type { AgentAction } from "./project-actions";
 
 interface WorkspaceLayoutProps {
@@ -84,6 +84,19 @@ interface WorkspaceLayoutProps {
   onResetDemo?: () => void | Promise<void>;
   onRefresh?: () => void;
   completedAnnouncement?: string | null;
+  // T45: Conversation history props
+  conversationSummaries?: AgentConversationSummary[];
+  isDraft?: boolean;
+  isStreamingConversation?: boolean;
+  isLoadingHistory?: boolean;
+  isLoadingConversationDetail?: boolean;
+  historyError?: string | null;
+  hasOlderMessages?: boolean;
+  isLoadingOlder?: boolean;
+  onStartNewDraft?: () => void;
+  onSwitchConversation?: (conversationId: string) => void;
+  onRetryHistory?: () => void;
+  onLoadOlderMessages?: () => void;
 }
 
 export function WorkspaceLayout({
@@ -134,6 +147,19 @@ export function WorkspaceLayout({
   onResetDemo,
   onRefresh,
   completedAnnouncement,
+  // T45: Conversation history
+  conversationSummaries = [],
+  isDraft = false,
+  isStreamingConversation = false,
+  isLoadingHistory = false,
+  isLoadingConversationDetail = false,
+  historyError = null,
+  hasOlderMessages = false,
+  isLoadingOlder = false,
+  onStartNewDraft,
+  onSwitchConversation,
+  onRetryHistory,
+  onLoadOlderMessages,
 }: WorkspaceLayoutProps) {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
@@ -246,6 +272,19 @@ export function WorkspaceLayout({
         onConfirmArtifact={onConfirmAgentArtifact}
         onResetDemo={onResetDemo}
         completedAnnouncement={completedAnnouncement}
+        // T45: Conversation history
+        conversationSummaries={conversationSummaries}
+        isDraft={isDraft}
+        isStreamingConversation={isStreamingConversation}
+        isLoadingHistory={isLoadingHistory}
+        isLoadingConversationDetail={isLoadingConversationDetail}
+        historyError={historyError}
+        hasOlderMessages={hasOlderMessages}
+        isLoadingOlder={isLoadingOlder}
+        onStartNewDraft={onStartNewDraft}
+        onSwitchConversation={onSwitchConversation}
+        onRetryHistory={onRetryHistory}
+        onLoadOlderMessages={onLoadOlderMessages}
       />
     </div>
   );

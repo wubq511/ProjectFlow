@@ -27,6 +27,9 @@ import type {
   AgentEvent,
   AgentConversation,
   AgentConversationTurn,
+  AgentConversationSummary,
+  AgentConversationRead,
+  MessagePage,
   AgentSuggestion,
   AgentArtifact,
   AgentFlowResult,
@@ -565,8 +568,59 @@ export async function listTimelineByProject(projectId: string): Promise<AgentEve
 }
 
 // --- Agent ---
-export async function getAgentConversation(projectId: string): Promise<AgentConversation> {
-  return request<AgentConversation>(`/projects/${projectId}/agent-conversation`);
+
+/** T45: List conversation summaries for a project. */
+export async function listConversations(projectId: string, viewerUserId: string): Promise<AgentConversationSummary[]> {
+  return request<AgentConversationSummary[]>(
+    `/projects/${encodeURIComponent(projectId)}/agent-conversations?viewer_user_id=${encodeURIComponent(viewerUserId)}`,
+    { timeout: 15_000 },
+  );
+}
+
+/** T45: Create a new conversation (persists immediately). */
+export async function createConversation(projectId: string, viewerUserId: string): Promise<AgentConversationRead> {
+  return request<AgentConversationRead>(
+    `/projects/${encodeURIComponent(projectId)}/agent-conversations`,
+    {
+      method: "POST",
+      body: JSON.stringify({ viewer_user_id: viewerUserId }),
+      timeout: 15_000,
+    },
+  );
+}
+
+/** T45: Get conversation detail by ID. */
+export async function getConversationDetail(conversationId: string, viewerUserId: string): Promise<AgentConversationRead> {
+  return request<AgentConversationRead>(
+    `/agent/conversations/${encodeURIComponent(conversationId)}?viewer_user_id=${encodeURIComponent(viewerUserId)}`,
+    { timeout: 15_000 },
+  );
+}
+
+/** T45: Get a page of messages using cursor pagination. */
+export async function getConversationMessages(
+  conversationId: string,
+  viewerUserId: string,
+  beforeCreatedAt?: string,
+  beforeId?: string,
+): Promise<MessagePage> {
+  const params = new URLSearchParams({ viewer_user_id: viewerUserId });
+  if (beforeCreatedAt) params.set("before_created_at", beforeCreatedAt);
+  if (beforeId) params.set("before_id", beforeId);
+  return request<MessagePage>(
+    `/agent/conversations/${encodeURIComponent(conversationId)}/messages?${params.toString()}`,
+    { timeout: 15_000 },
+  );
+}
+
+/**
+ * Compatibility: get the latest accessible conversation for a project.
+ * Now requires viewer_user_id. Returns AgentConversation with messages.
+ */
+export async function getAgentConversation(projectId: string, viewerUserId: string): Promise<AgentConversation> {
+  return request<AgentConversation>(
+    `/projects/${encodeURIComponent(projectId)}/agent-conversation?viewer_user_id=${encodeURIComponent(viewerUserId)}`,
+  );
 }
 
 const QUICK_REPLY_INSTRUCTION_MAP: Record<string, string> = {

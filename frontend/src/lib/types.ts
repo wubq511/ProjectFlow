@@ -388,6 +388,49 @@ export type AgentConversation = {
   messages: AgentConversationMessage[];
   created_at: string;
   updated_at: string;
+  /** T45: conversation visibility — "private" (default for new) or "team" (legacy shared). */
+  visibility?: "private" | "team";
+  /** T45: user who created this conversation. */
+  creator_user_id?: string;
+  /** T45: deterministic title derived from first user message. */
+  title?: string;
+};
+
+/** T45: Summary returned by the conversation list endpoint (no messages). */
+export type AgentConversationSummary = {
+  id: string;
+  project_id: string;
+  title: string;
+  visibility: "private" | "team";
+  creator_user_id: string;
+  message_count: number;
+  last_message_preview: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** T45: Full conversation detail with paginated messages. */
+export type AgentConversationRead = {
+  id: string;
+  workspace_id: string;
+  project_id: string;
+  status: string;
+  visibility: "private" | "team";
+  creator_user_id: string;
+  title: string;
+  summary: string;
+  current_focus: string;
+  messages: AgentConversationMessage[];
+  created_at: string;
+  updated_at: string;
+};
+
+/** T45: Cursor-based message page for loading older messages. */
+export type MessagePage = {
+  messages: AgentConversationMessage[];
+  has_older: boolean;
+  /** Backend cursor for the next older page. */
+  older_cursor: { created_at: string; id: string } | null;
 };
 
 export type AgentSuggestion = {

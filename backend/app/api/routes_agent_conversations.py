@@ -102,6 +102,8 @@ def api_get_conversation(
     session: Session = Depends(get_session),
 ):
     """Get conversation detail. Requires viewer validation."""
+    if not viewer_user_id.strip():
+        raise HTTPException(status_code=400, detail="viewer_user_id 不能为空")
     conversation = get_conversation(session, conversation_id, viewer_user_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="对话不存在")
@@ -125,6 +127,8 @@ def api_get_messages(
     session: Session = Depends(get_session),
 ):
     """Get messages with cursor pagination. Returns latest page by default."""
+    if not viewer_user_id.strip():
+        raise HTTPException(status_code=400, detail="viewer_user_id 不能为空")
     result = get_messages_page(
         session,
         conversation_id,
@@ -204,6 +208,8 @@ def api_send_agent_conversation_message_stream(
     """
     from app.services.agent_conversation_service import check_conversation_access
 
+    if not data.viewer_user_id or not data.viewer_user_id.strip():
+        raise HTTPException(status_code=400, detail="viewer_user_id 不能为空")
     conversation = check_conversation_access(session, conversation_id, data.viewer_user_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="对话不存在")

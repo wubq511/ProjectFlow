@@ -11,11 +11,11 @@ import { setLastWorkspaceId, useCurrentUserId, setCurrentUserId, setWorkspaceMem
 import { resolveAgentActorId } from "@/lib/agent-identity";
 import {
   addResource,
+  createConversation,
   deleteResource,
   finalizeAssignments,
   confirmAgentProposal,
   createCheckinCycle,
-  getAgentConversation,
   getProjectState,
   getWorkspaceState,
   rejectAgentProposal,
@@ -50,6 +50,7 @@ import type {
   ThinkingLevel,
 } from "@/lib/types";
 import { useAgentConversationStream, useAgentStreamNavigationReset } from "@/lib/useAgentConversationStream";
+import { useConversationHistory } from "@/lib/use-conversation-history";
 
 	const AGENT_RUNNERS: Record<AgentAction, (projectId: string, state?: ProjectState, viewerUserId?: string, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => Promise<unknown>> = {
 	  clarify: (projectId, _state, vuid, tl, m) => runClarification(projectId, vuid!, tl, m),
@@ -107,11 +108,15 @@ export default function WorkspaceDashboardPage() {
   const router = useRouter();
   const workspaceId = params.workspaceId as string;
   const projectParam = searchParams.get("project");
+  const conversationParam = searchParams.get("conversation");
   const viewParam = searchParams.get("view") as import("@/components/project/project-sidebar").ProjectView | null;
 
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState | null>(null);
   const [projectState, setProjectState] = useState<ProjectState | null>(null);
-  const [agentConversation, setAgentConversation] = useState<AgentConversation | null>(null);
+  const storedUserId = useCurrentUserId();
+  const currentUserId = projectState
+    ? resolveValidCurrentUserId(projectState, storedUserId) ?? undefined
+    : undefined;
   const [agentConversationSuggestions, setAgentConversationSuggestions] = useState<AgentSuggestion[]>([]);
   const [agentConversationArtifacts, setAgentConversationArtifacts] = useState<AgentArtifact[]>([]);
   const [pendingAgentInstruction, setPendingAgentInstruction] = useState<string | null>(null);
@@ -121,6 +126,26 @@ export default function WorkspaceDashboardPage() {
   const showWorkspaceRef = useRef(showWorkspace);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // T45: Conversation history management
+  const conversationHistory = useConversationHistory();
+  const {
+    loadHistory,
+    switchToConversation,
+    startNewDraft,
+    reset: resetConversationHistory,
+  } = conversationHistory;
+
+  const replaceConversationParam = useCallback((conversationId: string | null) => {
+    const nextParams = new URLSearchParams(searchParams.toString());
+    if (conversationId) {
+      nextParams.set("conversation", conversationId);
+    } else {
+      nextParams.delete("conversation");
+    }
+    const query = nextParams.toString();
+    router.replace(`/workspaces/${workspaceId}${query ? `?${query}` : ""}`, { scroll: false });
+  }, [router, searchParams, workspaceId]);
 
   useEffect(() => {
     showWorkspaceRef.current = showWorkspace;
@@ -148,11 +173,17 @@ export default function WorkspaceDashboardPage() {
     cleanup: streamCleanup,
   } = useAgentConversationStream({
     onPersistedTurn: (turn) => {
-      setAgentConversation(turn.conversation);
+      // Update conversation history with the persisted turn
+      conversationHistory.onPersistedTurn(turn.conversation);
       setAgentConversationSuggestions(turn.suggestions ?? []);
       setAgentConversationArtifacts(turn.artifacts ?? []);
       setPendingAgentInstruction(null);
+      conversationHistory.setStreaming(false);
       reloadProject();
+      // Refresh conversation list to update last message preview
+      if (currentUserId && selectedProjectId) {
+        conversationHistory.loadHistory(selectedProjectId, currentUserId);
+      }
       const hasPendingArtifact = (turn.artifacts ?? []).some(
         (a) => a.status === "pending_confirmation",
       );
@@ -162,9 +193,11 @@ export default function WorkspaceDashboardPage() {
     },
     onError: (msg) => {
       setAgentConversationError(msg);
+      conversationHistory.setStreaming(false);
     },
     onDisconnect: (reason) => {
       setAgentConversationError(reason ?? "连接意外中断，可重试");
+      conversationHistory.setStreaming(false);
     },
   });
 
@@ -208,13 +241,7 @@ export default function WorkspaceDashboardPage() {
           setAgentConversationArtifacts([]);
           setPendingAgentInstruction(null);
           setAgentConversationError(null);
-          getAgentConversation(ps.project.id)
-            .then((conversation) => {
-              if (!ignore) setAgentConversation(conversation);
-            })
-            .catch(() => {
-              if (!ignore) setActionError("加载 Agent 对话失败");
-            });
+          resetConversationHistory();
         }
       })
       .catch(() => {
@@ -231,7 +258,81 @@ export default function WorkspaceDashboardPage() {
     return () => {
       ignore = true;
     };
-  }, [workspaceId, projectParam]);
+  }, [workspaceId, projectParam, resetConversationHistory]);
+
+  // Conversation identity is scoped by project and viewer. Changing either must
+  // clear private transcript state before loading the new scope.
+  const conversationScopeRef = useRef<string | null>(null);
+  useEffect(() => {
+    const scope = selectedProjectId && currentUserId
+      ? `${selectedProjectId}:${currentUserId}`
+      : null;
+    if (conversationScopeRef.current !== scope) {
+      conversationScopeRef.current = scope;
+      resetConversationHistory();
+    }
+  }, [currentUserId, resetConversationHistory, selectedProjectId]);
+
+  // Load the lightweight list first, then resolve only the selected/latest
+  // conversation. A local draft (no conversation param) intentionally wins over
+  // automatic latest-selection until its first message is sent.
+  useEffect(() => {
+    if (!selectedProjectId || !currentUserId) return;
+    if (conversationHistory.isStreaming) {
+      const streamingConversationId = conversationHistory.activeConversation?.id ?? null;
+      if (conversationParam !== streamingConversationId) {
+        replaceConversationParam(streamingConversationId);
+      }
+      return;
+    }
+    if (!conversationParam && conversationHistory.isDraft) return;
+    let ignore = false;
+
+    void (async () => {
+      const summaries = await loadHistory(selectedProjectId, currentUserId);
+      if (ignore || summaries === null) return;
+
+      if (conversationParam) {
+        const outcome = await switchToConversation(
+          conversationParam,
+          selectedProjectId,
+          currentUserId,
+        );
+        if (ignore || outcome === "loaded" || outcome === "error") return;
+      }
+
+      const fallback = summaries.find((item) => item.id !== conversationParam);
+      if (!fallback) {
+        startNewDraft();
+        if (conversationParam) replaceConversationParam(null);
+        return;
+      }
+
+      const outcome = await switchToConversation(
+        fallback.id,
+        selectedProjectId,
+        currentUserId,
+      );
+      if (!ignore && outcome === "loaded") {
+        replaceConversationParam(fallback.id);
+      }
+    })();
+
+    return () => {
+      ignore = true;
+    };
+  }, [
+    conversationHistory.isDraft,
+    conversationHistory.isStreaming,
+    conversationHistory.activeConversation?.id,
+    conversationParam,
+    currentUserId,
+    loadHistory,
+    replaceConversationParam,
+    selectedProjectId,
+    startNewDraft,
+    switchToConversation,
+  ]);
 
   const handleSelectProject = useCallback(async (projectId: string) => {
     resetForNavigation(`${workspaceId}:${projectId}`);
@@ -240,28 +341,29 @@ export default function WorkspaceDashboardPage() {
     setLoading(true);
     setActionError(null);
     setActionSuccess(null);
+    resetConversationHistory();
 
-    // Update URL without full navigation
+    // Update URL without full navigation, clearing incompatible conversation
     const params = new URLSearchParams(searchParams.toString());
     params.set("project", projectId);
+    params.delete("conversation"); // Clear cross-project conversation selection
     router.replace(`/workspaces/${workspaceId}?${params.toString()}`, { scroll: false });
 
     try {
       const ps = await getProjectState(projectId);
       setProjectState(ps);
       syncProjectShellState(ps);
-      const conversation = await getAgentConversation(projectId);
-      setAgentConversation(conversation);
       setAgentConversationSuggestions([]);
       setAgentConversationArtifacts([]);
       setPendingAgentInstruction(null);
       setAgentConversationError(null);
+
     } catch {
       setActionError("加载项目数据失败");
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, searchParams, router, resetForNavigation]);
+  }, [workspaceId, searchParams, router, resetForNavigation, resetConversationHistory]);
 
   const handleShowWorkspace = useCallback((show: boolean) => {
     setShowWorkspace(show);
@@ -269,18 +371,19 @@ export default function WorkspaceDashboardPage() {
       resetForNavigation(`${workspaceId}:workspace`);
       setSelectedProjectId(null);
       setProjectState(null);
-      setAgentConversation(null);
+      resetConversationHistory();
       setAgentConversationSuggestions([]);
       setAgentConversationArtifacts([]);
       setPendingAgentInstruction(null);
       setAgentConversationError(null);
-      // Clear project param from URL
+      // Clear project and conversation params from URL
       const params = new URLSearchParams(searchParams.toString());
       params.delete("project");
       params.delete("view");
+      params.delete("conversation");
       router.replace(`/workspaces/${workspaceId}?${params.toString()}`, { scroll: false });
     }
-  }, [workspaceId, searchParams, router, resetForNavigation]);
+  }, [workspaceId, searchParams, router, resetForNavigation, resetConversationHistory]);
 
   const handleNavigateView = useCallback((view: import("@/components/project/project-sidebar").ProjectView) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -300,15 +403,12 @@ export default function WorkspaceDashboardPage() {
     try {
       const pid = projectId || selectedProjectId;
       if (!pid) return;
-      const [ps, conv] = await Promise.all([
-        getProjectState(pid),
-        getAgentConversation(pid),
-      ]);
+      const ps = await getProjectState(pid);
       if (ps) {
         setProjectState(ps);
         syncProjectShellState(ps);
       }
-      if (conv) setAgentConversation(conv);
+      // Don't reload conversation here — the conversation history hook manages it
     } catch (err) {
       console.error("reloadProject failed:", err);
     } finally {
@@ -388,15 +488,61 @@ export default function WorkspaceDashboardPage() {
   };
 
   const handleSendAgentMessage = async (content: string, options?: { model?: string; thinkingLevel?: string }) => {
-    if (!agentConversation) return;
+    const activeConv = conversationHistory.activeConversation;
+    const isDraftConv = conversationHistory.isDraft;
+
     setPendingAgentConversation(true);
     setPendingAgentInstruction(content);
     setAgentConversationError(null);
     setActionError(null);
     setActionSuccess(null);
+    conversationHistory.setStreaming(true);
 
     try {
-      await sendStream(agentConversation.id, content, currentUserId ?? "", options);
+      let conversationId: string;
+
+      if (isDraftConv || !activeConv) {
+        // T45: Create the conversation before the first streamed message
+        if (!selectedProjectId || !currentUserId) {
+          setAgentConversationError("无法创建对话：缺少项目或用户信息");
+          conversationHistory.setStreaming(false);
+          return;
+        }
+        const created = await createConversation(selectedProjectId, currentUserId);
+        conversationId = created.id;
+
+        // Update conversation history state with the created conversation
+        const newConversation: AgentConversation = {
+          id: created.id,
+          workspace_id: created.workspace_id,
+          project_id: created.project_id,
+          status: created.status,
+          summary: "",
+          current_focus: created.current_focus,
+          messages: [],
+          created_at: created.created_at,
+          updated_at: created.updated_at,
+          visibility: created.visibility,
+          creator_user_id: created.creator_user_id,
+          title: created.title,
+        };
+        conversationHistory.onConversationCreated(newConversation);
+
+        // Update URL with the new conversation ID
+        replaceConversationParam(created.id);
+
+        // Refresh history list to include the new conversation
+        conversationHistory.loadHistory(selectedProjectId, currentUserId);
+      } else {
+        conversationId = activeConv.id;
+      }
+
+      await sendStream(conversationId, content, currentUserId ?? "", options);
+    } catch (err) {
+      // If conversation creation fails, show error and reset streaming state
+      const msg = err instanceof Error ? err.message : "创建对话失败";
+      setAgentConversationError(msg);
+      conversationHistory.setStreaming(false);
     } finally {
       setPendingAgentConversation(false);
     }
@@ -404,6 +550,47 @@ export default function WorkspaceDashboardPage() {
 
   const handleStopStreaming = () => {
     stopStream();
+    conversationHistory.setStreaming(false);
+  };
+
+  const handleStartNewDraft = () => {
+    if (conversationHistory.isStreaming) return;
+    conversationHistory.startNewDraft();
+    // Clear conversation from URL
+    replaceConversationParam(null);
+    // Reset stream state for clean draft
+    resetStream();
+    setAgentConversationSuggestions([]);
+    setAgentConversationArtifacts([]);
+    setPendingAgentInstruction(null);
+    setAgentConversationError(null);
+  };
+
+  const handleSwitchConversation = async (conversationId: string) => {
+    if (conversationHistory.isStreaming) return;
+    if (!selectedProjectId || !currentUserId) return;
+
+    // Reset stream state before switching
+    resetStream();
+    setAgentConversationSuggestions([]);
+    setAgentConversationArtifacts([]);
+    setPendingAgentInstruction(null);
+    setAgentConversationError(null);
+
+    const outcome = await switchToConversation(conversationId, selectedProjectId, currentUserId);
+    if (outcome === "loaded") {
+      replaceConversationParam(conversationId);
+    }
+  };
+
+  const handleRetryHistory = () => {
+    if (!selectedProjectId || !currentUserId) return;
+    conversationHistory.loadHistory(selectedProjectId, currentUserId);
+  };
+
+  const handleLoadOlderMessages = () => {
+    if (!currentUserId) return;
+    conversationHistory.loadOlderMessages(currentUserId);
   };
 
   const handleAssignmentResponse = async (
@@ -557,9 +744,6 @@ export default function WorkspaceDashboardPage() {
   const activeStage = projectState?.stages.find((stage) => stage.id === projectState.project.current_stage_id)
     ?? projectState?.stages.find((stage) => stage.status === "active")
     ?? projectState?.stages[0];
-  const storedUserId = useCurrentUserId();
-  const currentUserId = projectState ? resolveValidCurrentUserId(projectState, storedUserId) ?? undefined : undefined;
-
   const handleSubmitCheckin = async (data: {
     user_id: string;
     task_id?: string;
@@ -678,7 +862,7 @@ export default function WorkspaceDashboardPage() {
       showWorkspace={showWorkspace}
       currentUserId={currentUserId}
       pendingAction={pendingAction}
-      agentConversation={agentConversation}
+      agentConversation={conversationHistory.activeConversation}
       agentConversationSuggestions={agentConversationSuggestions}
       agentConversationArtifacts={agentConversationArtifacts}
       pendingAgentInstruction={pendingAgentInstruction}
@@ -721,6 +905,19 @@ export default function WorkspaceDashboardPage() {
       onDeleteResource={handleDeleteResource}
       onResetDemo={handleResetDemo}
       onRefresh={() => reloadProject()}
+      // T45: Conversation history props
+      conversationSummaries={conversationHistory.summaries}
+      isDraft={conversationHistory.isDraft}
+      isStreamingConversation={conversationHistory.isStreaming}
+      isLoadingHistory={conversationHistory.isLoadingHistory}
+      isLoadingConversationDetail={conversationHistory.isLoadingDetail}
+      historyError={conversationHistory.historyError ?? conversationHistory.detailError}
+      hasOlderMessages={conversationHistory.hasOlderMessages}
+      isLoadingOlder={conversationHistory.isLoadingOlder}
+      onStartNewDraft={handleStartNewDraft}
+      onSwitchConversation={handleSwitchConversation}
+      onRetryHistory={handleRetryHistory}
+      onLoadOlderMessages={handleLoadOlderMessages}
     />
   );
 }
