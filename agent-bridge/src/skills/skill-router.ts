@@ -65,6 +65,21 @@ export function routeSkills(
   allSkills: SkillMetadataV2[],
   input: SkillRouteInput,
 ): SkillRouteResult {
+  if (!input.explicitSkill && isAnswerOnlyRequest(input.userContent)) {
+    return {
+      selected: [],
+      candidates: allSkills.map((metadata) => ({
+        metadata,
+        score: 0,
+        reasons: ["answer-only cue matched"],
+        rejected: "answer-only request",
+      })),
+      combinedEffectCeiling: "none",
+      combinedAllowedTools: [],
+      reason: "answer-only cue matched — answer mode",
+    };
+  }
+
   // Stage 1: Narrow candidates
   const candidates = narrowCandidates(allSkills, input);
 
@@ -140,12 +155,13 @@ function narrowCandidates(
       continue;
     }
     if (prereqResult.passed && prereqResult.matched) {
-      score += 10;
       reasons.push("prerequisites matched");
     }
 
-    // Description keyword matching (existing v1 behavior, preserved)
-    const descMatch = matchDescription(skill.description, input.userContent);
+    // Prerequisites determine eligibility; only the user's message may add
+    // intent score. Otherwise every mature project routes to whichever skill
+    // happens to sort first.
+    const descMatch = skill.v2 ? matchIntent(skill.name, input.userContent) : 0;
     if (descMatch > 0) {
       score += descMatch;
       reasons.push("description keyword match");
@@ -346,30 +362,25 @@ function computeCombinedEffectCeiling(
 }
 
 /**
- * Match description keywords (preserved from v1 selector).
+ * Match V2 skill intent from user-visible Chinese phrases.
  */
-function matchDescription(description: string, userContent: string): number {
-  const desc = description.toLowerCase();
+function matchIntent(skillName: string, userContent: string): number {
   const msg = userContent.toLowerCase();
-  let score = 0;
+  const intents: Record<string, { pattern: RegExp; score: number }> = {
+    "project-intake": { pattern: /澄清.*(?:方向|目标)|方向澄清|明确.*(?:目标|交付物)/, score: 20 },
+    "project-planning": { pattern: /阶段计划|制定计划|规划阶段|阶段规划/, score: 20 },
+    "task-breakdown": { pattern: /拆分.*任务|任务拆解|分解任务|拆成任务/, score: 20 },
+    "assignment-planning": { pattern: /分工|分配成员|谁(?:来)?做/, score: 20 },
+    "risk-analysis": { pattern: /风险|阻塞|延期/, score: 15 },
+    "risk-replan": { pattern: /调整(?:计划|草案)|重新规划|重规划|根据签到.*调整/, score: 25 },
+    "project-status": { pattern: /主动推进|项目(?:现状|进展|状态|进度)|下一步/, score: 20 },
+  };
+  const intent = intents[skillName];
+  return intent?.pattern.test(msg) ? intent.score : 0;
+}
 
-  // Simple keyword matching
-  const keywords = [
-    { pattern: /计划|阶段|规划/, skill: "planning", score: 5 },
-    { pattern: /拆分|任务|分解/, skill: "breakdown", score: 5 },
-    { pattern: /分工|分配|谁做/, skill: "assignment", score: 5 },
-    { pattern: /风险|阻塞|延期/, skill: "risk", score: 5 },
-    { pattern: /进展|状态|进度/, skill: "status", score: 5 },
-    { pattern: /想法|方向|目标/, skill: "intake", score: 5 },
-  ];
-
-  for (const kw of keywords) {
-    if (kw.pattern.test(msg) && desc.includes(kw.skill)) {
-      score += kw.score;
-    }
-  }
-
-  return score;
+function isAnswerOnlyRequest(userContent: string): boolean {
+  return /不要(?:修改|调用|创建|执行)|只(?:解释|说明|回答)|解释.*为什么/.test(userContent);
 }
 
 /**

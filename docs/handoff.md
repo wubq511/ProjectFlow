@@ -1,6 +1,6 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-12.
+Status: current as of 2026-07-13.
 
 ## Latest Architecture Handoff
 
@@ -19,7 +19,9 @@ T43 closes the control-plane gaps identified in `docs/T43/ProjectFlow_Agent_Capa
 
 High-frequency model token and tool-progress deltas are live SSE transport only; final output, tool results, checkpoints and state boundaries remain durable. This reduced the real browser risk-analysis run from 3,532 persisted events before the fix to 123 after the fix, with the run still completing after six bounded tool calls.
 
-Verification: backend 760 passed / 4 skipped + ruff; agent bridge 990 passed across 55 files + typecheck/build; frontend 125 passed across 16 files + lint/build. Production-model canary was not executed because no provider credentials were configured.
+Verification: backend 760 passed / 4 skipped + ruff; agent bridge 994 passed across 55 files + typecheck/build; frontend 125 passed across 16 files + lint/build.
+
+Production canary (2026-07-13): DeepSeek V4 Flash and DeepSeek V4 Pro both reached 100% routing and outcome pass rates across answer, status, risk-replan, planning and assignment/privacy scenarios. Flash P95 was 32.655s with 93,972 input / 10,360 output tokens and $0.0170647008 measured cost. Pro P95 was 92.711s; after replacing the privacy evaluator's false-positive `project_*` regex with actual workspace-ID + UUID checks, the combined Pro evidence was 97,566 input / 14,886 output tokens and $0.058729118 measured cost. Frozen latency gates are 30s for answer, 90s for status/planning/privacy and 120s for risk-replan.
 
 ### Agent Thinking Process Folding (2026-07-10)
 

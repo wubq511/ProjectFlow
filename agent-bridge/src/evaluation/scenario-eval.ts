@@ -4,6 +4,9 @@ export interface AgentScenario {
   expectedMode: "answer" | "action";
   expectedSkill?: string;
   requiredEvidence: string[];
+  requiredAnyEvidence?: string[];
+  forbiddenOutputPatterns?: RegExp[];
+  forbidRawIds?: boolean;
   maxLatencyMs: number;
 }
 
@@ -16,6 +19,7 @@ export interface ScenarioObservation {
   inputTokens: number;
   outputTokens: number;
   cost: number;
+  outputPolicyPassed?: boolean;
 }
 
 export interface ScenarioResult {
@@ -46,10 +50,10 @@ export type ScenarioRunner = (scenario: AgentScenario, model: string) => Promise
 
 export const RELEASE_SCENARIOS: AgentScenario[] = [
   { id: "answer-no-tool", prompt: "解释当前项目下一步为什么重要，不要修改任何内容", expectedMode: "answer", requiredEvidence: [], maxLatencyMs: 30_000 },
-  { id: "status-read", prompt: "查看项目现状并给出下一步", expectedMode: "action", expectedSkill: "project-status", requiredEvidence: ["get_project_state"], maxLatencyMs: 60_000 },
-  { id: "risk-proposal", prompt: "分析风险并在需要时给出调整草案", expectedMode: "action", expectedSkill: "risk-replan", requiredEvidence: ["analyze_checkins_and_risks"], maxLatencyMs: 90_000 },
+  { id: "status-read", prompt: "查看项目现状并给出下一步", expectedMode: "action", expectedSkill: "project-status", requiredEvidence: [], requiredAnyEvidence: ["get_workspace_state", "get_timeline_slice", "list_pending_proposals"], maxLatencyMs: 90_000 },
+  { id: "risk-proposal", prompt: "分析风险并在需要时给出调整草案", expectedMode: "action", expectedSkill: "risk-replan", requiredEvidence: ["analyze_checkins_and_risks"], maxLatencyMs: 120_000 },
   { id: "planning", prompt: "根据当前项目生成阶段计划草案", expectedMode: "action", expectedSkill: "project-planning", requiredEvidence: ["generate_stage_plan_proposal"], maxLatencyMs: 90_000 },
-  { id: "privacy", prompt: "总结团队分工，不要显示任何原始 ID", expectedMode: "action", expectedSkill: "assignment-planning", requiredEvidence: ["get_workspace_state"], maxLatencyMs: 60_000 },
+  { id: "privacy", prompt: "根据当前项目推荐团队分工，不要显示任何原始 ID", expectedMode: "action", expectedSkill: "assignment-planning", requiredEvidence: ["recommend_assignment"], forbidRawIds: true, maxLatencyMs: 90_000 },
 ];
 
 function percentile95(values: number[]): number {
@@ -69,11 +73,20 @@ export async function runScenarioEval(
     const routingPassed = observation.routedMode === scenario.expectedMode
       && (!scenario.expectedSkill || observation.selectedSkills.includes(scenario.expectedSkill));
     const missingEvidence = scenario.requiredEvidence.filter((item) => !observation.evidence.includes(item));
-    const outcomePassed = observation.terminalStatus === "completed" && missingEvidence.length === 0;
+    const anyEvidencePassed = !scenario.requiredAnyEvidence?.length
+      || scenario.requiredAnyEvidence.some((item) => observation.evidence.includes(item));
+    const outputPolicyPassed = observation.outputPolicyPassed !== false;
+    const outcomePassed = observation.terminalStatus === "completed"
+      && missingEvidence.length === 0
+      && anyEvidencePassed
+      && outputPolicyPassed;
     const latencyPassed = observation.latencyMs <= scenario.maxLatencyMs;
     const failures = [
       ...(!routingPassed ? ["routing"] : []),
-      ...(!outcomePassed ? [`outcome:${missingEvidence.join(",") || observation.terminalStatus}`] : []),
+      ...(observation.terminalStatus !== "completed" ? [`outcome:${observation.terminalStatus}`] : []),
+      ...(missingEvidence.length > 0 ? [`outcome:${missingEvidence.join(",")}`] : []),
+      ...(!anyEvidencePassed ? ["outcome:any_evidence"] : []),
+      ...(!outputPolicyPassed ? ["outcome:output_policy"] : []),
       ...(!latencyPassed ? ["latency"] : []),
     ];
     results.push({

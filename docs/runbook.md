@@ -140,10 +140,10 @@ npm run build
 npm audit --omit=dev
 ```
 
-Expected baseline as of 2026-07-12:
+Expected baseline as of 2026-07-13:
 
 - Backend tests pass: 760 passed, 4 skipped.
-- Agent bridge tests pass: 990 tests across 55 unit files; `npm run lint` and `npm run build` pass in `agent-bridge/`.
+- Agent bridge tests pass: 994 tests across 55 unit files; `npm run lint` and `npm run build` pass in `agent-bridge/`.
 - Frontend tests pass: 125 tests across 16 files.
 - Frontend lint passes.
 - Frontend production build passes.
@@ -162,7 +162,9 @@ cd agent-bridge
 ../scripts/npm run eval:canary
 ```
 
-The runner exercises the public HTTP/SSE seam with distinct primary and fallback models and reports routing, outcome, P95 latency, token usage, and cost. It requires configured provider credentials; without them, treat the canary as not executed rather than passed. Deterministic public-seam scenarios remain part of the normal Agent Bridge test suite.
+The runner exercises the public HTTP/SSE seam with distinct primary and fallback models and reports routing, outcome, P95 latency, token usage, cost and output privacy. Provide `EVAL_WORKSPACE_STATE_JSON`, `EVAL_CONVERSATION_ID`, `EVAL_WORKSPACE_ID`, `EVAL_PROJECT_ID`, `EVAL_VIEWER_USER_ID`, `EVAL_PRIMARY_MODEL` and `EVAL_FALLBACK_MODEL`; model refs use `provider:name` format. Provider keys remain in `agent-bridge/.env` and must never be echoed into the command or report.
+
+The 2026-07-13 DeepSeek Flash/Pro canary passed with 100% routing and outcome rates. Frozen scenario latency gates are answer 30s, status/planning/privacy 90s and risk-replan 120s. The accepted evidence baseline is Flash P95 32.655s / $0.0170647008 and Pro P95 92.711s / $0.058729118; compare future runs against these numbers rather than treating one sample as a permanent pricing guarantee. Deterministic public-seam scenarios remain part of the normal Agent Bridge test suite.
 
 ## LLM Provider Diagnostic
 

@@ -9,6 +9,13 @@ All notable changes to ProjectFlow are documented here. Format follows [Keep a C
 - T43 Agent Harness V2 P0: Outcome Contract, RunPlan/WorkState, token-aware context compaction, composable Skills V2, deterministic verifier, manifest-enforced Tool Executor V2, durable checkpoint/resume/steering, frontend run controls, run-scoped large-result pagination, trajectory export, public HTTP/SSE scenario evaluation and cross-model conformance canary.
 - Identity boundaries for project creation and proposal confirmation now require a real member of the target workspace; the frontend fails closed when no active member identity is available.
 - High-frequency model token and tool-progress deltas now remain live SSE events while final outputs and state boundaries stay durable, preventing per-token event/state double writes.
+- DeepSeek V4 Flash/Pro production canary with frozen per-scenario latency gates, real token/cost telemetry, tool-evidence outcomes and actual workspace-ID/UUID privacy checks.
+
+### Fixed
+
+- Skills V2 prerequisites now gate eligibility without adding intent score; Chinese release prompts route deterministically instead of selecting the first prerequisite-satisfied skills.
+- Pi `message_end` usage and cost are extracted from the assistant message, so production canary telemetry no longer reports zero tokens or cost.
+- Operational evaluation accepts one-of read evidence where state is already injected and checks real workspace IDs instead of treating normal `project_*` terms as raw-ID leaks.
 
 - T42 ProjectMemory V1 remediation Batches A–D (R1–R6, R8): sidecar memory context injection, FTS5 project-scoped top-k, two-phase natural language retrieval (strict AND → relaxed OR), query normalization, 50-query stratified eval, memory observability via `agent.started` `_memory` payload, history memory display (active+superseded+archived), ProjectMemorySync status closure, streaming raw-ID sanitization, partial aggregate support, and a 5-scenario A/B eval harness with independent blind review.
 - R8 release evidence: the initial 150-pair/300-call sidecar Pilot and selective S1/S2 remediation runs completed without model-call errors; combined evidence passes 7/7 gates. A narrow member-constraint assignment output guard (review, one repair, re-review, deterministic check, conservative fallback) raises the final selective S1 B-group evidence from 80% to 10/10 and reports guard status/calls in SSE evidence.

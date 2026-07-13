@@ -163,11 +163,32 @@ export function mapPiEvent(piEvent: PiEvent, runId: string): MappedEvent {
       };
     }
 
-    case "message_end":
+    case "message_end": {
+      const message = piEvent.message as Record<string, unknown> | undefined;
+      const rawUsage = message?.role === "assistant" && message.usage && typeof message.usage === "object"
+        ? message.usage as Record<string, unknown>
+        : undefined;
+      const rawCost = rawUsage?.cost && typeof rawUsage.cost === "object"
+        ? rawUsage.cost as Record<string, unknown>
+        : undefined;
       return {
         type: "agent.status",
-        payload: { run_id: runId, phase: "message_end", ...piEvent.data },
+        payload: {
+          run_id: runId,
+          phase: "message_end",
+          ...piEvent.data,
+          ...(rawUsage ? {
+            usage: {
+              input: typeof rawUsage.input === "number" ? rawUsage.input : 0,
+              output: typeof rawUsage.output === "number" ? rawUsage.output : 0,
+            },
+            cost: {
+              total: typeof rawCost?.total === "number" ? rawCost.total : 0,
+            },
+          } : {}),
+        },
       };
+    }
 
     case "tool_execution_start":
       return {
