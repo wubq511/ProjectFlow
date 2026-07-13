@@ -137,7 +137,7 @@ def process_conversation_message_stream(
         conversation.workspace_id,
         project_id=conversation.project_id,
     )
-    recent_messages = _recent_messages(session, conversation.id)
+    recent_messages = _recent_messages(session, conversation.id, exclude_id=user_message.id)
 
     # Map deterministic intent to sidecar Skill name.
     # Only unambiguous action intents get a skill; general questions stay in answer mode.
@@ -438,13 +438,21 @@ def _message_to_read(message: AgentMessage) -> AgentMessageRead:
     )
 
 
-def _recent_messages(session: Session, conversation_id: str) -> list[AgentMessage]:
-    return session.exec(
+def _recent_messages(
+    session: Session,
+    conversation_id: str,
+    *,
+    exclude_id: str | None = None,
+) -> list[AgentMessage]:
+    stmt = (
         select(AgentMessage)
         .where(AgentMessage.conversation_id == conversation_id)
         .order_by(desc(AgentMessage.created_at))
         .limit(8)
-    ).all()
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(AgentMessage.id != exclude_id)
+    return session.exec(stmt).all()
 
 
 def _messages_json(messages: list[AgentMessage]) -> str:

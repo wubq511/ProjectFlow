@@ -727,3 +727,121 @@ class TestSidecarRequestIncludesSkill:
 
         assert len(captured_requests) == 1
         assert "skill" not in captured_requests[0]["runtime_config"]
+
+
+class TestRecentMessagesExcludesCurrent:
+    """Test that recent_messages in the sidecar request excludes the just-persisted current user message."""
+
+    @staticmethod
+    def _session_with_conversation():
+        from app.models import Project
+        from app.models.agent_conversation import AgentConversation
+
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(engine)
+        session = Session(engine)
+        project = Project(
+            id="project-1", workspace_id="workspace-1", name="项目", idea="想法",
+            deadline="2026-08-01", deliverables="演示", created_by="user-1",
+        )
+        conversation = AgentConversation(
+            id="conversation-1", workspace_id="workspace-1", project_id=project.id,
+        )
+        session.add(project)
+        session.add(conversation)
+        session.commit()
+        return session, conversation
+
+    def test_recent_messages_excludes_current_user_message(self, monkeypatch):
+        """The current user message must NOT appear in recent_messages."""
+        from app.models.agent_conversation import AgentMessage
+        from app.services import agent_conversation_service as service
+
+        captured_requests = []
+
+        class _CaptureSidecarResponse:
+            status_code = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def iter_text(self):
+                yield service._sse_event("done", {"run_id": "run-1", "status": "completed", "final_content": "回答"})
+
+            def read(self):
+                return b""
+
+        def capturing_stream(method, url, json=None, **kwargs):
+            captured_requests.append(json)
+            return _CaptureSidecarResponse()
+
+        session, conversation = self._session_with_conversation()
+
+        # Pre-populate a prior user message so there's something in history
+        prior_msg = AgentMessage(
+            conversation_id=conversation.id,
+            role="user",
+            content="之前的问题",
+        )
+        session.add(prior_msg)
+        session.commit()
+
+        monkeypatch.setattr(service, "get_workspace_state", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(service.httpx, "stream", capturing_stream)
+        try:
+            "".join(service.process_conversation_message_stream(session, conversation.id, "当前的问题"))
+        finally:
+            session.close()
+
+        assert len(captured_requests) == 1
+        recent_messages = captured_requests[0]["recent_messages"]
+        recent_contents = [msg["content"] for msg in recent_messages]
+        # The current message "当前的问题" must NOT be in recent_messages
+        assert "当前的问题" not in recent_contents
+        # The prior message "之前的问题" should still be present
+        assert "之前的问题" in recent_contents
+
+    def test_recent_messages_when_no_prior_messages(self, monkeypatch):
+        """When there are no prior messages, recent_messages should be empty."""
+        from app.services import agent_conversation_service as service
+
+        captured_requests = []
+
+        class _CaptureSidecarResponse:
+            status_code = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def iter_text(self):
+                yield service._sse_event("done", {"run_id": "run-1", "status": "completed", "final_content": "回答"})
+
+            def read(self):
+                return b""
+
+        def capturing_stream(method, url, json=None, **kwargs):
+            captured_requests.append(json)
+            return _CaptureSidecarResponse()
+
+        session, conversation = self._session_with_conversation()
+        monkeypatch.setattr(service, "get_workspace_state", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(service.httpx, "stream", capturing_stream)
+        try:
+            "".join(service.process_conversation_message_stream(session, conversation.id, "第一条消息"))
+        finally:
+            session.close()
+
+        assert len(captured_requests) == 1
+        recent_messages = captured_requests[0]["recent_messages"]
+        # No prior messages → recent_messages should be empty
+        assert recent_messages == []

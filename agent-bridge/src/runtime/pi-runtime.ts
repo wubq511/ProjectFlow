@@ -854,9 +854,12 @@ export async function executeRun(
     }
 
     // Step 3: Build Pi AgentContext
+    // The current user message is passed as the prompt argument to runAgentLoop
+    // (step 7 below), so agentContext.messages must be empty to avoid duplicating
+    // the same full user payload in the model request.
     const agentContext: AgentContext = {
       systemPrompt: builtContext.systemPrompt,
-      messages: [{ role: "user" as const, content: builtContext.userMessage, timestamp: Date.now() } as AgentMessage],
+      messages: [],
       tools: piTools,
     };
 

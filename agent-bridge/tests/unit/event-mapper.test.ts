@@ -214,6 +214,85 @@ describe("event-mapper", () => {
     });
   });
 
+  // ── message_end usage/cache telemetry ─────────────────────────────────
+
+  it("message_end preserves all usage fields including reasoning and cache", () => {
+    const piEvent: PiEvent = {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        usage: {
+          input: 200,
+          output: 50,
+          reasoning: 30,
+          cacheRead: 150,
+          cacheWrite: 20,
+          cost: { total: 0.008, input: 0.005, output: 0.003 },
+        },
+      },
+    };
+    const result = mapPiEvent(piEvent, runId);
+    expect(result.type).toBe("agent.status");
+    expect(result.payload.phase).toBe("message_end");
+    expect(result.payload.usage).toEqual({
+      input: 200, output: 50, reasoning: 30, cacheRead: 150, cacheWrite: 20,
+    });
+    expect(result.payload.cost).toEqual({ total: 0.008, input: 0.005, output: 0.003 });
+  });
+
+  it("message_end omits absent cache/reasoning fields (not measured zeros)", () => {
+    const piEvent: PiEvent = {
+      type: "message_end",
+      message: { role: "assistant", usage: { input: 100, output: 20 } },
+    };
+    const result = mapPiEvent(piEvent, runId);
+    expect(result.payload.usage).toEqual({ input: 100, output: 20 });
+    expect(result.payload.usage).not.toHaveProperty("reasoning");
+    expect(result.payload.usage).not.toHaveProperty("cacheRead");
+    expect(result.payload.usage).not.toHaveProperty("cacheWrite");
+    expect(result.payload).not.toHaveProperty("cost");
+  });
+
+  it("message_end omits usage when message has no usage", () => {
+    const piEvent: PiEvent = {
+      type: "message_end",
+      message: { role: "assistant" },
+    };
+    const result = mapPiEvent(piEvent, runId);
+    expect(result.payload).not.toHaveProperty("usage");
+    expect(result.payload).not.toHaveProperty("cost");
+  });
+
+  it("message_end ignores non-assistant message usage", () => {
+    const piEvent: PiEvent = {
+      type: "message_end",
+      message: { role: "user", usage: { input: 100, output: 50 } },
+    };
+    const result = mapPiEvent(piEvent, runId);
+    expect(result.payload).not.toHaveProperty("usage");
+    expect(result.payload).not.toHaveProperty("cost");
+  });
+
+  it("message_end normalizes snake_case token keys from provider", () => {
+    const piEvent: PiEvent = {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        usage: {
+          input_tokens: 200,
+          output_tokens: 50,
+          reasoning_tokens: 30,
+          cache_read_tokens: 150,
+          cache_write_tokens: 20,
+        },
+      },
+    };
+    const result = mapPiEvent(piEvent, runId);
+    expect(result.payload.usage).toEqual({
+      input_tokens: 200, output_tokens: 50, reasoning_tokens: 30, cache_read_tokens: 150, cache_write_tokens: 20,
+    });
+  });
+
   it("maps real Pi message_update events to agent.delta without raw message payload", () => {
     const runState = createRunState({
       conversationId: "conv_1",

@@ -564,4 +564,66 @@ describe("pi-runtime", () => {
     }
   });
 
+  it("sends current user content exactly once — no duplication in context.messages", async () => {
+    const registry = new ToolRegistry();
+    registerMockTools(registry);
+
+    const USER_CONTENT = "检查重复内容";
+
+    // Use a custom streamFn that captures context.messages on each model call.
+    // Pi's runAgentLoop appends the prompt to context.messages internally, then
+    // appends assistant/tool messages as the loop progresses. By capturing
+    // context.messages at each call, we can count how many times the user content
+    // appears.
+    const capturedContexts: unknown[][] = [];
+    const capturingStreamFn: StreamFn = (model, context, options) => {
+      capturedContexts.push([...(context.messages ?? [])]);
+      const stream = createAssistantMessageEventStream();
+      const usage: Usage = {
+        input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      };
+      const message: AssistantMessage = {
+        role: "assistant", content: [{ type: "text", text: "回答" }],
+        api: model.api, provider: model.provider, model: model.name,
+        usage, stopReason: "stop", timestamp: Date.now(),
+      };
+      queueMicrotask(() => {
+        stream.push({ type: "done", reason: "stop", message });
+      });
+      return stream;
+    };
+
+    await executeRun(
+      createState(),
+      {
+        conversationId: "conv_1",
+        workspaceId: "ws_1",
+        projectId: "proj_1",
+        userContent: USER_CONTENT,
+        skillContext: defaultSkillContext(),
+      },
+      registry,
+      createModelRouter(),
+      createFastapiClient([]),
+      new EventStream(),
+      { streamFn: capturingStreamFn },
+    );
+
+    // The streamFn should have been called at least once
+    expect(capturedContexts.length).toBeGreaterThanOrEqual(1);
+
+    // Count how many times the user content appears across all context.messages
+    // captured during model calls. Before the fix, the user message was both
+    // pre-populated in agentContext.messages AND added by runAgentLoop's prompt
+    // argument, causing it to appear twice. After the fix, agentContext.messages
+    // starts empty and runAgentLoop adds the prompt exactly once.
+    for (const msgs of capturedContexts) {
+      const userContentOccurrences = msgs.filter(
+        (m: any) => m.role === "user" && typeof m.content === "string" && m.content.includes(USER_CONTENT),
+      );
+      expect(userContentOccurrences).toHaveLength(1);
+    }
+  });
+
 });

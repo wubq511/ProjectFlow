@@ -39,8 +39,45 @@ describe("operational Agent evaluation", () => {
     expect(trajectory.runIdHash).not.toContain("run-secret");
     expect(trajectory.inputTokens).toBe(20);
     expect(trajectory.outputTokens).toBe(10);
+    // Provider did not supply reasoning/cache — must be absent, not zero.
+    expect(trajectory.reasoningTokens).toBeUndefined();
+    expect(trajectory.cacheReadTokens).toBeUndefined();
+    expect(trajectory.cacheWriteTokens).toBeUndefined();
+    // Provider explicitly supplied cost.total=0.01 — must be present.
+    expect(trajectory.totalCost).toBe(0.01);
+    // No per-key cost breakdown supplied — must be absent.
+    expect(trajectory.costBreakdown).toBeUndefined();
     expect(trajectory.latencyMs).toBe(3000);
     expect(trajectory.verifierPassed).toBe(true);
+  });
+
+  it("accumulates reasoning, cache and cost breakdown from events", () => {
+    const trajectory = exportTrajectory("run-cache", [
+      { type: "run.started", event_seq: 1, created_at: "2026-07-12T00:00:00Z", payload: {} },
+      { type: "agent.status", event_seq: 2, created_at: "2026-07-12T00:00:01Z", payload: { usage: { input: 200, output: 50, reasoning: 30, cacheRead: 150, cacheWrite: 20 }, cost: { total: 0.008, input: 0.005, output: 0.003 } } },
+      { type: "agent.status", event_seq: 3, created_at: "2026-07-12T00:00:02Z", payload: { usage: { input: 100, output: 20, cacheRead: 80 }, cost: { total: 0.004, input: 0.003, output: 0.001 } } },
+      { type: "agent.completed", event_seq: 4, created_at: "2026-07-12T00:00:03Z", payload: {} },
+    ]);
+    expect(trajectory.inputTokens).toBe(300);
+    expect(trajectory.outputTokens).toBe(70);
+    expect(trajectory.reasoningTokens).toBe(30);
+    expect(trajectory.cacheReadTokens).toBe(230);
+    expect(trajectory.cacheWriteTokens).toBe(20);
+    expect(trajectory.totalCost).toBe(0.012);
+    expect(trajectory.costBreakdown).toEqual({ input: 0.008, output: 0.004 });
+  });
+
+  it("preserves explicit provider zero as measured zero, not absent", () => {
+    const trajectory = exportTrajectory("run-explicit-zero", [
+      { type: "run.started", event_seq: 1, created_at: "2026-07-12T00:00:00Z", payload: {} },
+      { type: "agent.status", event_seq: 2, created_at: "2026-07-12T00:00:01Z", payload: { usage: { input: 100, output: 20, reasoning: 0, cacheRead: 0, cacheWrite: 0 }, cost: { total: 0 } } },
+      { type: "agent.completed", event_seq: 3, created_at: "2026-07-12T00:00:02Z", payload: {} },
+    ]);
+    // Provider explicitly reported 0 for all fields — must be present as 0, not absent.
+    expect(trajectory.reasoningTokens).toBe(0);
+    expect(trajectory.cacheReadTokens).toBe(0);
+    expect(trajectory.cacheWriteTokens).toBe(0);
+    expect(trajectory.totalCost).toBe(0);
   });
 
   it("computes routing, outcome, latency, token and cost gates", async () => {
@@ -147,6 +184,51 @@ describe("operational Agent evaluation", () => {
     const mapped = mapPiEvent(event, "run-1");
     expect(mapped.payload.usage).toEqual({ input: 120, output: 30 });
     expect(mapped.payload.cost).toEqual({ total: 0.0042 });
+  });
+
+  it("preserves reasoning and cache fields when provider supplies them", () => {
+    const event: PiEvent = {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        usage: {
+          input: 200,
+          output: 50,
+          reasoning: 30,
+          cacheRead: 150,
+          cacheWrite: 20,
+          cost: { total: 0.008, input: 0.005, output: 0.003 },
+        },
+      },
+    };
+    const mapped = mapPiEvent(event, "run-1");
+    expect(mapped.payload.usage).toEqual({
+      input: 200, output: 50, reasoning: 30, cacheRead: 150, cacheWrite: 20,
+    });
+    expect(mapped.payload.cost).toEqual({ total: 0.008, input: 0.005, output: 0.003 });
+  });
+
+  it("omits cache fields when provider does not supply them", () => {
+    const event: PiEvent = {
+      type: "message_end",
+      message: { role: "assistant", usage: { input: 100, output: 20 } },
+    };
+    const mapped = mapPiEvent(event, "run-1");
+    expect(mapped.payload.usage).toEqual({ input: 100, output: 20 });
+    expect(mapped.payload.usage).not.toHaveProperty("reasoning");
+    expect(mapped.payload.usage).not.toHaveProperty("cacheRead");
+    expect(mapped.payload.usage).not.toHaveProperty("cacheWrite");
+    expect(mapped.payload).not.toHaveProperty("cost");
+  });
+
+  it("omits usage when message has no usage object", () => {
+    const event: PiEvent = {
+      type: "message_end",
+      message: { role: "assistant" },
+    };
+    const mapped = mapPiEvent(event, "run-1");
+    expect(mapped.payload).not.toHaveProperty("usage");
+    expect(mapped.payload).not.toHaveProperty("cost");
   });
 
   it("fails when no acceptable evidence exists or the output policy is violated", async () => {

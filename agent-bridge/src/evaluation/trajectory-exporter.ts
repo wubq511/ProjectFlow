@@ -26,7 +26,16 @@ export interface RunTrajectory {
   latencyMs?: number;
   inputTokens: number;
   outputTokens: number;
-  totalCost: number;
+  /** Provider-reported reasoning tokens. Absent when the provider did not supply this field. */
+  reasoningTokens?: number;
+  /** Provider-reported cache read tokens. Absent when the provider did not supply this field. */
+  cacheReadTokens?: number;
+  /** Provider-reported cache write tokens. Absent when the provider did not supply this field. */
+  cacheWriteTokens?: number;
+  /** Provider-reported total cost. Absent when the provider did not supply cost data. */
+  totalCost?: number;
+  /** Provider-supplied cost breakdown (e.g. { input: ..., output: ... }). Absent when the provider did not supply cost data. */
+  costBreakdown?: Record<string, number>;
   terminalType?: string;
   verifierPassed?: boolean;
   steps: TrajectoryStep[];
@@ -45,7 +54,18 @@ export function exportTrajectory(runId: string, events: PersistedRunEvent[]): Ru
   const ordered = [...events].sort((a, b) => (a.event_seq ?? 0) - (b.event_seq ?? 0));
   let inputTokens = 0;
   let outputTokens = 0;
+  let reasoningTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
   let totalCost = 0;
+  const costBreakdown: Record<string, number> = {};
+  // Track whether the provider actually supplied each optional telemetry field.
+  // This distinguishes "provider reported 0" from "provider did not report at all".
+  let observedReasoning = false;
+  let observedCacheRead = false;
+  let observedCacheWrite = false;
+  let observedCost = false;
+  let observedCostBreakdown = false;
   let model: string | undefined;
   let terminalType: string | undefined;
   let verifierPassed: boolean | undefined;
@@ -56,7 +76,33 @@ export function exportTrajectory(runId: string, events: PersistedRunEvent[]): Ru
     const cost = nestedRecord(payload.cost);
     inputTokens += numberField(usage.input) || numberField(usage.input_tokens);
     outputTokens += numberField(usage.output) || numberField(usage.output_tokens);
-    totalCost += numberField(cost.total);
+    const r = numberField(usage.reasoning) || numberField(usage.reasoning_tokens);
+    if (r || usage.reasoning !== undefined || usage.reasoning_tokens !== undefined) {
+      observedReasoning = true;
+      reasoningTokens += r;
+    }
+    const cr = numberField(usage.cacheRead) || numberField(usage.cache_read_tokens);
+    if (cr || usage.cacheRead !== undefined || usage.cache_read_tokens !== undefined) {
+      observedCacheRead = true;
+      cacheReadTokens += cr;
+    }
+    const cw = numberField(usage.cacheWrite) || numberField(usage.cache_write_tokens);
+    if (cw || usage.cacheWrite !== undefined || usage.cache_write_tokens !== undefined) {
+      observedCacheWrite = true;
+      cacheWriteTokens += cw;
+    }
+    const ct = numberField(cost.total);
+    if (ct || cost.total !== undefined) {
+      observedCost = true;
+      totalCost += ct;
+    }
+    // Accumulate per-key cost breakdown (skip "total" — already tracked above).
+    for (const [k, v] of Object.entries(cost)) {
+      if (k !== "total" && typeof v === "number") {
+        observedCostBreakdown = true;
+        costBreakdown[k] = (costBreakdown[k] ?? 0) + v;
+      }
+    }
     if (typeof payload.model === "string") model = payload.model;
     if (event.type === "verifier.completed" && typeof payload.passed === "boolean") {
       verifierPassed = payload.passed;
@@ -90,7 +136,11 @@ export function exportTrajectory(runId: string, events: PersistedRunEvent[]): Ru
     ...(latencyMs !== undefined ? { latencyMs } : {}),
     inputTokens,
     outputTokens,
-    totalCost,
+    ...(observedReasoning ? { reasoningTokens } : {}),
+    ...(observedCacheRead ? { cacheReadTokens } : {}),
+    ...(observedCacheWrite ? { cacheWriteTokens } : {}),
+    ...(observedCost ? { totalCost } : {}),
+    ...(observedCostBreakdown ? { costBreakdown } : {}),
     ...(terminalType ? { terminalType } : {}),
     ...(verifierPassed !== undefined ? { verifierPassed } : {}),
     steps,

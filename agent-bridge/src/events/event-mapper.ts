@@ -171,21 +171,36 @@ export function mapPiEvent(piEvent: PiEvent, runId: string): MappedEvent {
       const rawCost = rawUsage?.cost && typeof rawUsage.cost === "object"
         ? rawUsage.cost as Record<string, unknown>
         : undefined;
+      if (!rawUsage) {
+        return {
+          type: "agent.status",
+          payload: { run_id: runId, phase: "message_end", ...piEvent.data },
+        };
+      }
+      // Preserve all numeric usage fields; omit keys the provider did not supply
+      // so that unknown values remain absent rather than measured zeros.
+      const KNOWN_USAGE_KEYS = ["input", "output", "reasoning", "cacheRead", "cacheWrite", "input_tokens", "output_tokens", "reasoning_tokens", "cache_read_tokens", "cache_write_tokens"];
+      const usage: Record<string, unknown> = {};
+      for (const key of KNOWN_USAGE_KEYS) {
+        if (typeof rawUsage[key] === "number") {
+          usage[key] = rawUsage[key];
+        }
+      }
+      // Pass through any cost breakdown fields the provider supplies.
+      const cost: Record<string, unknown> = {};
+      if (rawCost) {
+        for (const [k, v] of Object.entries(rawCost)) {
+          if (typeof v === "number") cost[k] = v;
+        }
+      }
       return {
         type: "agent.status",
         payload: {
           run_id: runId,
           phase: "message_end",
           ...piEvent.data,
-          ...(rawUsage ? {
-            usage: {
-              input: typeof rawUsage.input === "number" ? rawUsage.input : 0,
-              output: typeof rawUsage.output === "number" ? rawUsage.output : 0,
-            },
-            cost: {
-              total: typeof rawCost?.total === "number" ? rawCost.total : 0,
-            },
-          } : {}),
+          usage,
+          ...(Object.keys(cost).length > 0 ? { cost } : {}),
         },
       };
     }
