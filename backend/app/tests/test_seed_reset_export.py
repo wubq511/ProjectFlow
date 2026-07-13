@@ -4,13 +4,26 @@ import json
 
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
+from sqlalchemy import event as sqlalchemy_event
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.core.config import settings as app_settings
-from app.models import AgentConversation, AgentEvent, AgentMessage, AgentProposal, AgentRun
+from app.models import (
+    AgentConversation,
+    AgentEvent,
+    AgentMessage,
+    AgentProposal,
+    AgentRun,
+    AgentRunEvent,
+    AgentRunV2,
+    AgentToolResource,
+    ProjectMemory,
+    ProjectMemorySync,
+)
+from app.models.enums import AgentRunStatus, RuntimeEventType
 from app.seed.demo_projectflow import PROJECT_ID, WORKSPACE_ID, seed_demo_data
-from app.seed.reset import reset_demo_data
+from app.seed.reset import ALL_TABLES, reset_demo_data
 
 
 class TestSeedEndpoint:
@@ -123,6 +136,12 @@ class TestResetEndpoint:
         response = client.post("/api/seed/reset")
         assert response.status_code == 200
 
+    def test_reset_tracks_every_sqlmodel_table(self):
+        modeled_tables = set(SQLModel.metadata.tables)
+        reset_tables = {model.__tablename__ for model in ALL_TABLES}
+
+        assert modeled_tables == reset_tables
+
     def test_reset_clears_agent_conversation_and_proposal_tables(self):
         engine = create_engine(
             "sqlite://",
@@ -131,6 +150,11 @@ class TestResetEndpoint:
             json_serializer=json.dumps,
             json_deserializer=json.loads,
         )
+
+        @sqlalchemy_event.listens_for(engine, "connect")
+        def _enable_foreign_keys(dbapi_connection, _connection_record):
+            dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
         SQLModel.metadata.create_all(engine)
         with Session(engine) as session:
             seed_demo_data(session)
@@ -176,6 +200,58 @@ class TestResetEndpoint:
                     proposal_id=proposal.id,
                 )
             )
+            runtime_run = AgentRunV2(
+                id="test-run-v2-001",
+                conversation_id=conversation.id,
+                project_id=PROJECT_ID,
+                workspace_id=WORKSPACE_ID,
+                viewer_user_id="demo-user-001",
+                status=AgentRunStatus.completed,
+            )
+            session.add(runtime_run)
+            session.flush()
+
+            runtime_event = AgentRunEvent(
+                id="test-run-event-001",
+                run_id=runtime_run.id,
+                conversation_id=conversation.id,
+                workspace_id=WORKSPACE_ID,
+                project_id=PROJECT_ID,
+                type=RuntimeEventType.run_completed,
+                event_seq=1,
+                client_event_id="test-client-event-001",
+            )
+            runtime_event.set_payload({"status": "completed"})
+            runtime_event.set_trace({})
+            session.add(runtime_event)
+            session.add(
+                AgentToolResource(
+                    id="test-tool-resource-001",
+                    run_id=runtime_run.id,
+                    workspace_id=WORKSPACE_ID,
+                    project_id=PROJECT_ID,
+                    tool_call_id="test-tool-call-001",
+                    tool_name="get_workspace_state",
+                    content="{}",
+                    total_bytes=2,
+                    content_hash="test-content-hash",
+                )
+            )
+
+            memory = ProjectMemory(
+                id="test-memory-001",
+                workspace_id=WORKSPACE_ID,
+                project_id=PROJECT_ID,
+                memory_type="plan",
+                scope="project",
+                content="测试计划记忆",
+                rationale="验证演示重置覆盖全部持久化表",
+                source_type="direction_card_confirmed",
+                source_id="test-source-001",
+            )
+            session.add(memory)
+            session.flush()
+            session.add(ProjectMemorySync(memory_id=memory.id))
             session.commit()
 
             result = reset_demo_data(session)
@@ -184,10 +260,20 @@ class TestResetEndpoint:
             assert result["deleted"]["agent_runs"] == 1
             assert result["deleted"]["agent_conversations"] == 1
             assert result["deleted"]["agent_proposals"] == 1
+            assert result["deleted"]["agent_run_events"] == 1
+            assert result["deleted"]["agent_tool_resources"] == 1
+            assert result["deleted"]["agent_runs_v2"] == 1
+            assert result["deleted"]["project_memory_sync"] == 1
+            assert result["deleted"]["project_memories"] == 1
             assert session.exec(select(AgentMessage)).all() == []
             assert session.exec(select(AgentRun)).all() == []
             assert session.exec(select(AgentConversation)).all() == []
             assert session.exec(select(AgentProposal)).all() == []
+            assert session.exec(select(AgentRunEvent)).all() == []
+            assert session.exec(select(AgentToolResource)).all() == []
+            assert session.exec(select(AgentRunV2)).all() == []
+            assert session.exec(select(ProjectMemorySync)).all() == []
+            assert session.exec(select(ProjectMemory)).all() == []
 
     def test_reset_is_blocked_outside_development_without_admin_token(self, client: TestClient, monkeypatch):
         monkeypatch.setattr(app_settings, "app_env", "production")

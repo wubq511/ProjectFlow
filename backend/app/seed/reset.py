@@ -26,13 +26,23 @@ from app.models import (
     AgentConversation,
     AgentMessage,
     AgentRun,
+    AgentRunEvent,
+    AgentRunV2,
+    AgentToolResource,
+    ProjectMemory,
+    ProjectMemorySync,
 )
 
 # All model tables in reverse dependency order (children first)
 ALL_TABLES = [
+    AgentRunEvent,
+    AgentToolResource,
+    AgentRunV2,
     AgentMessage,
     AgentRun,
     AgentConversation,
+    ProjectMemorySync,
+    ProjectMemory,
     AgentProposal,
     AgentEvent,
     ActionCard,
@@ -70,6 +80,10 @@ def reset_demo_data(session: Session) -> dict:
         count = len(rows)
         for row in rows:
             session.delete(row)
+        # Preserve the dependency order above. Relying on the next query's
+        # autoflush makes omissions surface later as misleading parent-table
+        # failures and obscures which model was not cleared.
+        session.flush()
         deleted[model.__tablename__] = count
 
     session.commit()
