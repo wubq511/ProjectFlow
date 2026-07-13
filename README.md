@@ -127,6 +127,7 @@ npm audit --omit=dev
 
 ## Project Docs
 
+- [Agent optimization showcase and judging evidence](docs/showcase/agent-optimization-showcase-2026-07.md)
 - [Setup guide](docs/setup-guide.md)
 - [Technical design](docs/TECH-DESIGN.md)
 - [API contract](docs/api-contract.md)

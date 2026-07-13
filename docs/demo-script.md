@@ -1,8 +1,10 @@
 # ProjectFlow Demo Script
 
-Status: current as of 2026-06-02.
+Status: current as of 2026-07-13.
 
 A 5-minute path through the core loop. Designed for review presentation.
+
+For the current Agent optimization narrative, metrics, judging Q&A and three recommended Agent demonstrations, read [`showcase/agent-optimization-showcase-2026-07.md`](showcase/agent-optimization-showcase-2026-07.md) before presenting. This file remains the deterministic seeded-product walkthrough.
 
 ## Pre-Demo Setup (1 minute)
 
@@ -17,7 +19,7 @@ cd backend
 
 ```bash
 cd frontend
-npm run dev
+../scripts/npm run dev
 ```
 
 3. Load demo seed data:
@@ -29,7 +31,7 @@ curl -X POST http://localhost:8000/api/seed/demo
 4. Open:
 
 ```text
-http://localhost:3000/projects/demo-project-001
+http://localhost:3000/workspaces/demo-workspace-001?project=demo-project-001
 ```
 
 If port 3000 is occupied, start the frontend on another port and use that base URL.
@@ -44,7 +46,7 @@ If port 3000 is occupied, start the frontend on another port and use that base U
 
 ### Step 2: Project Dashboard (30 seconds)
 
-- Navigate to `/projects/demo-project-001`.
+- Navigate to `/workspaces/demo-workspace-001?project=demo-project-001`.
 - Show the project is in "核心实现" stage (active).
 - Point out the direction card: problem, target users, core value.
 
