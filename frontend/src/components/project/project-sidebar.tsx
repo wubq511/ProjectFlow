@@ -484,8 +484,8 @@ export function ProjectSidebar({
         </ul>
       </nav>
 
-      {/* Footer: User switcher */}
-      <div className="border-t border-neutral-100 p-2">
+      {/* Footer: User switcher + Settings */}
+      <div className="border-t border-neutral-100 p-2 space-y-0.5">
         <DropdownMenu>
           <DropdownMenuTrigger
             className={cn(
@@ -524,6 +524,31 @@ export function ProjectSidebar({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent("projectflow:open-settings"))}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-neutral-500 transition hover:bg-neutral-50 focus:outline-none",
+            !isExpanded && "justify-center"
+          )}
+          title="设置"
+          aria-label="设置"
+        >
+          <Settings className="h-4 w-4 shrink-0" aria-hidden />
+          <AnimatePresence>
+            {isExpanded && (
+              <motion.span
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="overflow-hidden whitespace-nowrap"
+              >
+                设置
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </button>
       </div>
 
       {/* Member Management Dialog */}

@@ -22,7 +22,8 @@ import { sendJson } from "./utils.js";
 import { rehydrateFromEvents } from "@/runtime/rehydrate.js";
 import { createRunState } from "@/types/run-state.js";
 import { executeRun } from "@/runtime/pi-runtime.js";
-import type { RunInput, PendingSteeringEvent, ResumeExecutionContext } from "@/runtime/pi-runtime.js";
+import type { RunInput, ResumeExecutionContext } from "@/runtime/pi-runtime.js";
+import type { PendingSteeringEvent } from "@/runtime/context-builder.js";
 import type { StreamEventType } from "@/events/stream.js";
 import type { RuntimeEvent } from "@/types/runtime-event.js";
 import type { SkillContext } from "@/runtime/context-builder.js";
@@ -242,6 +243,7 @@ export async function handleResumeRun(
       {
         traceIncludeSensitiveData: false,
         signal: abortController.signal,
+        sessionStore: ctx.sessionStore,
         resumeContext,                   // Pass rehydrated context
       },
       {

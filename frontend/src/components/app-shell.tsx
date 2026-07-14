@@ -262,6 +262,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const currentMember = members.find((m) => m.user_id === storedUserId) ?? members[0];
   const activeUserId = currentMember?.user_id ?? null;
 
+  useEffect(() => {
+    const handleOpenSettings = () => setSettingsOpen(true);
+    window.addEventListener("projectflow:open-settings", handleOpenSettings);
+    return () => window.removeEventListener("projectflow:open-settings", handleOpenSettings);
+  }, []);
+
   return (
     <div className={cn("bg-paper text-ink", isProjectDashboard ? "h-screen overflow-hidden" : "min-h-screen")}>
       {!isProjectDashboard && (
@@ -361,18 +367,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </>
       )}
 
-      {/* Settings accessible from all views including project dashboard */}
-      {isProjectDashboard && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="fixed top-3 right-3 z-50 h-8 w-8 text-neutral-400 hover:text-neutral-700"
-          onClick={() => setSettingsOpen(true)}
-        >
-          <Settings className="h-4 w-4" />
-          <span className="sr-only">设置</span>
-        </Button>
-      )}
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 
       <main className={isProjectDashboard ? "h-full" : ""}>

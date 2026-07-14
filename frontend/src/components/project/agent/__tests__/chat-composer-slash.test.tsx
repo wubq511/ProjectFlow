@@ -234,7 +234,7 @@ describe("ChatComposer runtime steering", () => {
       />,
     );
     expect(screen.getByRole("button", { name: /停止运行/i })).toBeTruthy();
-    expect((screen.getByRole("button", { name: /发送/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: /发送/i })).toBeNull();
   });
 
   it("shows active send button when running and input has text", () => {
@@ -247,7 +247,7 @@ describe("ChatComposer runtime steering", () => {
         onSendSteering={vi.fn()}
       />,
     );
-    expect(screen.getByRole("button", { name: /停止运行/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /停止运行/i })).toBeNull();
     expect((screen.getByRole("button", { name: /发送/i }) as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -281,6 +281,42 @@ describe("ChatComposer runtime steering", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /停止运行/i }));
     expect(onCancelRun).toHaveBeenCalled();
+  });
+
+  it("keeps stop button clickable while running even when composer is externally disabled", () => {
+    const onCancelRun = vi.fn();
+    render(
+      <ChatComposer
+        value=""
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        isRunning
+        disabled
+        onCancelRun={onCancelRun}
+      />,
+    );
+    const stopButton = screen.getByRole("button", { name: /停止运行/i }) as HTMLButtonElement;
+    expect(stopButton.disabled).toBe(false);
+    fireEvent.click(stopButton);
+    expect(onCancelRun).toHaveBeenCalled();
+  });
+
+  it("keeps textarea and steering send enabled while running even when externally disabled", () => {
+    const onSendSteering = vi.fn();
+    render(
+      <ChatComposer
+        value="请优先做 MVP"
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        isRunning
+        disabled
+        onSendSteering={onSendSteering}
+      />,
+    );
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(textarea.disabled).toBe(false);
+    const sendButton = screen.getByRole("button", { name: /发送/i }) as HTMLButtonElement;
+    expect(sendButton.disabled).toBe(false);
   });
 
   it("does not open slash menu while running", () => {

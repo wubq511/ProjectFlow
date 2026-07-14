@@ -150,7 +150,7 @@ export function ChatComposer({
     async (e?: FormEvent) => {
       e?.preventDefault();
       const trimmed = value.trim();
-      if (!trimmed || disabled) return;
+      if (!trimmed || (disabled && !isRunning)) return;
 
       if (isRunning) {
         if (onSendSteering) {
@@ -301,7 +301,7 @@ export function ChatComposer({
                   : "告诉 Agent 你想推进什么...  (输入 / 使用斜杠命令)"
             }
             className="min-h-12 flex-1 resize-none bg-transparent py-0.5 text-sm text-neutral-800 outline-none placeholder:text-neutral-500"
-            disabled={disabled}
+            disabled={disabled && !isRunning}
             maxLength={maxLength}
             aria-label="输入消息"
           />
@@ -352,29 +352,30 @@ export function ChatComposer({
             </span>
           </div>
           <div className="flex gap-1.5">
-            {isRunning && (
+            {isRunning && !value.trim() ? (
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 className="h-8 gap-1.5 border-coral/30 px-3 text-xs text-coral hover:bg-coral/10"
                 onClick={onCancelRun}
-                disabled={!onCancelRun || disabled}
+                disabled={!onCancelRun}
                 aria-label="停止运行"
               >
                 <Square className="h-3 w-3" />
                 停止
               </Button>
+            ) : (
+              <Button
+                type="submit"
+                size="sm"
+                className="h-8 gap-1.5 bg-moss px-3 text-xs text-white shadow-sm shadow-moss/20 hover:bg-moss/90 active:shadow-none"
+                disabled={!value.trim() || (disabled && !isRunning)}
+              >
+                {disabled && !isRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                发送
+              </Button>
             )}
-            <Button
-              type="submit"
-              size="sm"
-              className="h-8 gap-1.5 bg-moss px-3 text-xs text-white shadow-sm shadow-moss/20 hover:bg-moss/90 active:shadow-none"
-              disabled={!value.trim() || disabled}
-            >
-              {disabled ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-              发送
-            </Button>
           </div>
         </div>
       </div>

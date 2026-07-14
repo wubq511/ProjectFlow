@@ -149,6 +149,7 @@ export async function handleStartRun(
     {
       traceIncludeSensitiveData: wireRequest.runtime_config?.trace_include_sensitive_data ?? ctx.config.traceIncludeSensitiveData,
       signal: abortController.signal,
+      sessionStore: ctx.sessionStore,
     },
     {
       onEvent: (type, payload) => {

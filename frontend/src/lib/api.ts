@@ -783,7 +783,7 @@ export async function sendAgentConversationMessageStream(
   viewerUserId: string,
   callbacks: AgentStreamCallbacks,
   signal?: AbortSignal,
-  options?: { model?: string; thinkingLevel?: string },
+  options?: { model?: string; thinkingLevel?: string; skill?: string; slashCommand?: string },
 ): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/agent/conversations/${conversationId}/messages/stream`, {
     method: "POST",
@@ -793,6 +793,8 @@ export async function sendAgentConversationMessageStream(
       viewer_user_id: viewerUserId,
       ...(options?.model ? { model: options.model } : {}),
       ...(options?.thinkingLevel ? { thinking_level: options.thinkingLevel } : {}),
+      ...(options?.skill ? { skill: options.skill } : {}),
+      ...(options?.slashCommand ? { slash_command: options.slashCommand } : {}),
     }),
     signal,
   });
@@ -865,11 +867,16 @@ async function runAgentFlow(
     .filter(Boolean)
     .join(" ");
 
+  // T45: Each dashboard agent action needs its own durable conversation.
+  // The sidecar run is keyed to a real AgentConversation row; using a
+  // synthetic id like `project-${projectId}` violates the FK and breaks runs.
+  const conversation = await createConversation(projectId, viewerUserId);
+
   const sidecarResp = await fetch(`${SIDECAR_BASE_URL}/runs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      conversation_id: `project-${projectId}`,
+      conversation_id: conversation.id,
       workspace_id: project.workspace_id,
       project_id: projectId,
       viewer_user_id: viewerUserId,
@@ -1087,6 +1094,20 @@ export interface RunSnapshot {
   completed_at: string | null;
   latest_checkpoint: Record<string, unknown> | null;
   recent_events: Array<Record<string, unknown>>;
+  unconsumed_steering?: Array<{
+    steering_seq: number;
+    steering_type: string;
+    content: string;
+    created_at: string;
+    consumed: boolean;
+  }>;
+  consumed_steering?: Array<{
+    steering_seq: number;
+    steering_type: string;
+    content: string;
+    created_at: string;
+    consumed: boolean;
+  }>;
 }
 
 /** Get a durable snapshot of a run for resume/rehydrate. */
@@ -1109,6 +1130,20 @@ export async function resumeRun(runId: string): Promise<{ run_id: string; status
     throw new Error((body.message as string) ?? `恢复失败: ${resp.status}`);
   }
   return resp.json() as Promise<{ run_id: string; status: string; message: string }>;
+}
+
+/** Cancel a running agent run on the sidecar/backend. */
+export async function cancelRun(runId: string, reason = "用户取消"): Promise<{ run_id: string; status: string; cancelled: boolean }> {
+  const resp = await fetch(`${SIDECAR_BASE_URL}/runs/${runId}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({})) as Record<string, unknown>;
+    throw new Error((body.message as string) ?? `取消失败: ${resp.status}`);
+  }
+  return resp.json() as Promise<{ run_id: string; status: string; cancelled: boolean }>;
 }
 
 export type SteeringType = "constraint" | "correction" | "plan_change" | "clarification_answer" | "approval_response" | "cancel";

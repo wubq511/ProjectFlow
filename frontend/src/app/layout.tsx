@@ -4,6 +4,7 @@ import { Instrument_Serif, Inter, Space_Grotesk } from "next/font/google";
 import "../styles/globals.css";
 import { cn } from "@/lib/utils";
 import { AppShell } from "@/components/app-shell";
+import { ConsoleErrorFilter } from "@/components/console-error-filter";
 
 const display = Instrument_Serif({
   subsets: ["latin"],
@@ -41,6 +42,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" className={cn("font-sans", display.variable, body.variable, grotesk.variable)}>
       <body>
+        <ConsoleErrorFilter />
         <AppShell>{children}</AppShell>
       </body>
     </html>

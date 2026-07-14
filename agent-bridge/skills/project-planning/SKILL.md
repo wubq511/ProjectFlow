@@ -2,9 +2,9 @@
 name: project-planning
 description: 当需要阶段计划时触发。将项目方向转化为可执行的阶段计划。
 allowed-tools:
+  - generate_stage_plan_proposal
   - get_workspace_state
   - list_pending_proposals
-  - generate_stage_plan_proposal
 references:
   - references/planning-rubric.md
 v2:

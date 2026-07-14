@@ -15,39 +15,46 @@ export async function handleCancelRun(
   const runId = params.runId ?? "";
   const run = ctx.sessionStore.get(runId);
 
-  if (!run) {
-    sendJson(res, 404, { error: "not_found", message: `运行 ${runId} 未找到` });
-    return;
-  }
-
   // Parse optional reason from body
+  let reason = "user_cancelled";
   try {
     const bodyText = (req as IncomingMessage & { bodyText?: string }).bodyText;
     if (bodyText) {
       const body = JSON.parse(bodyText);
-      if (typeof body.reason === "string") {
-        // reason stored for future use
+      if (typeof body.reason === "string" && body.reason.trim()) {
+        reason = body.reason;
       }
     }
   } catch {
     // ignore parse errors
   }
 
-  // Transition to cancelling
-  const cancelableStatuses = ["created", "context_building", "model_streaming", "tool_preparing", "tool_running", "persisting_tool_result"];
-  if (cancelableStatuses.includes(run.status)) {
-    run.status = "cancelling";
-    run.updatedAt = new Date().toISOString();
-    ctx.sessionStore.abort(runId);
-    run.status = "cancelled";
-    run.completedAt = new Date().toISOString();
-    run.updatedAt = run.completedAt;
-    ctx.sessionStore.clearAbortController(runId);
+  // Propagate to backend FIRST. If backend fails, do not pretend cancellation succeeded.
+  let backendStatus: string | undefined;
+  try {
+    const backendResp = await ctx.fastapiClient.cancelRun(runId, reason);
+    backendStatus = backendResp.status;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[agent-bridge] backend cancelRun failed for ${runId}: ${message}`);
+    sendJson(res, 502, { error: "backend_cancel_failed", message });
+    return;
+  }
+
+  // Update local run state so the runtime loop can detect an explicit cancellation
+  // versus a steering-induced abort.
+  if (run) {
+    const cancelableStatuses = ["created", "context_building", "model_streaming", "tool_preparing", "tool_running", "persisting_tool_result"];
+    if (cancelableStatuses.includes(run.status)) {
+      run.status = "cancelling";
+      run.updatedAt = new Date().toISOString();
+    }
+    ctx.sessionStore.abort(runId, reason);
   }
 
   sendJson(res, 200, {
-    run_id: run.runId,
-    status: run.status,
-    cancelled: run.status === "cancelled",
+    run_id: runId,
+    status: backendStatus ?? "cancelling",
+    cancelled: backendStatus === "cancelled" || backendStatus === "cancelling",
   });
 }

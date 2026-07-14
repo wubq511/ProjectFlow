@@ -233,5 +233,48 @@ describe("ChatMessage output-channel fix", () => {
       expect(screen.queryByText("执行过程")).toBeNull();
       expect(screen.getByText("请帮我分析项目")).toBeTruthy();
     });
+
+    it("renders slash command chip without placeholder for default instruction", () => {
+      const message = {
+        id: "msg-user-slash",
+        conversation_id: "conv-1",
+        role: "user" as const,
+        content: "请执行 clarify 模块",
+        structured_payload: { slash_command: "clarify" },
+        created_at: new Date().toISOString(),
+      };
+      render(<ChatMessage message={message} />);
+      expect(screen.getByText("方向澄清")).toBeTruthy();
+      // No extra body was typed, so only the chip is shown.
+      expect(screen.queryByText("补充上下文...")).toBeNull();
+      expect(screen.queryByText("请执行 clarify 模块")).toBeNull();
+    });
+
+    it("renders slash command chip plus typed body when additional text exists", () => {
+      const message = {
+        id: "msg-user-slash-body",
+        conversation_id: "conv-1",
+        role: "user" as const,
+        content: "帮我聚焦目标",
+        structured_payload: { slash_command: "clarify" },
+        created_at: new Date().toISOString(),
+      };
+      render(<ChatMessage message={message} />);
+      expect(screen.getByText("方向澄清")).toBeTruthy();
+      expect(screen.getByText("帮我聚焦目标")).toBeTruthy();
+    });
+
+    it("falls back to plain text for unknown slash_command", () => {
+      const message = {
+        id: "msg-user-unknown",
+        conversation_id: "conv-1",
+        role: "user" as const,
+        content: "普通消息",
+        structured_payload: { slash_command: "unknown" },
+        created_at: new Date().toISOString(),
+      };
+      render(<ChatMessage message={message} />);
+      expect(screen.getByText("普通消息")).toBeTruthy();
+    });
   });
 });

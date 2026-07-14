@@ -59,6 +59,8 @@ export async function handleRunSnapshot(
         reason: workState.reason,
       } } : null,
       recent_events: recentEvents,
+      unconsumed_steering: Array.isArray(snapshot.unconsumed_steering) ? snapshot.unconsumed_steering : [],
+      consumed_steering: Array.isArray(snapshot.consumed_steering) ? snapshot.consumed_steering : [],
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

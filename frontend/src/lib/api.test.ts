@@ -195,11 +195,29 @@ describe("frontend API layer", () => {
           updated_at: "2026-05-29T00:00:00Z",
         });
       }
+      // T45: conversation creation before sidecar run
+      if (url.endsWith("/projects/project-1/agent-conversations") && init?.method === "POST") {
+        return jsonResponse({
+          id: "conv-1",
+          workspace_id: "workspace-1",
+          project_id: "project-1",
+          creator_user_id: "user-1",
+          title: "",
+          visibility: "private",
+          status: "active",
+          summary: "",
+          current_focus: "",
+          messages: [],
+          created_at: "2026-05-29T00:00:00Z",
+          updated_at: "2026-05-29T00:00:00Z",
+        });
+      }
       // Sidecar POST /runs — start run
       if (url.endsWith("/runs") && init?.method === "POST") {
         const body = JSON.parse(String(init?.body));
         expect(body.workspace_id).toBe("workspace-1");
         expect(body.project_id).toBe("project-1");
+        expect(body.conversation_id).toBe("conv-1");
         expect(body.runtime_config.skill).toBe("assignment-planning");
         return jsonResponse({ run_id: "run-1", status: "running" });
       }
@@ -217,8 +235,8 @@ describe("frontend API layer", () => {
 
     await runAssignment("project-1", "test-user");
 
-    // getProject + POST /runs + GET /runs/:id + GET timeline
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // getProject + createConversation + POST /runs + GET /runs/:id + GET timeline
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("calls sidecar negotiate skill with workspace_id in body", async () => {
@@ -240,10 +258,28 @@ describe("frontend API layer", () => {
           updated_at: "2026-05-29T00:00:00Z",
         });
       }
+      // T45: conversation creation before sidecar run
+      if (url.endsWith("/projects/project-1/agent-conversations") && init?.method === "POST") {
+        return jsonResponse({
+          id: "conv-neg",
+          workspace_id: "workspace-1",
+          project_id: "project-1",
+          creator_user_id: "user-1",
+          title: "",
+          visibility: "private",
+          status: "active",
+          summary: "",
+          current_focus: "",
+          messages: [],
+          created_at: "2026-05-29T00:00:00Z",
+          updated_at: "2026-05-29T00:00:00Z",
+        });
+      }
       if (url.endsWith("/runs") && init?.method === "POST") {
         const body = JSON.parse(String(init?.body));
         expect(body.workspace_id).toBe("workspace-1");
         expect(body.project_id).toBe("project-1");
+        expect(body.conversation_id).toBe("conv-neg");
         expect(body.runtime_config.skill).toBe("assignment-planning");
         return jsonResponse({ run_id: "run-neg", status: "running" });
       }
@@ -262,8 +298,8 @@ describe("frontend API layer", () => {
 
     // With ENDPOINT_EVENT_TYPE_MAP, negotiate maps to "assign" not "negotiate"
     expect(result.event_type).toBe("assign");
-    // getProject + POST /runs + GET /runs/:id + GET timeline
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // getProject + createConversation + POST /runs + GET /runs/:id + GET timeline
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("passes stage_id in assignment sidecar request when provided", async () => {
@@ -285,10 +321,28 @@ describe("frontend API layer", () => {
           updated_at: "2026-05-29T00:00:00Z",
         });
       }
+      // T45: conversation creation before sidecar run
+      if (url.endsWith("/projects/project-1/agent-conversations") && init?.method === "POST") {
+        return jsonResponse({
+          id: "conv-stage",
+          workspace_id: "workspace-1",
+          project_id: "project-1",
+          creator_user_id: "user-1",
+          title: "",
+          visibility: "private",
+          status: "active",
+          summary: "",
+          current_focus: "",
+          messages: [],
+          created_at: "2026-05-29T00:00:00Z",
+          updated_at: "2026-05-29T00:00:00Z",
+        });
+      }
       if (url.endsWith("/runs") && init?.method === "POST") {
         const body = JSON.parse(String(init?.body));
         expect(body.workspace_id).toBe("workspace-1");
         expect(body.project_id).toBe("project-1");
+        expect(body.conversation_id).toBe("conv-stage");
         expect(body.runtime_config.skill).toBe("assignment-planning");
         // stage_id should be included in user_content for LLM context
         expect(body.user_content).toContain("stage_id=stage-pending");
@@ -307,8 +361,8 @@ describe("frontend API layer", () => {
 
     await runAssignment("project-1", "test-user", "stage-pending");
 
-    // getProject + POST /runs + GET /runs/:id + GET timeline
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // getProject + createConversation + POST /runs + GET /runs/:id + GET timeline
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("starts assignment negotiation through the proposal-scoped backend route", async () => {

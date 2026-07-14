@@ -416,6 +416,8 @@ def process_conversation_message_stream(
     viewer_user_id: str | None = None,
     model: str | None = None,
     thinking_level: str | None = None,
+    skill: str | None = None,
+    slash_command: str | None = None,
 ) -> Iterator[str]:
     """Yield SSE events by proxying to the sidecar Pi runtime."""
     conversation = session.get(AgentConversation, conversation_id)
@@ -438,6 +440,8 @@ def process_conversation_message_stream(
         role="user",
         content=content,
     )
+    if slash_command:
+        user_message.set_structured_payload({"slash_command": slash_command})
     session.add(user_message)
     session.commit()
     session.refresh(user_message)
@@ -451,8 +455,8 @@ def process_conversation_message_stream(
     recent_messages = _recent_messages(session, conversation.id, exclude_id=user_message.id)
 
     # Map deterministic intent to sidecar Skill name.
-    # Only unambiguous action intents get a skill; general questions stay in answer mode.
-    skill_name = _extract_skill_name(content)
+    # Explicit skill (from slash commands) takes priority over content-based inference.
+    skill_name = skill or _extract_skill_name(content)
 
     sidecar_request = {
         "conversation_id": conversation.id,
@@ -941,6 +945,7 @@ _EXACT_QUICK_REPLIES: list[tuple[str, str]] = [
 # Expanded quick-reply instructions (the full text sent after mapping).
 _EXPANDED_QUICK_REPLIES: list[tuple[str, str]] = [
     ("risk-analysis", r"请执行 risk 模块"),
+    ("risk-analysis", r"请执行 checkin 模块"),
     ("risk-replan", r"请执行 replan 模块"),
     ("assignment-planning", r"请执行 assign 模块"),
     ("task-breakdown", r"请执行 breakdown 模块"),

@@ -2,11 +2,11 @@
 name: project-status
 description: 当用户触发"主动推进"时使用。分析项目当前状态，发现风险点，生成行动建议和风险记录。
 allowed-tools:
+  - create_checkin
+  - create_risk
   - get_workspace_state
   - get_timeline_slice
   - list_pending_proposals
-  - create_risk
-  - create_checkin
 references: []
 v2:
   version: 2

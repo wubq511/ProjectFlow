@@ -85,9 +85,12 @@ describe("useAgentConversationStream production hook", () => {
     act(() => { firstPromise = result.current.send("c1", "第一次问题", "u1"); });
     await waitFor(() => expect(callbackList).toHaveLength(1));
     act(() => callbackList[0].onContent({ kind: "text", phase: "delta", content_index: 0, message_seq: 1, content: "部分" }));
+    act(() => callbackList[0].onStatus({ phase: "executing", message: "运行中", run_id: "run-1" }));
     act(() => callbackList[0].onError("失败"));
     first.resolve();
     await act(async () => { await firstPromise; });
+
+    expect(result.current.activeRunId).toBeNull();
 
     let secondPromise!: Promise<void>;
     act(() => { secondPromise = result.current.send("c1", "第二次问题", "u1"); });
@@ -100,6 +103,54 @@ describe("useAgentConversationStream production hook", () => {
     expect(result.current.archivedStreamTurns[0].turn.userMessage?.content).toBe("第一次问题");
     second.resolve();
     await act(async () => { await secondPromise; });
+  });
+
+  it("clears activeRunId when the user stops the stream", async () => {
+    const request = deferred<void>();
+    let callbacks!: AgentStreamCallbacks;
+    mockedSend.mockImplementation(async (_conversationId, _content, _viewer, nextCallbacks) => {
+      callbacks = nextCallbacks;
+      return request.promise;
+    });
+    const { result } = renderHook(() => useAgentConversationStream({
+      onPersistedTurn: vi.fn(), onError: vi.fn(), onDisconnect: vi.fn(),
+    }));
+
+    let sendPromise!: Promise<void>;
+    act(() => { sendPromise = result.current.send("c1", "问题", "u1"); });
+    await waitFor(() => expect(result.current.streamTurn.status).toBe("connecting"));
+    act(() => callbacks.onStatus({ phase: "executing", message: "运行中", run_id: "run-1" }));
+    await waitFor(() => expect(result.current.activeRunId).toBe("run-1"));
+
+    act(() => result.current.stop());
+    expect(result.current.activeRunId).toBeNull();
+
+    request.resolve();
+    await act(async () => { await sendPromise; });
+  });
+
+  it("clears activeRunId on disconnect", async () => {
+    const request = deferred<void>();
+    let callbacks!: AgentStreamCallbacks;
+    mockedSend.mockImplementation(async (_conversationId, _content, _viewer, nextCallbacks) => {
+      callbacks = nextCallbacks;
+      return request.promise;
+    });
+    const { result } = renderHook(() => useAgentConversationStream({
+      onPersistedTurn: vi.fn(), onError: vi.fn(), onDisconnect: vi.fn(),
+    }));
+
+    let sendPromise!: Promise<void>;
+    act(() => { sendPromise = result.current.send("c1", "问题", "u1"); });
+    await waitFor(() => expect(result.current.streamTurn.status).toBe("connecting"));
+    act(() => callbacks.onStatus({ phase: "executing", message: "运行中", run_id: "run-1" }));
+    await waitFor(() => expect(result.current.activeRunId).toBe("run-1"));
+
+    act(() => callbacks.onDisconnect("连接中断"));
+    expect(result.current.activeRunId).toBeNull();
+
+    request.resolve();
+    await act(async () => { await sendPromise; });
   });
 });
 

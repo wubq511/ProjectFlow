@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
-  Clock,
   Compass,
   GitBranch,
   History,
@@ -18,7 +17,6 @@ import {
   Loader2,
   Lock,
   MessageSquare,
-  MoreHorizontal,
   Plus,
   RefreshCw,
   Rocket,
@@ -32,7 +30,8 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import type { AgentArtifact, AgentConversation, AgentConversationMessage, AgentConversationSummary, AgentEvent, AgentSuggestion, AgentStreamTurn, ArchivedAgentStreamTurn, ProjectState, ThinkingLevel, ModelConfigEntry } from "@/lib/types";
+import type { AgentArtifact, AgentConversation, AgentConversationMessage, AgentConversationSummary, AgentSuggestion, AgentStreamTurn, ArchivedAgentStreamTurn, ProjectState, ThinkingLevel, ModelConfigEntry } from "@/lib/types";
+import { sendSteering, cancelRun } from "@/lib/api";
 import {
   ChatMessage,
   StreamingText,
@@ -40,7 +39,6 @@ import {
   ChatComposer,
   StarterPrompts,
   AgentGuidedTour,
-  AgentRunControls,
   useGuidedTour,
 } from "./agent";
 import type { AgentStreamStatus } from "./agent/AgentStepIndicator";
@@ -61,9 +59,6 @@ const SIDEBAR_DEFAULT_WIDTH = 352; // 默认宽度 22rem
 const SIDEBAR_WIDTH_STORAGE_KEY = "agent-sidebar-width";
 const OPTIMISTIC_MESSAGE_MATCH_WINDOW_MS = 2 * 60 * 1000;
 
-/** Fallback thinking levels for reasoning models that lack catalog metadata. */
-const FALLBACK_THINKING_LEVELS: ThinkingLevel[] = ["low", "medium", "high", "xhigh", "max"];
-
 const ALL_AGENT_ACTIONS: {
   id: AgentAction;
   label: string;
@@ -80,22 +75,6 @@ const ALL_AGENT_ACTIONS: {
   { id: "risk-analysis", label: "风险分析", icon: AlertTriangle, description: "识别潜在风险", category: "执行" },
   { id: "replan", label: "计划调整", icon: RefreshCw, description: "根据现状调整计划", category: "执行" },
 ];
-
-const ACTION_CATEGORIES = ["规划", "分工", "执行"] as const;
-
-const EVENT_STATUS_LABELS: Record<AgentEvent["status"], string> = {
-  success: "成功",
-  repaired: "已修复",
-  fallback: "基础建议",
-  failed: "失败",
-};
-
-const EVENT_STATUS_CLASSES: Record<AgentEvent["status"], string> = {
-  success: "bg-moss/15 text-moss",
-  repaired: "bg-citron/40 text-ink",
-  fallback: "bg-harbor/15 text-harbor",
-  failed: "bg-coral/15 text-coral",
-};
 
 const VALID_ARTIFACT_TYPES = new Set(["proposal", "risk_analysis", "action_card", "assignment", "direction", "plan"]);
 const VALID_ARTIFACT_STATUSES = new Set(["draft", "pending_confirmation", "confirmed", "dismissed", "expired"]);
@@ -149,7 +128,7 @@ interface AgentSidebarProps {
   actionError?: string | null;
   conversationError?: string | null;
   onRunAgent: (action: AgentAction, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => void;
-  onSendMessage?: (content: string, options?: { model?: string; thinkingLevel?: string }) => void | Promise<void>;
+  onSendMessage?: (content: string, options?: { model?: string; thinkingLevel?: string; skill?: string; slashCommand?: string }) => void | Promise<void>;
   streamTurn?: AgentStreamTurn | null;
   archivedStreamTurns?: ArchivedAgentStreamTurn[];
   streamStatus?: AgentStreamStatus | null;
@@ -157,7 +136,6 @@ interface AgentSidebarProps {
   onStopStreaming?: () => void;
   onToggleThinking?: () => void;
   onConfirmArtifact?: (artifact: AgentArtifact) => void | Promise<void>;
-  onResetDemo?: () => void | Promise<void>;
   /** Explicit completion announcement token — renders one-time aria-live "回答已完成". */
   completedAnnouncement?: string | null;
   // --- T45: Conversation history props ---
@@ -209,7 +187,6 @@ export function AgentSidebar({
   onStopStreaming,
   onToggleThinking,
   onConfirmArtifact,
-  onResetDemo,
   completedAnnouncement,
   // T45 conversation history
   conversationSummaries = [],
@@ -226,7 +203,6 @@ export function AgentSidebar({
   onLoadOlderMessages,
 }: AgentSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   /** null = auto (no explicit override); non-null = user explicitly chose this level. */
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel | null>(null);
@@ -259,11 +235,11 @@ export function AgentSidebar({
     })();
     return () => { cancelled = true; };
   }, []);
-  const [activityOpen, setActivityOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set());
   const [actionLog, setActionLog] = useState<Array<{ id: string; artifactId: string; type: "confirmed" | "dismissed"; text: string }>>([]);
+  const [steeringError, setSteeringError] = useState<string | null>(null);
   const { active: tourActive, complete: tourComplete } = useGuidedTour();
 
   // 拖动调整宽度状态
@@ -281,6 +257,14 @@ export function AgentSidebar({
   const [isDragging, setIsDragging] = useState(false);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
+  const [clearedForRunId, setClearedForRunId] = useState<string | null>(null);
+
+  // Clear draft when a run starts so old text isn't accidentally sent as steering.
+  // Using render-phase state adjustment to avoid setState-in-effect.
+  if (activeRunId && activeRunId !== clearedForRunId && draft.trim()) {
+    setDraft("");
+    setClearedForRunId(activeRunId);
+  }
 
   // 拖动开始
   const handleDragStart = useCallback((e: React.MouseEvent) => {
@@ -346,7 +330,7 @@ export function AgentSidebar({
   }, [toggle]);
 
   const isExpanded = !collapsed;
-  const recentEvents = (state.timeline ?? []).slice(0, 5);
+  const isRunning = !!activeRunId;
   const pendingProposalCount = state.agent_proposals?.filter((proposal) => proposal.status === "pending").length ?? 0;
   const focus = conversation?.current_focus || inferFocus(state);
   const messages = useMemo(() => conversation?.messages ?? [], [conversation]);
@@ -457,7 +441,7 @@ export function AgentSidebar({
     return () => clearTimeout(timer);
   }, [confirmedIds]);
 
-  const submitMessage = async (content: string) => {
+  const submitMessage = async (content: string, options?: { skill?: string; slashCommand?: string }) => {
     const trimmed = content.trim();
     if (!trimmed || !onSendMessage || pendingConversation) return;
     setDraft("");
@@ -472,8 +456,50 @@ export function AgentSidebar({
     await onSendMessage(trimmed, {
       ...(modelKey ? { model: modelKey } : {}),
       ...(explicitThinking ? { thinkingLevel: explicitThinking } : {}),
+      ...(options?.skill ? { skill: options.skill } : {}),
+      ...(options?.slashCommand ? { slashCommand: options.slashCommand } : {}),
     });
   };
+
+  /** Handle slash command submission — delegates to submitMessage with skill and slash command name. */
+  const handleSlashSubmit = async (content: string, skill: string, slashCommand: string) => {
+    await submitMessage(content, { skill, slashCommand });
+  };
+
+  /** Handle model change with localStorage persistence and thinking level reset. */
+  const handleModelChange = useCallback((modelId: string) => {
+    setSelectedModelId(modelId);
+    localStorage.setItem("pf:selected-model-id", modelId);
+    // Reset thinkingLevel if the new model doesn't support it
+    const newModel = modelConfigs.find((c) => c.id === modelId);
+    const supportedLevels = newModel?.capabilities?.supportedThinkingLevels;
+    if (thinkingLevel !== null && supportedLevels && !supportedLevels.includes(thinkingLevel)) {
+      setThinkingLevel(null);
+    }
+  }, [modelConfigs, thinkingLevel]);
+
+  const handleSendSteering = useCallback(
+    async (content: string) => {
+      if (!activeRunId) return;
+      try {
+        await sendSteering(activeRunId, "constraint", content, crypto.randomUUID());
+      } catch (err) {
+        setSteeringError(err instanceof Error ? err.message : "发送约束失败");
+      }
+    },
+    [activeRunId],
+  );
+
+  const handleCancelRun = useCallback(async () => {
+    if (!activeRunId) return;
+    try {
+      await cancelRun(activeRunId, "用户取消");
+      onStopStreaming?.();
+    } catch (err) {
+      setSteeringError(err instanceof Error ? err.message : "取消运行失败");
+      // Do NOT call onStopStreaming — the run is still active in the backend.
+    }
+  }, [activeRunId, onStopStreaming]);
 
   return (
     <motion.aside
@@ -839,7 +865,6 @@ export function AgentSidebar({
                       )}
                     </div>
 
-                    <AgentRunControls key={activeRunId ?? "no-run"} runId={activeRunId} connectionStatus={streamTurn?.status} onCancel={onStopStreaming} />
                     {streamStatus && <AgentStepIndicator status={streamStatus} executionSteps={streamTurn?.executionSteps} />}
                     {pendingConversation && !streamStatus && <AgentRunStatusCard />}
 
@@ -850,9 +875,9 @@ export function AgentSidebar({
                       </div>
                     )}
 
-                    {conversationError && (
+                    {(conversationError || steeringError) && (
                       <AgentErrorCard
-                        message={conversationError}
+                        message={steeringError ?? conversationError ?? ""}
                         disabled={Boolean(pendingConversation)}
                         onRetry={pendingConversationInstruction ? () => void submitMessage(pendingConversationInstruction) : undefined}
                       />
@@ -869,9 +894,18 @@ export function AgentSidebar({
                         value={draft}
                         onChange={setDraft}
                         onSubmit={(text) => void submitMessage(text)}
+                        onSlashSubmit={handleSlashSubmit}
                         onStop={onStopStreaming}
                         disabled={Boolean(pendingConversation)}
                         isStreaming={Boolean(streamTurn && streamTurn.status !== "idle" && streamTurn.status !== "completed" && streamTurn.status !== "failed" && streamTurn.status !== "cancelled" && streamTurn.status !== "disconnected")}
+                        isRunning={isRunning}
+                        onSendSteering={handleSendSteering}
+                        onCancelRun={handleCancelRun}
+                        modelConfigs={modelConfigs}
+                        selectedModelId={selectedModelId}
+                        onModelChange={handleModelChange}
+                        thinkingLevel={thinkingLevel}
+                        onThinkingLevelChange={setThinkingLevel}
                       />
                     </div>
                   </div>
@@ -900,208 +934,6 @@ export function AgentSidebar({
                 </motion.div>
               )}
 
-              {/* Layer 4: Recent Activity (collapsed by default) */}
-              {recentEvents.length > 0 && (
-                <div className="mb-4 border-t border-neutral-100 pt-3">
-                  <button
-                    type="button"
-                    onClick={() => setActivityOpen((open) => !open)}
-                    className="flex w-full items-center justify-between rounded-md px-2 py-2 text-xs font-semibold text-neutral-500 transition hover:bg-neutral-50 hover:text-neutral-700"
-                    aria-expanded={activityOpen}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <Clock className="h-3.5 w-3.5" />
-                      最近活动
-                    </span>
-                    <ChevronRight className={cn("h-3 w-3 transition-transform", activityOpen && "rotate-90")} />
-                  </button>
-                  <AnimatePresence>
-                    {activityOpen && (
-                      <motion.div
-                        initial={{ maxHeight: 0, opacity: 0 }}
-                        animate={{ maxHeight: 500, opacity: 1 }}
-                        exit={{ maxHeight: 0, opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="overflow-hidden"
-                      >
-                        <div className="mt-2 space-y-2">
-                          {recentEvents.map((event) => {
-                            const Icon = getEventIcon(event.event_type);
-                            return (
-                              <div key={event.id} className="flex items-start gap-2 text-xs">
-                                <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
-                                <div className="min-w-0">
-                                  <p className="text-neutral-700">
-                                    <span>{getEventLabel(event.event_type)}</span>
-                                    <Badge
-                                      className={cn(
-                                        "ml-1 px-1.5 py-0 text-[10px]",
-                                        EVENT_STATUS_CLASSES[event.status]
-                                      )}
-                                    >
-                                      {EVENT_STATUS_LABELS[event.status]}
-                                    </Badge>
-                                    {event.user_confirmed && <span className="ml-1 text-moss">已确认</span>}
-                                  </p>
-                                  <p className="mt-0.5 flex items-center gap-1 text-neutral-400">
-                                    <Clock className="h-3 w-3" />
-                                    {formatTimeAgo(event.created_at)}
-                                  </p>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )}
-
-              {/* Layer 5: Advanced Actions (collapsed by default) */}
-              {hasProject && (
-                <div className="mt-4 border-t border-neutral-100 pt-3">
-                  <button
-                    type="button"
-                    onClick={() => setAdvancedOpen((open) => !open)}
-                    className="flex w-full items-center justify-between rounded-md px-2 py-2 text-xs font-semibold text-neutral-500 transition hover:bg-neutral-50 hover:text-neutral-700"
-                    aria-expanded={advancedOpen}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <MoreHorizontal className="h-3.5 w-3.5" />
-                      高级操作
-                    </span>
-                    <ChevronRight className={cn("h-3 w-3 transition-transform", advancedOpen && "rotate-90")} />
-                  </button>
-                  <AnimatePresence>
-                    {advancedOpen && (
-                      <motion.div
-                        initial={{ maxHeight: 0, opacity: 0 }}
-                        animate={{ maxHeight: 500, opacity: 1 }}
-                        exit={{ maxHeight: 0, opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="overflow-hidden"
-                      >
-                        <div className="mt-1 space-y-2">
-                          {/* Model selector */}
-                          {modelsLoaded && modelConfigs.length > 0 && (
-                            <div className="flex items-center gap-2 px-2">
-                              <span className="text-[10px] font-medium text-neutral-400">模型</span>
-                              <Select
-                                value={selectedModelId ?? undefined}
-                                onValueChange={(v) => {
-                                  if (v) {
-                                    setSelectedModelId(v);
-                                    localStorage.setItem("pf:selected-model-id", v);
-                                    // Reset thinkingLevel if the new model doesn't support it
-                                    const newModel = modelConfigs.find((c) => c.id === v);
-                                    const supportedLevels = newModel?.capabilities?.supportedThinkingLevels;
-                                    if (thinkingLevel !== null && supportedLevels && !supportedLevels.includes(thinkingLevel)) {
-                                      setThinkingLevel(null);
-                                    }
-                                  }
-                                }}
-                              >
-                                <SelectTrigger size="sm" className="h-6 w-auto min-w-28 text-[11px]">
-                                  <SelectValue placeholder="选择模型" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {modelConfigs
-                                    .filter((c) => c.valid)
-                                    .map((model) => (
-                                      <SelectItem key={model.id} value={model.id}>
-                                        {model.displayName}
-                                      </SelectItem>
-                                    ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          )}
-                          {(() => {
-                            const selectedModelConfig = selectedModelId ? modelConfigs.find((c) => c.id === selectedModelId) : undefined;
-                            const supportsThinking = selectedModelConfig?.capabilities?.thinking ?? false;
-                            if (!supportsThinking) return null;
-                            const supportedLevels = selectedModelConfig?.capabilities?.supportedThinkingLevels;
-                            const levels = supportedLevels && supportedLevels.length > 0
-                              ? supportedLevels as ThinkingLevel[]
-                              : FALLBACK_THINKING_LEVELS;
-                            return (
-                              <div className="flex items-center gap-2 px-2">
-                                <span className="text-[10px] font-medium text-neutral-400">思考强度</span>
-                                <Select value={thinkingLevel ?? "auto"} onValueChange={(v) => setThinkingLevel(v === "auto" ? null : v as ThinkingLevel)}>
-                                  <SelectTrigger size="sm" className="h-6 w-auto min-w-20 text-[11px]">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="auto">自动</SelectItem>
-                                    {levels.map((level) => (
-                                      <SelectItem key={level} value={level}>{level}</SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            );
-                          })()}
-                          {ACTION_CATEGORIES.map((category) => {
-                            const actions = ALL_AGENT_ACTIONS.filter((a) => a.category === category);
-                            return (
-                              <div key={category}>
-                                <p className="mb-1 px-2 text-[10px] font-medium text-neutral-400">{category}</p>
-                                <div className="grid grid-cols-2 gap-1">
-                                  {actions.map((action) => {
-                                    const isPending = pendingAction === action.id;
-                                    return (
-                                      <Button
-                                        key={action.id}
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-8 justify-start gap-1.5 px-2 text-xs text-neutral-600"
-                                        disabled={Boolean(pendingAction)}
-                                        title={action.description}
-                                        onClick={() => {
-                                          const selectedModel = selectedModelId ? modelConfigs.find((c) => c.id === selectedModelId) : undefined;
-                                          const modelRef = selectedModel ? { provider: selectedModel.provider, name: selectedModel.name } : undefined;
-                                          const supportsThinking = selectedModel?.capabilities?.thinking ?? false;
-                                          const supportedLevels = selectedModel?.capabilities?.supportedThinkingLevels;
-                                          const levelIsSupported = thinkingLevel !== null && (!supportedLevels || supportedLevels.length === 0 || supportedLevels.includes(thinkingLevel));
-                                          const validThinking = thinkingLevel !== null && supportsThinking && levelIsSupported ? thinkingLevel : undefined;
-                                          onRunAgent(action.id, validThinking, modelRef);
-                                        }}
-                                      >
-                                        {isPending ? (
-                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                        ) : (
-                                          <action.icon className="h-3.5 w-3.5" />
-                                        )}
-                                        {action.label}
-                                      </Button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )}
-
-              {onResetDemo && (
-                <div className="mt-4 border-t border-neutral-100 pt-3">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-full justify-start gap-2 text-xs text-neutral-500 hover:bg-coral/10 hover:text-coral"
-                    disabled={Boolean(pendingAction)}
-                    onClick={() => onResetDemo()}
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    重置演示数据
-                  </Button>
-                </div>
-              )}
         </div>
 
         {!isExpanded && hasProject && (
@@ -1163,29 +995,6 @@ function inferStructuredSuggestions(focus: string): AgentSuggestion[] {
   }));
 }
 
-function getEventIcon(eventType: AgentEvent["event_type"]) {
-  switch (eventType) {
-    case "clarify":
-      return Compass;
-    case "plan":
-      return GitBranch;
-    case "breakdown":
-      return ListTodo;
-    case "assign":
-      return Users;
-    case "push":
-      return Rocket;
-    case "checkin":
-      return ClipboardCheck;
-    case "risk":
-      return AlertTriangle;
-    case "replan":
-      return RefreshCw;
-    default:
-      return Sparkles;
-  }
-}
-
 const FOCUS_ICON_MAP: Record<string, ElementType> = {
   方向澄清: Compass,
   阶段计划: GitBranch,
@@ -1234,11 +1043,6 @@ function CollapsedSidebarIcons({
       </button>
     </div>
   );
-}
-
-function getEventLabel(eventType: AgentEvent["event_type"]) {
-  const action = ALL_AGENT_ACTIONS.find((candidate) => candidate.id === eventType);
-  return action?.label || eventType;
 }
 
 function formatTimeAgo(dateStr: string) {

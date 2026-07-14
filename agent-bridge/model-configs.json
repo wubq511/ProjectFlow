@@ -1,6 +1,18 @@
 {
   "models": [
     {
+      "id": "mock-model",
+      "provider": "mock",
+      "name": "mock-model",
+      "displayName": "Mock (离线演示)",
+      "apiKeyEnvVar": "",
+      "isDefault": false,
+      "capabilities": {
+        "thinking": false,
+        "vision": false
+      }
+    },
+    {
       "id": "deepseek-v4-flash",
       "provider": "deepseek",
       "name": "deepseek-v4-flash",
@@ -9,7 +21,13 @@
       "isDefault": true,
       "capabilities": {
         "thinking": true,
-        "vision": false
+        "vision": false,
+        "contextTokens": 1000000,
+        "maxTokens": 384000,
+        "supportedThinkingLevels": [
+          "high",
+          "xhigh"
+        ]
       }
     },
     {
@@ -21,7 +39,13 @@
       "isDefault": false,
       "capabilities": {
         "thinking": true,
-        "vision": false
+        "vision": false,
+        "contextTokens": 1000000,
+        "maxTokens": 384000,
+        "supportedThinkingLevels": [
+          "high",
+          "xhigh"
+        ]
       }
     },
     {
@@ -33,7 +57,9 @@
       "isDefault": false,
       "capabilities": {
         "thinking": true,
-        "vision": true
+        "vision": true,
+        "contextTokens": 1048576,
+        "maxTokens": 131072
       }
     },
     {
@@ -45,7 +71,9 @@
       "isDefault": false,
       "capabilities": {
         "thinking": true,
-        "vision": true
+        "vision": true,
+        "contextTokens": 1048576,
+        "maxTokens": 131072
       }
     }
   ]

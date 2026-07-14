@@ -18,7 +18,7 @@
  */
 
 import type { AgentRunState, RunStatus } from "@/types/run-state.js";
-import type { ContextBuildInput, MemoryContext, SkillContext } from "./context-builder.js";
+import type { ContextBuildInput, MemoryContext, PendingSteeringEvent, SkillContext } from "./context-builder.js";
 import { buildContext, filterModelCallableManifests, transformForLLM } from "./context-builder.js";
 import type { OutcomeContract } from "./outcome-contract.js";
 import { PROMPT_KERNEL_VERSION, hashPromptKernel, hashAssembledPrompt } from "./request-preparation.js";
@@ -34,6 +34,8 @@ import type { ToolRegistry, ToolExecutionContext } from "@/tools/registry.js";
 import { ToolExecutor, type ToolLedgerEntry } from "@/tools/tool-executor.js";
 import { persistLedgerEntry, persistCheckpoint } from "@/tools/tool-ledger.js";
 import { createCheckpoint } from "./checkpoint.js";
+import { SteeringPoller } from "./steering-poller.js";
+import { SessionStore } from "./session-store.js";
 import { hashValue } from "@/utils/hash.js";
 // normalizeResult is used internally by ToolExecutor
 import { canExecuteInParallel, evaluatePolicy } from "@/policy/policy-engine.js";
@@ -74,15 +76,6 @@ import type { Model, Api, Provider, AssistantMessage, Message, ToolCall, Usage, 
 import { createAssistantMessageEventStream, Type } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 
-/** A queued steering event from FastAPI. */
-export interface PendingSteeringEvent {
-  steeringSeq: number;
-  steeringType: "constraint" | "correction" | "plan_change" | "clarification_answer" | "approval_response" | "cancel";
-  content: string;
-  clientMessageId: string;
-  metadata?: Record<string, unknown>;
-}
-
 export interface RunInput {
   conversationId: string;
   workspaceId: string;
@@ -108,6 +101,19 @@ export interface RunCallbacks {
   onEvent?: (type: string, payload: Record<string, unknown>) => void;
   onComplete?: (state: AgentRunState) => void;
   onError?: (error: Error, state: AgentRunState) => void;
+}
+
+/** Options for executing a run. */
+export interface ExecuteRunOptions {
+  traceIncludeSensitiveData?: boolean;
+  signal?: AbortSignal;
+  debugPayloadStore?: DebugPayloadStore;
+  model?: Model<Api>;
+  streamFn?: StreamFn;
+  /** Resume context — when provided, restores state from checkpoint instead of creating fresh. */
+  resumeContext?: ResumeExecutionContext;
+  /** Session store for abort controller management and steering poller. */
+  sessionStore?: SessionStore;
 }
 
 /**
@@ -474,15 +480,7 @@ export async function executeRun(
   modelRouter: ModelRouter,
   fastapiClient: FastapiClient,
   stream: EventStream,
-  options: {
-    traceIncludeSensitiveData?: boolean;
-    signal?: AbortSignal;
-    debugPayloadStore?: DebugPayloadStore;
-    model?: Model<Api>;
-    streamFn?: StreamFn;
-    /** Resume context — when provided, restores state from checkpoint instead of creating fresh. */
-    resumeContext?: ResumeExecutionContext;
-  } = {},
+  options: ExecuteRunOptions = {},
   callbacks: RunCallbacks = {},
 ): Promise<AgentRunState> {
   const budget = new BudgetManager({
@@ -520,10 +518,16 @@ export async function executeRun(
 
     // ── Steering consumption helper ─────────────────────────────────
     // Consumes pending steering events at loop boundaries.
-    const consumeSteering = async (
+    const MAX_STEERING_LOOPS = 5;
+    const consumedSteeringSeqs = new Set<number>();
+
+    const consumeSteeringEvents = async (
       steeringEvents: PendingSteeringEvent[],
     ): Promise<{ shouldAbort: boolean }> => {
       for (const event of steeringEvents) {
+        if (consumedSteeringSeqs.has(event.steeringSeq)) continue;
+        consumedSteeringSeqs.add(event.steeringSeq);
+
         if (event.steeringType === "cancel") {
           return { shouldAbort: true };
         }
@@ -637,8 +641,28 @@ export async function executeRun(
       maxContextTokens: contextBudget,
       outcomeContract: contractForContext,
     };
-    const builtContext = buildContext(contextInput);
+    let builtContext = buildContext(contextInput);
     const kernelHash = hashPromptKernel();
+
+    // Consume any steering events provided at run start (resume / initial).
+    // If a cancel steering is present, terminal immediately without entering the model loop.
+    if (input.pendingSteering && input.pendingSteering.length > 0) {
+      for (const s of input.pendingSteering) consumedSteeringSeqs.add(s.steeringSeq);
+      const initialResult = await consumeSteeringEvents(input.pendingSteering);
+      if (initialResult.shouldAbort) {
+        runState.status = "cancelled";
+        runState.completedAt = new Date().toISOString();
+        runState.updatedAt = runState.completedAt;
+        await persistAndEmitMappedEvent(
+          { type: "run.cancelled", payload: { reason: "用户取消" }, newStatus: "cancelled" },
+          runState, fastapiClient, stream, traceIncludeSensitiveData,
+        );
+        callbacks.onComplete?.(runState);
+        return runState;
+      }
+      // Rebuild context so initial steering is injected into the first prompt.
+      builtContext = buildContext({ ...contextInput, pendingSteering: input.pendingSteering });
+    }
 
     // R2: Build run evidence metadata for the agent.started event.
     // Includes memory, outcome contract, and prompt kernel version.
@@ -980,6 +1004,21 @@ export async function executeRun(
         })
       : configuredStreamFn;
 
+    // Maintain a mutable abort signal for the current model-loop iteration.
+    // When a steering poller aborts the loop mid-stream, we create a fresh
+    // controller, register it with the session store, and re-enter the model
+    // loop so new constraints take effect immediately.
+    const sessionStore = options.sessionStore;
+    let currentSignal: AbortSignal = options.signal ?? new AbortController().signal;
+    const refreshAbortController = () => {
+      const controller = new AbortController();
+      currentSignal = controller.signal;
+      sessionStore?.setAbortController(runState.runId, controller);
+    };
+    if (sessionStore && !options.signal) {
+      refreshAbortController();
+    }
+
     // Step 6: Build AgentLoopConfig with hooks
     // Map our ThinkingLevel to Pi SDK's ThinkingLevel.
     // Pi SDK has: minimal | low | medium | high | xhigh (no "max").
@@ -991,7 +1030,7 @@ export async function executeRun(
       convertToLlm: (messages: AgentMessage[]): Message[] => messages as Message[],
       toolExecution: canExecuteInParallel(exposedManifests) ? "parallel" : "sequential",
       beforeToolCall: async (_ctx: BeforeToolCallContext) => {
-        if (options.signal?.aborted) {
+        if (currentSignal.aborted) {
           return { block: true, reason: "运行已取消" };
         }
         // Policy gate — check if tool is allowed
@@ -1030,40 +1069,110 @@ export async function executeRun(
       timestamp: Date.now(),
     } as AgentMessage;
 
-    await runAgentLoop(
-      [promptMessage],
-      agentContext,
-      config,
-      piEventSink,
-      options.signal,
-      streamFn,
-    );
-
-    // Post-loop checkpoint: snapshot state after all tool observations collected.
-    // This is a correctness boundary — failure must propagate, not be swallowed.
-    checkpointVersion++;
-    const postLoopCheckpoint = createCheckpoint(
-      runState, workState, runPlan, input.outcomeContract,
-      getCombinedLedger(), "tool_result", checkpointVersion,
-      undefined, input.userContent,
-    );
-    await persistCheckpoint(postLoopCheckpoint, runState, fastapiClient, traceIncludeSensitiveData);
-
-    // ── Consume pending steering at loop boundary ─────────────────────
-    if (input.pendingSteering && input.pendingSteering.length > 0) {
-      const steeringResult = await consumeSteering(input.pendingSteering);
-      if (steeringResult.shouldAbort) {
-        runState.status = "cancelled";
-        runState.completedAt = new Date().toISOString();
-        runState.updatedAt = new Date().toISOString();
-        await persistAndEmitMappedEvent(
-          { type: "run.cancelled", payload: { reason: "用户取消" }, newStatus: "cancelled" },
-          runState, fastapiClient, stream, traceIncludeSensitiveData,
-        );
-        callbacks.onComplete?.(runState);
-        return runState;
-      }
+    // Start mid-stream steering poller if session store is available.
+    // The poller watches the durable snapshot for new steering events and
+    // aborts the current stream so we can re-enter with updated context.
+    let poller: SteeringPoller | undefined;
+    if (sessionStore) {
+      poller = new SteeringPoller({
+        runId: runState.runId,
+        fastapiClient,
+        sessionStore,
+        logger: console,
+      });
+      poller.start();
     }
+
+    // Step 7: Run the agent loop, with steering-aware re-entry.
+    let steeringLoopCount = 0;
+    do {
+      try {
+        await runAgentLoop([promptMessage], agentContext, config, piEventSink, currentSignal, streamFn);
+      } catch (loopErr) {
+        // Distinguish a mid-stream steering interrupt from a real failure or
+        // user-initiated cancellation. A steering abort uses the special reason
+        // "steering_available" (or the session store flag set by the poller).
+        const isSteeringInterrupt =
+          currentSignal.aborted &&
+          (currentSignal.reason === "steering_available" ||
+            (sessionStore?.consumeSteeringAvailable(runState.runId) ?? false));
+        if (!isSteeringInterrupt) {
+          poller?.stop();
+          throw loopErr;
+        }
+      }
+
+      // Post-loop checkpoint: snapshot state after all tool observations collected.
+      // This is a correctness boundary — failure must propagate, not be swallowed.
+      checkpointVersion++;
+      const postLoopCheckpoint = createCheckpoint(
+        runState, workState, runPlan, input.outcomeContract,
+        getCombinedLedger(), "tool_result", checkpointVersion,
+        undefined, input.userContent,
+      );
+      await persistCheckpoint(postLoopCheckpoint, runState, fastapiClient, traceIncludeSensitiveData);
+
+      // ── Consume pending steering at loop boundary ─────────────────────
+      // Pull fresh unconsumed steering from the FastAPI snapshot. If new
+      // steering arrived during the model loop (or mid-stream via the poller),
+      // rebuild context and re-enter the model loop so constraints affect the
+      // current output immediately.
+      let consumedNewSteering = false;
+      while (steeringLoopCount < MAX_STEERING_LOOPS) {
+        let snapshot: Record<string, unknown>;
+        try {
+          snapshot = await fastapiClient.getRunSnapshot(runState.runId, undefined, 5000);
+        } catch (snapshotErr) {
+          console.warn(`[agent-bridge] getRunSnapshot failed during steering loop: ${snapshotErr}`);
+          break;
+        }
+        const steeringList = ((snapshot.unconsumed_steering ?? []) as Array<{
+          steering_seq: number;
+          steering_type: string;
+          content: string;
+          client_message_id?: string;
+          metadata?: Record<string, unknown>;
+        }>).filter((s) => !consumedSteeringSeqs.has(s.steering_seq));
+
+        if (steeringList.length === 0) break;
+
+        const pending = steeringList.map((s) => ({
+          steeringSeq: s.steering_seq,
+          steeringType: s.steering_type as PendingSteeringEvent["steeringType"],
+          content: s.content,
+          clientMessageId: s.client_message_id ?? `snapshot:${s.steering_seq}`,
+          metadata: s.metadata,
+        }));
+
+        const steeringResult = await consumeSteeringEvents(pending);
+        if (steeringResult.shouldAbort) {
+          poller?.stop();
+          runState.status = "cancelled";
+          runState.completedAt = new Date().toISOString();
+          runState.updatedAt = runState.completedAt;
+          await persistAndEmitMappedEvent(
+            { type: "run.cancelled", payload: { reason: "用户取消" }, newStatus: "cancelled" },
+            runState, fastapiClient, stream, traceIncludeSensitiveData,
+          );
+          callbacks.onComplete?.(runState);
+          return runState;
+        }
+
+        consumedNewSteering = true;
+        poller?.markConsumed(steeringList.map((s) => s.steering_seq));
+        // Rebuild context with pending steering and refresh the abort controller
+        // so the next loop iteration can be interrupted again.
+        builtContext = buildContext({ ...contextInput, pendingSteering: pending });
+        (promptMessage as unknown as { content: string }).content = builtContext.userMessage;
+        refreshAbortController();
+        steeringLoopCount++;
+        break;
+      }
+
+      if (!consumedNewSteering) break;
+    } while (steeringLoopCount < MAX_STEERING_LOOPS);
+
+    poller?.stop();
 
     // ═══════════════════════════════════════════════════════════════════
     // Step 8: Post-loop control plane — verifier, plan reconciliation,
@@ -1558,6 +1667,172 @@ const EMPTY_USAGE: Usage = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
+function schemaAllowsProperty(parameters: unknown, propertyName: string): boolean {
+  if (!parameters || typeof parameters !== "object") return false;
+  const schema = parameters as Record<string, unknown>;
+  if (schema.type !== "object") return false;
+  const props = schema.properties;
+  if (props && typeof props === "object" && propertyName in props) return true;
+  return schema.additionalProperties !== false;
+}
+
+function buildMockToolArguments(toolName: string, parameters: unknown): Record<string, unknown> {
+  const today = new Date();
+  const fmt = (d: Date) => d.toISOString().split("T")[0];
+  const next = (days: number) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() + days);
+    return fmt(d);
+  };
+
+  switch (toolName) {
+    case "generate_direction_card_proposal":
+      if (!schemaAllowsProperty(parameters, "output")) return {};
+      return {
+        output: {
+          reason: "基于项目信息的模拟方向澄清",
+          problem: "大学生项目团队缺乏清晰的方向和优先级",
+          users: "大学生项目小队",
+          value: "帮助团队快速对齐目标，明确下一步行动",
+          deliverables: ["方向卡文档", "项目一页纸"],
+          boundaries: ["不实现外部系统对接", "不支持支付/登录等复杂功能"],
+          risks: ["时间紧张", "成员经验不足"],
+          suggested_questions: ["核心用户是谁？", "MVP 必须包含哪些功能？"],
+          requires_confirmation: true,
+        },
+      };
+    case "generate_stage_plan_proposal":
+      if (!schemaAllowsProperty(parameters, "output")) return {};
+      return {
+        output: {
+          reason: "基于项目截止日期的模拟阶段计划",
+          requires_confirmation: true,
+          stages: [
+            {
+              name: "需求澄清",
+              goal: "明确项目方向、用户和价值",
+              start_date: next(1),
+              end_date: next(7),
+              deliverable: "方向卡与需求清单",
+              done_criteria: ["方向卡已确认"],
+              order_index: 0,
+              reason: "先对齐方向再执行",
+            },
+            {
+              name: "MVP 实现",
+              goal: "完成最小可用原型",
+              start_date: next(8),
+              end_date: next(21),
+              deliverable: "可演示的 MVP",
+              done_criteria: ["核心流程可跑通"],
+              order_index: 1,
+              reason: "集中资源完成核心功能",
+            },
+          ],
+        },
+      };
+    case "generate_task_breakdown_proposal":
+      if (!schemaAllowsProperty(parameters, "output")) return {};
+      return {
+        output: {
+          reason: "基于阶段的模拟任务拆解",
+          requires_confirmation: true,
+          tasks: [
+            {
+              id: "task-1",
+              stage_id: "mock-stage",
+              title: "梳理用户需求",
+              description: "整理核心用户场景和痛点",
+              priority: "P0",
+              due_date: next(5),
+              estimated_hours: 4,
+              dependency_ids: [],
+              acceptance_criteria: ["输出用户场景列表"],
+              can_cut: false,
+              order_index: 0,
+              reason: "方向确认的基础",
+            },
+            {
+              id: "task-2",
+              stage_id: "mock-stage",
+              title: "设计原型",
+              description: "绘制关键页面原型",
+              priority: "P1",
+              due_date: next(10),
+              estimated_hours: 6,
+              dependency_ids: ["task-1"],
+              acceptance_criteria: ["原型覆盖主流程"],
+              can_cut: false,
+              order_index: 1,
+              reason: "为开发提供输入",
+            },
+          ],
+        },
+      };
+    case "generate_replan_proposal":
+      if (!schemaAllowsProperty(parameters, "output")) return {};
+      return {
+        output: {
+          reason: "基于当前风险的模拟计划调整",
+          impact: "延后非核心任务，集中完成 MVP",
+          requires_confirmation: true,
+        },
+      };
+    case "recommend_assignment":
+      if (!schemaAllowsProperty(parameters, "task_id")) return {};
+      return {
+        stage_id: "mock-stage",
+        task_id: "mock-task",
+        recommended_owner_user_id: "mock-user",
+        reason: "模拟分工推荐",
+        skill_match: "技能匹配",
+        availability_match: "时间匹配",
+      };
+    case "create_risk":
+      if (!schemaAllowsProperty(parameters, "type")) return {};
+      return {
+        type: "scope",
+        severity: "medium",
+        title: "范围可能蔓延",
+        description: "模拟风险：项目范围在没有明确边界的情况下容易扩大",
+        evidence: ["方向尚未完全确认", "需求讨论较发散"],
+        recommendation: "先确认方向卡，再进入详细设计",
+      };
+    case "create_checkin":
+      if (!schemaAllowsProperty(parameters, "task_id")) return {};
+      return {
+        task_id: "mock-task",
+        user_id: "mock-user",
+        what_done: "模拟签到：已完成需求梳理",
+        blocker: "暂无阻塞",
+        cadence_days: 2,
+        mood_or_confidence: "medium",
+      };
+    case "analyze_checkins_and_risks":
+      if (!schemaAllowsProperty(parameters, "risk_analysis_output")) return {};
+      return {
+        risk_analysis_output: {
+          reason: "模拟风险分析",
+          risks: [
+            {
+              type: "deadline",
+              severity: "medium",
+              title: "里程碑临近",
+              description: "模拟风险：关键里程碑可能无法按期完成",
+              evidence: ["当前阶段进度偏慢"],
+              recommendation: "优先完成 P0 任务",
+            },
+          ],
+        },
+      };
+    case "get_timeline_slice":
+      if (!schemaAllowsProperty(parameters, "limit")) return {};
+      return { limit: 10 };
+    default:
+      return {};
+  }
+}
+
 function createMockStreamFn(): StreamFn {
   return (model, context, options) => {
     const stream = createAssistantMessageEventStream();
@@ -1576,7 +1851,7 @@ function createMockStreamFn(): StreamFn {
           type: "toolCall",
           id: "mock_tool_call_1",
           name: firstTool.name,
-          arguments: {},
+          arguments: buildMockToolArguments(firstTool.name, firstTool.parameters),
         };
         const message = createAssistantMessage(model, [toolCall], "toolUse");
         stream.push({ type: "done", reason: "toolUse", message });

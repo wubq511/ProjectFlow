@@ -463,7 +463,7 @@ describe("AgentSidebar", () => {
       />
     );
 
-    const input = screen.getByPlaceholderText("告诉 Agent 你想推进什么...");
+    const input = screen.getByPlaceholderText(/告诉 Agent 你想推进什么/);
     fireEvent.change(input, { target: { value: "分析当前风险" } });
 
     // Shift+Enter should not send

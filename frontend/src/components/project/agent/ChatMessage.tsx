@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentConversationMessage, AgentStreamTurn, ExecutionStep } from "@/lib/types";
+import { SLASH_COMMANDS, type SlashCommandDef } from "@/components/project/project-actions";
+import { SlashCommandChip } from "./SlashCommandChip";
 import { MarkdownContent } from "./MarkdownContent";
 import { StreamingText } from "./StreamingText";
 import { MessageActions } from "./MessageActions";
@@ -33,6 +35,12 @@ function displayContent(message: AgentConversationMessage): string {
   if (match?.[1]) return match[1];
   // Fallback: truncate long instructions to avoid showing raw prompt text
   return message.content.length > 50 ? message.content.slice(0, 50) + "…" : message.content;
+}
+
+function getSlashCommand(message: AgentConversationMessage): SlashCommandDef | null {
+  const commandName = message.structured_payload?.slash_command;
+  if (typeof commandName !== "string") return null;
+  return SLASH_COMMANDS.find((c) => c.command === commandName) ?? null;
 }
 
 export const ChatMessage = React.memo(function ChatMessage({
@@ -131,7 +139,22 @@ export const ChatMessage = React.memo(function ChatMessage({
         {isUser ? "你" : "Agent"}
       </div>
       {isUser ? (
-        <p className="text-xs leading-5">{displayContent(message)}</p>
+        (() => {
+          const slashCommand = getSlashCommand(message);
+          if (slashCommand) {
+            // Show the chip + the actual typed body. When no extra text was
+            // typed the persisted content equals the default instruction; in
+            // that case render only the chip.
+            const hasBody = message.content !== slashCommand.defaultInstruction && message.content.trim().length > 0;
+            return (
+              <div className="flex flex-wrap items-center gap-1.5 text-sm leading-5">
+                <SlashCommandChip command={slashCommand} />
+                {hasBody ? <span>{message.content}</span> : null}
+              </div>
+            );
+          }
+          return <p className="text-xs leading-5">{displayContent(message)}</p>;
+        })()
       ) : (
         <>
           {/* Collapsible thinking section */}

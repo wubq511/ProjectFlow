@@ -76,6 +76,7 @@ function createModelRouter(): ModelRouter {
 function createFastapiClient(calls: WireAppendRequest[]): FastapiClient {
   let eventSeq = 0;
   return {
+    getRunSnapshot: async () => ({ unconsumed_steering: [], consumed_steering: [] }),
     appendEvents: async (_runId: string, request: WireAppendRequest): Promise<WireAppendResponse> => {
       calls.push(request);
       return {

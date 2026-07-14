@@ -164,6 +164,11 @@ class AgentTurnPlan(BaseModel):
 
 _VALID_THINKING_LEVELS = {"low", "medium", "high", "xhigh", "max"}
 
+_VALID_SKILLS = {
+    "project-intake", "project-planning", "task-breakdown",
+    "assignment-planning", "project-status", "risk-analysis", "risk-replan",
+}
+
 
 class AgentConversationMessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
@@ -172,6 +177,10 @@ class AgentConversationMessageCreate(BaseModel):
     model: str | None = None
     """Optional thinking/reasoning level for models that support it."""
     thinking_level: str | None = None
+    """Optional explicit skill for slash commands — bypasses _extract_skill_name."""
+    skill: str | None = None
+    """Optional original slash command name (e.g. 'clarify') for display rendering."""
+    slash_command: str | None = None
 
     @field_validator("model")
     @classmethod
@@ -192,6 +201,13 @@ class AgentConversationMessageCreate(BaseModel):
             return v
         if v not in _VALID_THINKING_LEVELS:
             raise ValueError(f"思考强度无效，必须为 {_VALID_THINKING_LEVELS} 之一，收到: {v!r}")
+        return v
+
+    @field_validator("skill")
+    @classmethod
+    def validate_skill(cls, v: str | None) -> str | None:
+        if v is not None and v not in _VALID_SKILLS:
+            raise ValueError(f"skill 无效，必须为 {_VALID_SKILLS} 之一，收到: {v!r}")
         return v
 
 

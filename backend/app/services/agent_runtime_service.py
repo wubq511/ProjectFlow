@@ -715,25 +715,40 @@ class AgentRuntimeService:
             for e in events
         ]
 
-        # Step 4: Extract unconsumed steering events from the event stream
-        unconsumed_steering = []
+        # Step 4: Extract steering events from the event stream
+        queued_steering: dict[int, dict[str, Any]] = {}
+        consumed_steering: list[dict[str, Any]] = []
         for e in events:
             event_type = e.type.value if hasattr(e.type, "value") else str(e.type)
+            payload = e.get_payload()
             if event_type == "steering.queued":
-                payload = e.get_payload()
-                unconsumed_steering.append({
+                queued_steering[e.event_seq] = {
                     "steering_seq": e.event_seq,
                     "steering_type": payload.get("steering_type", ""),
                     "content": payload.get("content", ""),
                     "client_message_id": payload.get("client_message_id", ""),
                     "metadata": payload.get("metadata", {}),
-                })
+                    "created_at": e.created_at.isoformat(),
+                }
             elif event_type == "steering.consumed":
-                # Remove consumed steering from the unconsumed list
-                consumed_seq = e.get_payload().get("steering_seq")
-                unconsumed_steering = [
-                    s for s in unconsumed_steering if s["steering_seq"] != consumed_seq
-                ]
+                consumed_seq = payload.get("steering_seq")
+                queued = queued_steering.pop(consumed_seq, None)
+                consumed_entry: dict[str, Any] = {
+                    "steering_seq": consumed_seq,
+                    "steering_type": payload.get("steering_type", queued.get("steering_type", "") if queued else ""),
+                    "content": payload.get("content", queued.get("content", "") if queued else ""),
+                    "consumed": True,
+                }
+                # Prefer the original queued timestamp so history shows when the
+                # user sent the steering, falling back to the consumed event time.
+                consumed_entry["created_at"] = (
+                    queued["created_at"] if queued else e.created_at.isoformat()
+                )
+                consumed_steering.append(consumed_entry)
+
+        unconsumed_steering = [
+            {**entry, "consumed": False} for entry in queued_steering.values()
+        ]
 
         # Build side effects (bounded)
         side_effects = run.get_side_effects()
@@ -763,6 +778,7 @@ class AgentRuntimeService:
             "has_more": has_more,
             "next_cursor": next_cursor,
             "unconsumed_steering": unconsumed_steering,
+            "consumed_steering": consumed_steering,
         }
 
     def append_steering(

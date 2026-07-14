@@ -487,7 +487,7 @@ export default function WorkspaceDashboardPage() {
     }
   };
 
-  const handleSendAgentMessage = async (content: string, options?: { model?: string; thinkingLevel?: string }) => {
+  const handleSendAgentMessage = async (content: string, options?: { model?: string; thinkingLevel?: string; skill?: string; slashCommand?: string }) => {
     const activeConv = conversationHistory.activeConversation;
     const isDraftConv = conversationHistory.isDraft;
 
@@ -819,7 +819,7 @@ export default function WorkspaceDashboardPage() {
     }
   };
 
-  const handleResetDemo = async () => {
+  const handleResetDemo = useCallback(async () => {
     setActionError(null);
     try {
       const demo = await resetDemo();
@@ -831,7 +831,16 @@ export default function WorkspaceDashboardPage() {
     } catch {
       setActionError("演示重置失败，现有项目数据未被更改。");
     }
-  };
+  }, [selectedProjectId, reloadProject, handleSelectProject]);
+
+  // Listen for cross-component reset-demo requests (e.g., from Settings dialog)
+  useEffect(() => {
+    const onResetDemoEvent = () => {
+      void handleResetDemo();
+    };
+    window.addEventListener("projectflow:reset-demo", onResetDemoEvent);
+    return () => window.removeEventListener("projectflow:reset-demo", onResetDemoEvent);
+  }, [handleResetDemo]);
 
   if (loading || !workspaceState) {
     return (
@@ -903,7 +912,6 @@ export default function WorkspaceDashboardPage() {
       onConfirmAgentArtifact={handleConfirmAgentArtifact}
       onAddResource={handleAddResource}
       onDeleteResource={handleDeleteResource}
-      onResetDemo={handleResetDemo}
       onRefresh={() => reloadProject()}
       // T45: Conversation history props
       conversationSummaries={conversationHistory.summaries}

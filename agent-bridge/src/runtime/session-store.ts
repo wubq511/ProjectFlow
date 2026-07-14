@@ -8,6 +8,7 @@ import type { AgentRunState } from "@/types/run-state.js";
 export class SessionStore {
   private readonly runs = new Map<string, AgentRunState>();
   private readonly abortControllers = new Map<string, AbortController>();
+  private readonly steeringAvailable = new Map<string, boolean>();
 
   /** Store a run state. */
   set(runId: string, state: AgentRunState): void {
@@ -27,6 +28,7 @@ export class SessionStore {
   /** Remove a run. */
   delete(runId: string): boolean {
     this.abortControllers.delete(runId);
+    this.steeringAvailable.delete(runId);
     return this.runs.delete(runId);
   }
 
@@ -35,17 +37,33 @@ export class SessionStore {
     this.abortControllers.set(runId, controller);
   }
 
-  /** Abort an active run. Returns false when no controller is registered. */
-  abort(runId: string): boolean {
+  /** Abort an active run with an optional reason string. Returns false when no controller is registered. */
+  abort(runId: string, reason?: string): boolean {
     const controller = this.abortControllers.get(runId);
     if (!controller) return false;
-    controller.abort();
+    if (reason) {
+      controller.abort(reason);
+    } else {
+      controller.abort();
+    }
     return true;
   }
 
   /** Remove a run's abort controller after the loop terminates. */
   clearAbortController(runId: string): void {
     this.abortControllers.delete(runId);
+  }
+
+  /** Mark that a new steering event is available for a run. */
+  markSteeringAvailable(runId: string): void {
+    this.steeringAvailable.set(runId, true);
+  }
+
+  /** Check and clear the steering-available flag. */
+  consumeSteeringAvailable(runId: string): boolean {
+    const value = this.steeringAvailable.get(runId) ?? false;
+    this.steeringAvailable.delete(runId);
+    return value;
   }
 
   /** Get all active runs. */

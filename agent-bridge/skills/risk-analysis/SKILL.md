@@ -2,9 +2,9 @@
 name: risk-analysis
 description: 当用户触发"风险分析"时使用。分析项目风险，创建风险记录。
 allowed-tools:
+  - create_risk
   - get_workspace_state
   - get_timeline_slice
-  - create_risk
 references: []
 v2:
   version: 2

@@ -37,7 +37,7 @@ interface WorkspaceLayoutProps {
   onShowWorkspace: (show: boolean) => void;
   onNavigateView: (view: ProjectView) => void;
   onRunAgent?: (action: AgentAction, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => void;
-  onSendAgentMessage?: (content: string, options?: { model?: string; thinkingLevel?: string }) => void | Promise<void>;
+  onSendAgentMessage?: (content: string, options?: { model?: string; thinkingLevel?: string; skill?: string; slashCommand?: string }) => void | Promise<void>;
   onRespondToAssignment?: (
     proposalId: string,
     userId: string,
@@ -81,7 +81,6 @@ interface WorkspaceLayoutProps {
   onConfirmAgentArtifact?: (artifact: AgentArtifact) => void | Promise<void>;
   onAddResource?: (resource: AddResourceRequest) => void | Promise<void>;
   onDeleteResource?: (resourceId: string) => void | Promise<void>;
-  onResetDemo?: () => void | Promise<void>;
   onRefresh?: () => void;
   completedAnnouncement?: string | null;
   // T45: Conversation history props
@@ -144,7 +143,6 @@ export function WorkspaceLayout({
   onConfirmAgentArtifact,
   onAddResource,
   onDeleteResource,
-  onResetDemo,
   onRefresh,
   completedAnnouncement,
   // T45: Conversation history
@@ -242,7 +240,6 @@ export function WorkspaceLayout({
             onRejectProposal={onRejectProposal}
             onAddResource={onAddResource}
             onDeleteResource={onDeleteResource}
-            onResetDemo={onResetDemo}
           />
         )}
       </motion.main>
@@ -270,7 +267,6 @@ export function WorkspaceLayout({
         onStopStreaming={onStopStreaming}
         onToggleThinking={onToggleThinking}
         onConfirmArtifact={onConfirmAgentArtifact}
-        onResetDemo={onResetDemo}
         completedAnnouncement={completedAnnouncement}
         // T45: Conversation history
         conversationSummaries={conversationSummaries}

@@ -109,7 +109,7 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
   useEffect(() => { onDisconnectRef.current = options.onDisconnect; });
 
   const send = useCallback(
-    async (conversationId: string, content: string, viewerUserId: string, options?: { model?: string; thinkingLevel?: string }) => {
+    async (conversationId: string, content: string, viewerUserId: string, options?: { model?: string; thinkingLevel?: string; skill?: string; slashCommand?: string }) => {
       // Abort any previous in-flight request and invalidate its callbacks
       abortRef.current?.abort();
       const gen = ++generationRef.current;
@@ -137,7 +137,7 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
         conversation_id: conversationId,
         role: "user",
         content,
-        structured_payload: {},
+        structured_payload: options?.slashCommand ? { slash_command: options.slashCommand } : {},
         created_at: new Date().toISOString(),
       };
       startConnecting(clientTurnId, optimisticUserMessage);
@@ -209,12 +209,14 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
             onError: (msg) => {
               if (generationRef.current !== gen) return;
               setStreamStatus(null);
+              setActiveRunId(null);
               streamError(msg || "这次没有生成可用结果，我保留了你的请求。");
               onErrorRef.current(msg || "这次没有生成可用结果，我保留了你的请求。");
             },
             onDisconnect: (reason) => {
               if (generationRef.current !== gen) return;
               setStreamStatus(null);
+              setActiveRunId(null);
               streamDisconnect();
               onDisconnectRef.current?.(reason);
             },
@@ -222,9 +224,12 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
           controller.signal,
           options,
         );
+
       } catch (err) {
         // Stale request — ignore entirely
         if (generationRef.current !== gen) return;
+
+        setActiveRunId(null);
 
         if (controller.signal.aborted) {
           // User-initiated abort — already handled by streamCancel
@@ -267,6 +272,7 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
     abortRef.current?.abort();
     streamCancel();
     setStreamStatus(null);
+    setActiveRunId(null);
   }, [streamCancel]);
 
   /** Full reset: abort stream, clear turn state, status, and announcement.

@@ -2,10 +2,10 @@
 name: risk-replan
 description: 当需要计划调整时触发。基于签到和风险分析结果生成待确认的重规划草案。
 allowed-tools:
+  - generate_replan_proposal
+  - analyze_checkins_and_risks
   - get_workspace_state
   - get_timeline_slice
-  - analyze_checkins_and_risks
-  - generate_replan_proposal
 references:
   - references/risk-replan-playbook.md
 v2:

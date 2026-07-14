@@ -27,6 +27,14 @@ export interface MemoryContext {
   latencyMs: number;
 }
 
+export interface PendingSteeringEvent {
+  steeringSeq: number;
+  steeringType: string;
+  content: string;
+  clientMessageId?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ContextBuildInput {
   userContent: string;
   workspaceState?: unknown;
@@ -63,6 +71,8 @@ export interface ContextBuildInput {
     effectCeiling: string;
     completionMode: string;
   };
+  /** Pending steering events to inject into the current context. */
+  pendingSteering?: PendingSteeringEvent[];
 }
 
 export interface SkillContext {
@@ -275,6 +285,18 @@ ${input.skillContext.body}
     }));
   }
 
+  // 13. Pending steering (required — user constraints/corrections override earlier context)
+  if (input.pendingSteering && input.pendingSteering.length > 0) {
+    const steeringBlock = buildPendingSteeringBlock(input.pendingSteering);
+    if (steeringBlock) {
+      ledger.add(createBlock("pending_steering", "pending_steering", steeringBlock, {
+        priority: 35,
+        retention: "required",
+        version: "2.0.0",
+      }));
+    }
+  }
+
   // ── Assemble receipt and compact ──────────────────────────────────
 
   const { receipt, blocks: retainedBlocks } = ledger.assemble();
@@ -302,7 +324,8 @@ ${input.skillContext.body}
   for (const block of retainedBlocks) {
     if (block.source === "user_input" || block.source === "workspace_facts" ||
         block.source === "pending_proposals" || block.source === "recent_messages" ||
-        block.source === "project_memory" || block.source === "current_time") {
+        block.source === "project_memory" || block.source === "current_time" ||
+        block.source === "pending_steering") {
       userMessageParts.push(block.content);
     }
   }
@@ -342,11 +365,25 @@ export function filterModelCallableManifests(
 ): ProjectFlowToolManifest[] {
   const allowedTools = skillContext?.allowedTools;
   const effectCeiling = skillContext?.effectCeiling ?? "proposal_only";
-  return manifests.filter((manifest) => {
+  const filtered = manifests.filter((manifest) => {
     if (!manifest.modelCallable || manifest.humanTriggeredOnly) return false;
-    if (allowedTools && !allowedTools.includes(manifest.name) && manifest.name !== "read_tool_resource") return false;
+    if (allowedTools && !allowedTools.includes(manifest.name)) return false;
     return evaluatePolicy(manifest, effectCeiling).decision === "allow";
   });
+
+  // Preserve the skill's declared tool order so the model sees the
+  // most important/write tool first. This also lets the mock stream
+  // call the correct tool on the first turn.
+  if (allowedTools && allowedTools.length > 0) {
+    const order = new Map(allowedTools.map((name, index) => [name, index]));
+    filtered.sort((a, b) => {
+      const ia = order.get(a.name) ?? Number.MAX_SAFE_INTEGER;
+      const ib = order.get(b.name) ?? Number.MAX_SAFE_INTEGER;
+      return ia - ib;
+    });
+  }
+
+  return filtered;
 }
 
 export function escapeXmlText(value: string): string {
@@ -537,11 +574,26 @@ function buildUserMessage(input: ContextBuildInput): string {
     parts.push(`<recent_messages>\n${escapeXmlText(transformed)}\n</recent_messages>`);
   }
 
+  // Pending steering (constraints / corrections) — must be visible to the model
+  // before it responds, because these override earlier context.
+  const steeringBlock = buildPendingSteeringBlock(input.pendingSteering);
+  if (steeringBlock) {
+    parts.push(steeringBlock);
+  }
+
   // Current request comes last so prior facts/history form a reusable prefix and
   // the model cannot mistake them for the latest instruction.
   parts.push(`<user_message>\n${escapeXmlText(input.userContent)}\n</user_message>`);
 
   return parts.join("\n\n");
+}
+
+function buildPendingSteeringBlock(events: PendingSteeringEvent[] | undefined): string | null {
+  if (!events || events.length === 0) return null;
+  const lines = events.map(
+    (e) => `- [${e.steeringType}] ${escapeXmlText(e.content.slice(0, 1000))}`,
+  );
+  return `<pending_steering>\n用户追加约束/纠正（请立即遵守）：\n${lines.join("\n")}\n</pending_steering>`;
 }
 
 function buildToolDefinitions(manifests: ProjectFlowToolManifest[], skillContext?: SkillContext): unknown[] {

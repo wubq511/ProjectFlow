@@ -31,9 +31,9 @@ export class FastapiClient {
   }
 
   /** Shared fetch with timeout and error handling. */
-  private async fetchJson<T>(url: string, init: RequestInit): Promise<T> {
+  private async fetchJson<T>(url: string, init: RequestInit, timeoutMs?: number): Promise<T> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs ?? this.timeoutMs);
 
     try {
       const response = await fetch(url, { ...init, signal: controller.signal });
@@ -49,7 +49,7 @@ export class FastapiClient {
     }
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, timeoutMs?: number): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -60,7 +60,7 @@ export class FastapiClient {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    }, timeoutMs);
   }
 
   /** Start a new agent run. */
@@ -85,11 +85,11 @@ export class FastapiClient {
   }
 
   /** Get a durable snapshot of a run for resume/rehydrate. Supports cursor-based pagination. */
-  async getRunSnapshot(runId: string, afterEventSeq?: number): Promise<Record<string, unknown>> {
+  async getRunSnapshot(runId: string, afterEventSeq?: number, timeoutMs?: number): Promise<Record<string, unknown>> {
     const cursorParam = afterEventSeq != null && afterEventSeq > 0
       ? `?after_event_seq=${afterEventSeq}`
       : "";
-    return this.request("GET", `/internal/agent-runs/${runId}/snapshot${cursorParam}`);
+    return this.request("GET", `/internal/agent-runs/${runId}/snapshot${cursorParam}`, undefined, timeoutMs);
   }
 
   /** Get authenticated resume context for a run. */

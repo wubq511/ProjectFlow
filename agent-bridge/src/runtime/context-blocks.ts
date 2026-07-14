@@ -21,6 +21,7 @@ export type BlockSource =
   | "recent_messages"  // conversation history
   | "tool_observations" // recent tool call results
   | "pending_proposals" // unconfirmed proposals
+  | "pending_steering" // user constraints/corrections during a run
   | "id_mapping"       // ID → name table
   | "current_time";    // timestamp when date-sensitive
 

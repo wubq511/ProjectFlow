@@ -2,8 +2,8 @@
 name: assignment-planning
 description: 当需要分工时触发。基于成员技能和可用时间推荐任务分配。
 allowed-tools:
-  - get_workspace_state
   - recommend_assignment
+  - get_workspace_state
 references:
   - references/assignment-rubric.md
 v2:
