@@ -13,6 +13,7 @@ node_modules/
 frontend/.next/
 frontend/out/
 frontend/dist/
+frontend/test-results/
 agent-bridge/dist/
 *.tsbuildinfo
 
@@ -31,7 +32,8 @@ scripts/
 agent-bridge/scripts/*
 !agent-bridge/scripts/run-agent-canary.ts
 
-# Agent config (codex not tracked)
+# Agent / IDE session artifacts
+.trae/
 .codex/
 .codegraph/
 .playwright-mcp/
