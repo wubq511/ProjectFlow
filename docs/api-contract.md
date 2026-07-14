@@ -1,6 +1,6 @@
 # ProjectFlow API Contract
 
-Status: current as of 2026-07-12. All planned MVP endpoints are implemented; proposal confirmation and project creation validate workspace membership; T41/T43 internal agent-tool, run, steering, checkpoint and tool-resource endpoints require service-to-service Bearer auth.
+Status: current as of 2026-07-14. All planned MVP endpoints are implemented; proposal confirmation and project creation validate workspace membership; T41/T43 internal agent-tool, run, steering, checkpoint and tool-resource endpoints require service-to-service Bearer auth.
 
 This document records the implemented MVP API surface. Post-MVP ideas should be tracked in roadmap docs, not mixed into this contract.
 

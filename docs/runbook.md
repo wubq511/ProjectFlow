@@ -1,6 +1,6 @@
 # ProjectFlow Runbook
 
-Status: current as of 2026-07-12.
+Status: current as of 2026-07-14.
 
 ## Prerequisites
 
@@ -140,11 +140,11 @@ npm run build
 npm audit --omit=dev
 ```
 
-Expected baseline as of 2026-07-13:
+Expected baseline as of 2026-07-14:
 
-- Backend tests pass: 825 passed, 4 skipped.
+- Backend tests pass: 852 passed, 4 skipped.
 - Agent bridge tests pass: 1142 tests across 58 unit files; `npm run typecheck` and `npm run build` pass in `agent-bridge/`.
-- Frontend tests pass: 147 tests across 17 files.
+- Frontend tests pass: 191 tests across 18 files.
 - Frontend lint passes.
 - Frontend production build passes.
 - `npm audit --omit=dev` reports 0 vulnerabilities.
@@ -216,7 +216,7 @@ The response includes `workspace_id` and `project_id`. Open the returned workspa
 http://localhost:3000/workspaces/<workspace_id>
 ```
 
-The dashboard also exposes a Reset demo button. It calls the same endpoint and navigates to the seeded workspace.
+The dashboard no longer exposes a standalone Reset demo button. Instead, open **Settings** from the gear icon at the bottom of the left sidebar → switch to the **系统** tab → click **重置数据**. This dispatches a `projectflow:reset-demo` event that the workspace page handles by calling the same endpoint and navigating to the seeded workspace.
 
 ## Demo Path
 
@@ -278,7 +278,7 @@ The agent-bridge sidecar supports multiple LLM providers and models via `model-c
 
 ### Configure via frontend
 
-Click the gear icon in the navbar (or the floating gear on the project dashboard) → "模型配置" tab. Add/edit/delete model configs, set API keys, and reload configs from disk.
+Click the gear icon at the bottom of the left sidebar in a workspace → "模型配置" tab. Add/edit/delete model configs, set API keys, and reload configs from disk.
 
 ### Configure via file
 
@@ -646,7 +646,8 @@ Use this checklist to manually verify the full MVP flow. It covers both mock mod
 
 ### Demo Reset
 
-- [ ] Click "重置演示" button on dashboard — data is reset and re-seeded
+- [ ] Open Settings from the gear icon at the bottom of the left sidebar → "系统" tab
+- [ ] Click "重置数据" — confirm the dialog — data is reset and re-seeded
 - [ ] Or use `curl -X POST http://localhost:8000/api/demo/reset`
 - [ ] Dashboard navigates to the seeded project
 

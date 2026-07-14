@@ -1,8 +1,49 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-13.
+Status: current as of 2026-07-14.
 
 ## Latest Architecture Handoff
+
+### 2026-07-14 — Settings Relocation, AgentSidebar Cleanup, Settings UI Polish, Slash Command Chips, and Composer Steering
+
+Implemented in commit `20e4ea2`.
+
+**Frontend UX:**
+
+- **Settings entry moved to left sidebar footer**: The settings gear icon was removed from the top-right of the project dashboard and added to the bottom of `ProjectSidebar`. It dispatches a `projectflow:open-settings` custom event, which `app-shell.tsx` listens for to open `SettingsDialog`.
+- **SettingsDialog tabbed navigation**: The settings dialog now has two tabs — “模型配置” (model config) and “系统” (system). The “系统” tab hosts the relocated “重置演示数据” action.
+- **Model config UI polish**: `ModelConfigTab` now shows status tags (默认 / 无效), an API key setting area per model, and an actions dropdown menu (MoreHorizontal) for edit/delete. Layout is responsive across screen sizes.
+- **Recent Activity panel removed**: The bottom-right “最近活动” section was removed from `AgentSidebar`, decluttering the right panel.
+- **Reset demo moved to Settings > 系统**: The reset flow now uses a cross-component `projectflow:reset-demo` custom event. The workspace page listens for it and calls `resetDemo()`, then reloads or navigates to the seeded project.
+
+**Agent Composer / Runtime:**
+
+- **Slash command selected-state highlight chip**: `SlashCommandChip` renders the selected slash command as a compact chip inside `ChatComposer`. The chip is one-click removable, and the message bubble mirrors the composer appearance when no extra text is present.
+- **Composer / steering merge**: The separate constraint input box was merged into the main chat composer. `ChatComposer` handles slash-command hinting, chip rendering, and loop-boundary steering consumption. `project-actions.ts` centralizes `getLeadingSlashCommand` and slash-command metadata, eliminating duplication with `ALL_AGENT_ACTIONS`.
+- **Steering poller and mid-stream abort scaffolding**: `agent-bridge/src/runtime/steering-poller.ts` was added to poll for steering inputs at loop boundaries. Mid-stream abort wiring was added to `pi-runtime.ts`, `cancel-run.ts`, and related routes/schemas. The frontend exposes steering history via `SteeringHistory`.
+
+**Key files:**
+
+- `frontend/src/components/settings/settings-dialog.tsx`
+- `frontend/src/components/settings/model-config-tab.tsx`
+- `frontend/src/components/project/project-sidebar.tsx`
+- `frontend/src/components/app-shell.tsx`
+- `frontend/src/components/project/agent-sidebar.tsx`
+- `frontend/src/app/workspaces/[workspaceId]/page.tsx`
+- `frontend/src/components/project/agent/ChatComposer.tsx`
+- `frontend/src/components/project/agent/ChatMessage.tsx`
+- `frontend/src/components/project/agent/SlashCommandChip.tsx`
+- `frontend/src/components/project/agent/SlashCommandMenu.tsx`
+- `frontend/src/components/project/agent/SteeringHistory.tsx`
+- `frontend/src/components/project/project-actions.ts`
+- `agent-bridge/src/runtime/steering-poller.ts`
+- `agent-bridge/src/runtime/pi-runtime.ts`
+- `agent-bridge/src/server/routes/cancel-run.ts`
+- `backend/app/schemas/agent_conversation.py`
+- `backend/app/services/agent_conversation_service.py`
+- `backend/app/services/agent_runtime_service.py`
+
+**Verification:** frontend lint/build/test pass; agent-bridge typecheck/build/test pass; backend ruff/pytest pass. See runbook for latest baseline.
 
 ### T44/T45 — Agent Efficiency, Model Integrity and Private Conversation History (2026-07-13)
 
@@ -1037,7 +1078,7 @@ All 6 remediation slices (R1–R6, R8) completed. R7 (optional vector) remains s
 
 ## Verification Baseline
 
-Latest deterministic verification baseline after T44/T45 and canary hardening (2026-07-13):
+Latest deterministic verification baseline after the 2026-07-14 UX/Runtime polish (T44/T45 canary hardening plus settings, slash chips, and composer steering):
 
 ```bash
 cd backend
@@ -1054,9 +1095,9 @@ npm audit --omit=dev
 
 Results:
 
-- Backend: 825 tests passed, 4 skipped; Ruff passed.
+- Backend: 852 tests passed, 4 skipped; Ruff passed.
 - Agent-bridge: 1142 tests passed across 58 files; typecheck/build passed.
-- Frontend tests: 147 passed across 17 files.
+- Frontend tests: 191 passed across 18 files.
 - Frontend lint and production build passed.
 - Frontend build passed.
 - Frontend production dependency audit reported 0 vulnerabilities.
@@ -1256,7 +1297,7 @@ The main accepted limitation is free-text member constraints: `constraint_respec
 Impeccable critique review of project sidebar and 8 views (overview/direction/stages/my-tasks/team-tasks/checkin/risks/retro). Score: 31/40 (Good).
 
 **Fixes applied:**
-- **Uppercase eyebrow removal (4 locations)**: `agent-sidebar.tsx` ("所有操作"/"最近活动" headers), `workspace-content.tsx` ("工作区" header), `new/page.tsx` ("ProjectFlow" brand text). Removed `uppercase tracking-wider` / `uppercase tracking-[0.18em]` per impeccable absolute ban on SaaS-template AI slop.
+- **Uppercase eyebrow removal (4 locations)**: `agent-sidebar.tsx` ("所有操作"/"最近活动" headers), `workspace-content.tsx` ("工作区" header), `new/page.tsx` ("ProjectFlow" brand text). Removed `uppercase tracking-wider` / `uppercase tracking-[0.18em]` per impeccable absolute ban on SaaS-template AI slop. Note: the "最近活动" section itself was later removed on 2026-07-14 as part of AgentSidebar cleanup.
 - **Ghost-card removal (3 locations)**: `workspace-content.tsx` StatCard `prominent` shadow removed; two Card components (`成员`/`项目` panels) shadow-sm removed. Border-only cards per impeccable rule (no border+shadow decoration).
 - **Workspace noise reduction**: Removed "暂无其他工作区" gray placeholder text from sidebar workspace dropdown.
 - **Disabled state clarity**: Sidebar disabled menu items now use `opacity-60` for clear visual distinction from active items.

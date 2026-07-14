@@ -14,6 +14,7 @@ All notable changes to ProjectFlow are documented here. Format follows [Keep a C
 - High-frequency model token and tool-progress deltas now remain live SSE events while final outputs and state boundaries stay durable, preventing per-token event/state double writes.
 - DeepSeek V4 Flash/Pro production canary with frozen per-scenario latency gates, real token/cost telemetry, tool-evidence outcomes and actual workspace-ID/UUID privacy checks.
 - Repeated post-T44 production canary provisioning creates fresh seed state and a private conversation per observation, supports targeted scenario reruns, and reports metric coverage plus cache semantics without reusing effectful state.
+- 2026-07-14 UX/Runtime polish: settings gear moved to the bottom of the left sidebar; AgentSidebar "最近活动" panel removed; "重置演示数据" relocated into Settings > System with tabbed settings navigation; model config UI updated with status tags, per-model API key area, and actions dropdown; slash commands gained a selected-state highlight chip; message bubbles mirror composer slash-chip layout; composer merged with loop-boundary steering consumption; agent-bridge added steering poller and mid-stream abort scaffolding.
 
 ### Fixed
 

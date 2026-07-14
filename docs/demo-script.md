@@ -1,6 +1,6 @@
 # ProjectFlow Demo Script
 
-Status: current as of 2026-07-13.
+Status: current as of 2026-07-14.
 
 A 5-minute path through the core loop. Designed for review presentation.
 
@@ -110,8 +110,8 @@ curl -X POST http://localhost:8000/api/projects/demo-project-001/export/review-s
 
 ## Reset Demo
 
-From the dashboard, use the Reset demo button, or run:
+Open **Settings** from the gear icon at the bottom of the left sidebar, switch to the **系统** tab, and click **重置数据**. Confirm the dialog to reset and re-seed. Or run:
 
 ```bash
-curl -X POST http://localhost:8000/api/seed/demo
+curl -X POST http://localhost:8000/api/demo/reset
 ```

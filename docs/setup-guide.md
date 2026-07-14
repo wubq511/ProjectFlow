@@ -132,7 +132,7 @@ cd backend
 .venv\Scripts\python -m ruff check app
 ```
 
-预期：后端测试全部通过，ruff 无问题。2026-07-13 的测试基线为 `825 passed, 4 skipped`。
+预期：后端测试全部通过，ruff 无问题。2026-07-14 的测试基线为 `852 passed, 4 skipped`。
 
 ### 前端验证
 
@@ -143,7 +143,7 @@ npm run lint
 npm run build
 ```
 
-预期：57 个前端测试通过，lint 无错误（有 2 个既有 React hook warnings），build 成功。`npm run test` / `npm run lint` / `npm run build` 会先或后归一 `next-env.d.ts`，避免 Next.js dev/build 类型路径切换污染 git diff。
+预期：191 个前端测试通过（18 个测试文件），lint 无错误，build 成功。`npm run test` / `npm run lint` / `npm run build` 会先或后归一 `next-env.d.ts`，避免 Next.js dev/build 类型路径切换污染 git diff。
 
 ### Agent Bridge 测试
 
@@ -153,7 +153,7 @@ npx vitest run
 npx tsc --noEmit
 ```
 
-预期：552 个 agent-bridge 测试通过（19 文件），typecheck 通过。
+预期：1142 个 agent-bridge 测试通过（58 个测试文件），typecheck 与 build 通过。
 
 ## 第五步：启动 Agent Bridge Sidecar
 
@@ -186,7 +186,7 @@ INTERNAL_SERVICE_TOKEN=change-me
 
 > `INTERNAL_SERVICE_TOKEN` 必须与 `backend/.env` 中的值一致，sidecar 通过它认证后端内部 API。
 
-也可以在前端设置对话框中管理模型配置（点击导航栏齿轮按钮）。
+也可以在前端设置对话框中管理模型配置：进入 workspace 后点击左侧栏底部的齿轮按钮 → "模型配置" 标签页。
 
 ### 5.3 启动 Sidecar
 

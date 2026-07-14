@@ -1,6 +1,6 @@
 # ProjectFlow CodeWiki
 
-> 自动生成于 2026-06-02，基于代码库全量扫描。Phase 40 更新于 2026-06-07。
+> 最初基于 2026-06-02 代码库全量扫描生成；Phase 40 更新于 2026-06-07，2026-07-14 同步设置入口迁移、AgentSidebar 精简与重置流程变更。
 
 ---
 
@@ -76,6 +76,7 @@ ProjectFlow/
 │   │   │   ├── onboarding/    # 账号创建 + 成员资料向导
 │   │   │   ├── project/       # 三栏布局(project-layout/sidebar/content/agent-sidebar) + 仪表盘 + 创建 + 资源 + 方向决策
 │   │   │   ├── risk/          # 风险卡 + 风险面板 + 重排对比
+│   │   │   ├── settings/      # 设置弹窗(settings-dialog.tsx) + 模型配置标签页(model-config-tab.tsx)
 │   │   │   ├── stage/         # 阶段计划看板
 │   │   │   ├── task/          # 任务拆解看板 + 状态更新
 │   │   │   └── workspace/     # 工作区创建 + 邀请成员 + workspace 内容视图
@@ -657,7 +658,7 @@ Compatibility singular GET 只返回最新可访问会话且不创建数据。Pr
 | GET/POST | /llm/diagnostic | LLM 连通性诊断 |
 | POST | /seed/demo | 加载演示种子 |
 | POST | /seed/reset | 清空数据 |
-| POST | /demo/reset | 前端重置按钮兼容端点 |
+| POST | /demo/reset | 重置并重新加载演示数据；前端从 Settings > 系统标签页触发 |
 
 ---
 
