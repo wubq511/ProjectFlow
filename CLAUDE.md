@@ -158,6 +158,7 @@ npm audit --omit=dev
 - Agent 思考过程折叠：流式输出时全量显示（保持打字效果），完成后用 Pi runtime turn 边界（`turn_start` 事件）分离思考/回答 token，turn 0 归入折叠区（默认收起，显示"思考过程 · N 步"），turn 1+ 为最终回答；工具调用 JSON 噪音（`{}`、`{"limit": 10}`）替换为 blockquote 格式"🔧 **工具调用**"；单 turn 无工具调用不显示折叠区
 - Agent 侧栏支持项目内多会话：新会话默认 private，点击“历史会话”进入可访问记录；选择写入 URL `conversation` 参数，首条消息发送前保持本地草稿，流式响应期间禁止切换
 - 设置入口位于左侧栏底部（ProjectSidebar footer），通过 `projectflow:open-settings` 自定义事件打开 SettingsDialog；设置页分为“模型配置”和“系统”两个标签页，“重置演示数据”位于“系统”标签页
+- 视图切换导航使用 `useDebouncedCallback` 做 60ms 防抖：快速连续点击左侧项目/视图导航时，合并为一次 `router.replace`，避免 Next.js App Router 取消未完成的 RSC flight 请求而产生 `net::ERR_ABORTED` 控制台噪音
 - 当前阶段高亮，自动推荐下一步操作
 - UI 语言统一中文
 - localStorage 读取必须用 `useSyncExternalStore` 避免 hydration mismatch

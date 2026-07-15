@@ -1,6 +1,6 @@
 # ProjectFlow CodeWiki
 
-> 最初基于 2026-06-02 代码库全量扫描生成；Phase 40 更新于 2026-06-07，2026-07-14 同步设置入口迁移、AgentSidebar 精简与重置流程变更。
+> 最初基于 2026-06-02 代码库全量扫描生成；Phase 40 更新于 2026-06-07，2026-07-14 同步设置入口迁移、AgentSidebar 精简与重置流程变更，2026-07-15 同步视图导航防抖 hook 与测试。
 
 ---
 
@@ -81,10 +81,12 @@ ProjectFlow/
 │   │   │   ├── task/          # 任务拆解看板 + 状态更新
 │   │   │   └── workspace/     # 工作区创建 + 邀请成员 + workspace 内容视图
 │   │   ├── lib/
-│   │   │   ├── api.ts         # 所有 fetch 统一入口（35 个 API 函数）
-│   │   │   ├── types.ts       # 前端类型（25 个领域类型）
-│   │   │   ├── constants.ts   # 示例数据常量
-│   │   │   └── utils.ts       # cn() 工具函数
+│   │   │   ├── api.ts                    # 所有 fetch 统一入口（35 个 API 函数）
+│   │   │   ├── types.ts                  # 前端类型（25 个领域类型）
+│   │   │   ├── constants.ts              # 示例数据常量
+│   │   │   ├── utils.ts                  # cn() 工具函数
+│   │   │   ├── useDebouncedCallback.ts   # 通用防抖 hook（组件卸载自动清理）
+│   │   │   └── useDebouncedCallback.test.ts  # 防抖 hook 单元测试
 │   │   └── styles/
 │   │       └── globals.css    # Tailwind + 蓝金视觉体系(Instrument Serif + Inter 字体)
 │   └── package.json
@@ -522,6 +524,13 @@ generate_structured_output()
 | Members | addWorkspaceMember, removeMember |
 | Seed/Reset | loadDemoSeed, resetDemoData, resetDemo |
 | Export | exportReviewSummary |
+
+#### [useDebouncedCallback.ts](frontend/src/lib/useDebouncedCallback.ts) — 通用防抖 hook
+
+- `useDebouncedCallback<Args, Return>(callback, delayMs)` — 返回防抖后的回调，支持任意参数类型
+- 使用 `useRef` 保存定时器 ID 和最新回调引用
+- 组件卸载时自动清理未执行的定时器
+- 应用于 `frontend/src/app/workspaces/[workspaceId]/page.tsx` 的视图导航，60ms 延迟合并连续点击，避免 RSC flight 请求被取消
 
 #### [types.ts](frontend/src/lib/types.ts) — 25 个领域类型
 

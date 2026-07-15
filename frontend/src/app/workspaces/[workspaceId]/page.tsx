@@ -51,6 +51,7 @@ import type {
 } from "@/lib/types";
 import { useAgentConversationStream, useAgentStreamNavigationReset } from "@/lib/useAgentConversationStream";
 import { useConversationHistory } from "@/lib/use-conversation-history";
+import { useDebouncedCallback } from "@/lib/useDebouncedCallback";
 
 	const AGENT_RUNNERS: Record<AgentAction, (projectId: string, state?: ProjectState, viewerUserId?: string, thinkingLevel?: ThinkingLevel, model?: { provider: string; name: string }) => Promise<unknown>> = {
 	  clarify: (projectId, _state, vuid, tl, m) => runClarification(projectId, vuid!, tl, m),
@@ -385,7 +386,9 @@ export default function WorkspaceDashboardPage() {
     }
   }, [workspaceId, searchParams, router, resetForNavigation, resetConversationHistory]);
 
-  const handleNavigateView = useCallback((view: import("@/components/project/project-sidebar").ProjectView) => {
+  // Debounce view navigation to avoid a storm of RSC flight requests (and
+  // net::ERR_ABORTED console noise) when the user rapidly clicks sidebar items.
+  const handleNavigateView = useDebouncedCallback((view: import("@/components/project/project-sidebar").ProjectView) => {
     const params = new URLSearchParams(searchParams.toString());
     if (view === "overview") {
       params.delete("view");
@@ -393,7 +396,7 @@ export default function WorkspaceDashboardPage() {
       params.set("view", view);
     }
     router.replace(`/workspaces/${workspaceId}?${params.toString()}`, { scroll: false });
-  }, [workspaceId, searchParams, router]);
+  }, 60);
 
   const reloadInProgressRef = useRef(false);
 

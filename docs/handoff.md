@@ -1,8 +1,32 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-14.
+Status: current as of 2026-07-15.
 
 ## Latest Architecture Handoff
+
+### 2026-07-15 — Debounced View Navigation to Eliminate RSC Flight Cancellation Noise
+
+Implemented debounce fix for rapid sidebar view switching.
+
+**Problem:**
+
+- Rapidly clicking different views in the project sidebar triggered multiple consecutive `router.replace(...)` calls.
+- Next.js App Router cancels in-flight RSC flight requests when a newer navigation starts, producing `net::ERR_ABORTED` console errors.
+- These errors are browser-normal cancellation noise, not application bugs, but they clutter the console and degrade perceived quality.
+
+**Fix:**
+
+- Added a generic typed `useDebouncedCallback` hook in `frontend/src/lib/useDebouncedCallback.ts` (with `frontend/src/lib/useDebouncedCallback.test.ts` unit tests).
+- Applied a 60ms debounce to `handleNavigateView` in `frontend/src/app/workspaces/[workspaceId]/page.tsx`.
+- Consecutive rapid clicks are coalesced into a single `router.replace` call with the latest selected view.
+
+**Key files:**
+
+- `frontend/src/lib/useDebouncedCallback.ts`
+- `frontend/src/lib/useDebouncedCallback.test.ts`
+- `frontend/src/app/workspaces/[workspaceId]/page.tsx`
+
+**Verification:** Rapid view switching no longer produces `net::ERR_ABORTED`; frontend tests pass (196).
 
 ### 2026-07-15 — Workspace UI/UX Polish, Accessibility Contrast, Nested Cards Removal and Framer Motion Transitions
 
@@ -1131,7 +1155,7 @@ Results:
 
 - Backend: 852 tests passed, 4 skipped; Ruff passed.
 - Agent-bridge: 1142 tests passed across 58 files; typecheck/build passed.
-- Frontend tests: 191 passed across 18 files.
+- Frontend tests: 196 passed across 19 files.
 - Frontend lint and production build passed.
 - Frontend build passed.
 - Frontend production dependency audit reported 0 vulnerabilities.

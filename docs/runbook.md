@@ -1,6 +1,6 @@
 # ProjectFlow Runbook
 
-Status: current as of 2026-07-14.
+Status: current as of 2026-07-15.
 
 ## Prerequisites
 
@@ -140,11 +140,11 @@ npm run build
 npm audit --omit=dev
 ```
 
-Expected baseline as of 2026-07-14:
+Expected baseline as of 2026-07-15:
 
 - Backend tests pass: 852 passed, 4 skipped.
 - Agent bridge tests pass: 1142 tests across 58 unit files; `npm run typecheck` and `npm run build` pass in `agent-bridge/`.
-- Frontend tests pass: 191 tests across 18 files.
+- Frontend tests pass: 196 tests across 19 files.
 - Frontend lint passes.
 - Frontend production build passes.
 - `npm audit --omit=dev` reports 0 vulnerabilities.
@@ -573,6 +573,10 @@ Use this checklist to manually verify the full MVP flow. It covers both mock mod
 - [ ] Open an older conversation and load older messages — order is stable and no duplicates appear
 - [ ] Start a streamed answer — new/switch controls remain disabled until completion or stop
 - [ ] Switch current user — another member's private conversation is not listed or readable
+
+### Navigation Quality
+
+- [ ] Rapidly click multiple sidebar views (e.g., 阶段计划 → 任务拆解 → 风险与调整) — the UI navigates to the last clicked view and no `net::ERR_ABORTED` errors appear in the browser console
 
 ### Agent: Stage Planning
 
