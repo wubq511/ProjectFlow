@@ -146,7 +146,7 @@ describe("useAgentConversationStream production hook", () => {
     act(() => callbacks.onStatus({ phase: "executing", message: "运行中", run_id: "run-1" }));
     await waitFor(() => expect(result.current.activeRunId).toBe("run-1"));
 
-    act(() => callbacks.onDisconnect("连接中断"));
+    act(() => callbacks.onDisconnect?.("连接中断"));
     expect(result.current.activeRunId).toBeNull();
 
     request.resolve();

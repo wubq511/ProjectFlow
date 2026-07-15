@@ -143,7 +143,7 @@ export function AgentGuidedTour({ active, onComplete }: AgentGuidedTourProps) {
           <button
             type="button"
             onClick={handleSkip}
-            className="text-neutral-400 hover:text-neutral-600"
+            className="text-neutral-500 hover:text-neutral-700"
             aria-label="跳过引导"
           >
             <X className="h-3.5 w-3.5" />

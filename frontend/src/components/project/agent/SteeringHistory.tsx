@@ -76,7 +76,7 @@ export function SteeringHistory({ events }: SteeringHistoryProps) {
                 >
                   {label}
                 </Badge>
-                <span className="flex shrink-0 items-center gap-1 text-[10px] text-neutral-400">
+                <span className="flex shrink-0 items-center gap-1 text-[10px] text-neutral-500">
                   {event.consumed ? (
                     <>
                       <CheckCircle2 className="h-3 w-3" />
@@ -92,7 +92,7 @@ export function SteeringHistory({ events }: SteeringHistoryProps) {
               </div>
               <p className="mt-1.5 leading-relaxed">{event.content}</p>
               {formatTime(event.created_at) && (
-                <p className="mt-1 text-[10px] text-neutral-400">{formatTime(event.created_at)}</p>
+                <p className="mt-1 text-[10px] text-neutral-500">{formatTime(event.created_at)}</p>
               )}
             </li>
           );

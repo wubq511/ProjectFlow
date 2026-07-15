@@ -367,7 +367,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </>
       )}
 
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      {settingsOpen && <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />}
 
       <main className={isProjectDashboard ? "h-full" : ""}>
         {children}

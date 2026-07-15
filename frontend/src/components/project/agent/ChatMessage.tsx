@@ -131,11 +131,11 @@ export const ChatMessage = React.memo(function ChatMessage({
       className={cn(
         "rounded-md border p-3",
         isUser
-          ? "ml-6 border-neutral-200 bg-white text-neutral-700"
-          : "mr-0 border-neutral-100 bg-neutral-50/80 text-neutral-700",
+          ? "ml-6 border-neutral-200 bg-white text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300"
+          : "mr-0 border-neutral-100 bg-neutral-50/80 text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900/80 dark:text-neutral-300",
       )}
     >
-      <div className="mb-1 text-[10px] font-semibold text-neutral-400">
+      <div className="mb-1 text-[10px] font-semibold text-neutral-500 dark:text-neutral-400">
         {isUser ? "你" : "Agent"}
       </div>
       {isUser ? (
@@ -161,15 +161,15 @@ export const ChatMessage = React.memo(function ChatMessage({
           {hasThinking && (
             <Collapsible open={effectiveThinkingOpen} onOpenChange={handleThinkingToggle} className="mb-2">
               <CollapsibleTrigger
-                className="flex w-full items-center gap-1 rounded-md px-1.5 py-2 text-[11px] text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 min-h-[44px]"
+                className="flex w-full items-center gap-1 rounded-md px-1.5 py-2 text-[11px] text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 min-h-[44px] dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
                 aria-expanded={effectiveThinkingOpen}
                 aria-controls={thinkingContentId}
               >
                 <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform duration-200", effectiveThinkingOpen && "rotate-90")} />
                 <span>{thinkingTitle}</span>
               </CollapsibleTrigger>
-              <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2" id={thinkingContentId}>
-                <p className="whitespace-pre-wrap text-[11px] leading-5 text-neutral-500">{thinkingContent}</p>
+              <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2 dark:border-neutral-800 dark:bg-neutral-900/60" id={thinkingContentId}>
+                <p className="whitespace-pre-wrap text-[11px] leading-5 text-neutral-500 dark:text-neutral-400">{thinkingContent}</p>
               </CollapsibleContent>
             </Collapsible>
           )}
@@ -177,19 +177,19 @@ export const ChatMessage = React.memo(function ChatMessage({
           {hasExecutionSteps && (
             <Collapsible open={stepsOpen} onOpenChange={setStepsOpen} className="mb-2">
               <CollapsibleTrigger
-                className="flex min-h-[44px] w-full items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600"
+                className="flex min-h-[44px] w-full items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
                 aria-expanded={stepsOpen}
                 aria-controls={stepsContentId}
               >
                 <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform duration-200", stepsOpen && "rotate-90")} />
                 <span>执行过程</span>
-                <span className="text-neutral-300">·</span>
-                <span className="text-neutral-300">{executionSteps.length} 步</span>
+                <span className="text-neutral-400">·</span>
+                <span className="text-neutral-400">{executionSteps.length} 步</span>
               </CollapsibleTrigger>
-              <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2" id={stepsContentId}>
+              <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2 dark:border-neutral-800 dark:bg-neutral-900/60" id={stepsContentId}>
                 <ul className="space-y-1">
                   {executionSteps.map((step, i) => (
-                    <li key={i} className="flex items-center gap-1.5 text-[11px] text-neutral-500">
+                    <li key={i} className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
                       <span>{executionStepStatusIcon(step.status)}</span>
                       <span>{step.label}</span>
                     </li>
@@ -206,14 +206,14 @@ export const ChatMessage = React.memo(function ChatMessage({
               <MarkdownContent content={answerContent} />
             </div>
           ) : isLive && !hasThinking ? (
-            <div className="flex items-center gap-1.5 text-[11px] text-neutral-400">
+            <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
               <Loader2 className="h-3 w-3 animate-spin" />
               <span>正在生成回复...</span>
             </div>
           ) : null}
           {/* Turn status label (cancelled/disconnected/failed) */}
           {turnStatusLabel && (
-            <p className="mt-1.5 text-[10px] text-neutral-400">{turnStatusLabel}</p>
+            <p className="mt-1.5 text-[10px] text-neutral-500 dark:text-neutral-400">{turnStatusLabel}</p>
           )}
         </>
       )}

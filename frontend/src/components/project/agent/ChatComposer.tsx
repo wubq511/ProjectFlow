@@ -16,7 +16,6 @@ interface ChatComposerProps {
   onChange: (value: string) => void;
   onSubmit: (content: string) => void;
   onSlashSubmit?: (content: string, skill: string, slashCommand: string) => void;
-  onStop?: () => void;
   disabled?: boolean;
   isStreaming?: boolean;
   isRunning?: boolean;
@@ -36,7 +35,6 @@ export function ChatComposer({
   onChange,
   onSubmit,
   onSlashSubmit,
-  onStop,
   disabled,
   isStreaming,
   isRunning,
@@ -67,14 +65,27 @@ export function ChatComposer({
     return { commandPrefix: prefix, bodyValue: value.slice(prefix.length) };
   }, [value, leadingCommand]);
 
-  // Auto-resize textarea
+  // Auto-resize textarea — batched measurement to avoid layout thrashing.
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = "auto";
-    const lineHeight = 20;
-    const maxLines = 6;
-    el.style.height = `${Math.min(el.scrollHeight, lineHeight * maxLines)}px`;
+    let cancelled = false;
+    const rafId = requestAnimationFrame(() => {
+      if (cancelled || !textareaRef.current) return;
+      const target = textareaRef.current;
+      const lineHeight = 20;
+      const maxLines = 6;
+      target.style.height = "auto";
+      const nextHeight = Math.min(target.scrollHeight, lineHeight * maxLines);
+      const currentHeight = parseFloat(target.style.height) || 0;
+      if (Math.abs(nextHeight - currentHeight) > 1) {
+        target.style.height = `${nextHeight}px`;
+      }
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+    };
   }, [bodyValue]);
 
   // Slash command detection — only when no command is already active and not during a run.
@@ -280,7 +291,7 @@ export function ChatComposer({
           anchorRect={anchorRect}
         />
       )}
-      <div className="rounded-md border border-neutral-200 bg-white p-2.5 transition-all duration-200 focus-within:border-neutral-400">
+      <div className="rounded-md border border-neutral-200 bg-white p-2.5 transition-all duration-200 focus-within:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900">
         <div className="flex items-start gap-2">
           {leadingCommand && (
             <div className="shrink-0">
@@ -300,7 +311,7 @@ export function ChatComposer({
                   ? "补充上下文..."
                   : "告诉 Agent 你想推进什么...  (输入 / 使用斜杠命令)"
             }
-            className="min-h-12 flex-1 resize-none bg-transparent py-0.5 text-sm text-neutral-800 outline-none placeholder:text-neutral-500"
+            className="min-h-12 flex-1 resize-none bg-transparent py-0.5 text-sm text-neutral-800 outline-none placeholder:text-neutral-500 dark:text-neutral-200"
             disabled={disabled && !isRunning}
             maxLength={maxLength}
             aria-label="输入消息"
@@ -313,7 +324,7 @@ export function ChatComposer({
           <div className="flex items-center gap-1.5">
             {modelConfigs && selectedModelId !== undefined && onModelChange && (
               <Select value={selectedModelId ?? ""} onValueChange={(v) => { if (v) onModelChange?.(v); }}>
-                <SelectTrigger size="sm" className="h-6 w-auto min-w-28 text-[11px]">
+                <SelectTrigger size="sm" className="h-7 w-auto min-w-28 text-[11px]" aria-label="选择模型">
                   <SelectValue placeholder="选择模型" />
                 </SelectTrigger>
                 <SelectContent>
@@ -330,7 +341,7 @@ export function ChatComposer({
                 value={thinkingLevel ?? "auto"}
                 onValueChange={(v) => onThinkingLevelChange(v === "auto" ? null : (v as ThinkingLevel))}
               >
-                <SelectTrigger size="sm" className="h-6 w-auto text-[11px]">
+                <SelectTrigger size="sm" className="h-7 w-auto text-[11px]" aria-label="思考深度">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -343,7 +354,7 @@ export function ChatComposer({
                 </SelectContent>
               </Select>
             )}
-            <span className={cn("text-[10px] transition-colors", nearLimit ? "text-coral" : "text-neutral-300")}>
+            <span className={cn("text-[10px] transition-colors", nearLimit ? "text-coral" : "text-neutral-500 dark:text-neutral-400")}>
               {nearLimit
                 ? `${value.length}/${maxLength}`
                 : value.length === 0
@@ -357,23 +368,23 @@ export function ChatComposer({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-8 gap-1.5 border-coral/30 px-3 text-xs text-coral hover:bg-coral/10"
+                className="h-9 gap-1.5 border-coral/30 px-3 text-xs text-coral hover:bg-coral/10"
                 onClick={onCancelRun}
                 disabled={!onCancelRun}
                 aria-label="停止运行"
               >
-                <Square className="h-3 w-3" />
+                <Square className="h-4 w-4" />
                 停止
               </Button>
             ) : (
               <Button
                 type="submit"
                 size="sm"
-                className="h-8 gap-1.5 bg-moss px-3 text-xs text-white shadow-sm shadow-moss/20 hover:bg-moss/90 active:shadow-none"
+                className="h-9 gap-1.5 bg-moss px-3 text-xs text-white shadow-sm shadow-moss/20 hover:bg-moss/90 active:shadow-none"
                 disabled={!value.trim() || (disabled && !isRunning)}
               >
-                {disabled && !isRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                发送
+                {disabled && !isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {isRunning ? "发送约束" : "发送"}
               </Button>
             )}
           </div>

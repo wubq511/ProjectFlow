@@ -1,7 +1,7 @@
 "use client";
 
 import type { ElementType } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertTriangle,
@@ -58,6 +58,63 @@ const SIDEBAR_MAX_WIDTH = 600; // 最大宽度 600px (37.5rem)
 const SIDEBAR_DEFAULT_WIDTH = 352; // 默认宽度 22rem
 const SIDEBAR_WIDTH_STORAGE_KEY = "agent-sidebar-width";
 const OPTIMISTIC_MESSAGE_MATCH_WINDOW_MS = 2 * 60 * 1000;
+
+function getDismissedStorageKey(projectId: string | null | undefined) {
+  return projectId ? `agent-artifacts-dismissed:${projectId}` : "";
+}
+
+function createLocalStorageSetStore(key: string) {
+  return {
+    getSnapshot: () => {
+      if (typeof window === "undefined") return "";
+      try {
+        return window.localStorage.getItem(key) ?? "";
+      } catch {
+        return "";
+      }
+    },
+    subscribe: (callback: () => void) => {
+      const handler = (e: StorageEvent) => {
+        if (e.key === key) callback();
+      };
+      window.addEventListener("storage", handler);
+      return () => window.removeEventListener("storage", handler);
+    },
+  };
+}
+
+function useLocalStorageSet(key: string | null): [Set<string>, (next: Set<string> | ((prev: Set<string>) => Set<string>)) => void] {
+  const store = useMemo(() => (key ? createLocalStorageSetStore(key) : null), [key]);
+  const raw = useSyncExternalStore(
+    store ? store.subscribe : () => () => {},
+    store ? store.getSnapshot : () => "",
+    () => "",
+  );
+  const value = useMemo(() => {
+    if (!raw) return new Set<string>();
+    try {
+      return new Set<string>(JSON.parse(raw));
+    } catch {
+      return new Set<string>();
+    }
+  }, [raw]);
+  const valueRef = useRef(value);
+  useEffect(() => { valueRef.current = value; }, [value]);
+  const set = useCallback(
+    (next: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+      if (!key || typeof window === "undefined") return;
+      try {
+        const resolved = typeof next === "function" ? next(valueRef.current) : next;
+        window.localStorage.setItem(key, JSON.stringify(Array.from(resolved)));
+        window.dispatchEvent(new StorageEvent("storage", { key }));
+      } catch {
+        // ignore storage errors
+      }
+    },
+    [key],
+  );
+  return [value, set];
+}
 
 const ALL_AGENT_ACTIONS: {
   id: AgentAction;
@@ -236,7 +293,7 @@ export function AgentSidebar({
     return () => { cancelled = true; };
   }, []);
   const [draft, setDraft] = useState("");
-  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const [dismissedIds, setDismissedIds] = useLocalStorageSet(getDismissedStorageKey(selectedProjectId));
   const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set());
   const [actionLog, setActionLog] = useState<Array<{ id: string; artifactId: string; type: "confirmed" | "dismissed"; text: string }>>([]);
   const [steeringError, setSteeringError] = useState<string | null>(null);
@@ -273,6 +330,40 @@ export function AgentSidebar({
     dragStartX.current = e.clientX;
     dragStartWidth.current = sidebarWidth;
   }, [sidebarWidth]);
+
+  const updateWidth = useCallback((nextWidth: number) => {
+    const clamped = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, nextWidth));
+    setSidebarWidth(clamped);
+    try {
+      localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clamped));
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
+  const handleResizeKeyboard = useCallback((e: React.KeyboardEvent) => {
+    const step = e.shiftKey ? 50 : 20;
+    switch (e.key) {
+      case "ArrowLeft":
+      case "ArrowDown":
+        e.preventDefault();
+        updateWidth(sidebarWidth - step);
+        break;
+      case "ArrowRight":
+      case "ArrowUp":
+        e.preventDefault();
+        updateWidth(sidebarWidth + step);
+        break;
+      case "Home":
+        e.preventDefault();
+        updateWidth(SIDEBAR_MIN_WIDTH);
+        break;
+      case "End":
+        e.preventDefault();
+        updateWidth(SIDEBAR_MAX_WIDTH);
+        break;
+    }
+  }, [sidebarWidth, updateWidth]);
 
   // 拖动中（使用 useEffect 绑定全局事件）
   useEffect(() => {
@@ -316,7 +407,7 @@ export function AgentSidebar({
       setActionLog([]);
     }, 0);
     return () => clearTimeout(timeout);
-  }, [selectedProjectId]);
+  }, [selectedProjectId, setDismissedIds]);
 
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -411,22 +502,30 @@ export function AgentSidebar({
   );
 
   const handleDismissArtifact = useCallback((artifact: AgentArtifact) => {
-    setDismissedIds((prev) => new Set(prev).add(artifact.id));
+    const next = new Set(dismissedIds);
+    next.add(artifact.id);
+    setDismissedIds(next);
     setActionLog((prev) => [...prev, { id: `dismiss-${artifact.id}`, artifactId: artifact.id, type: "dismissed", text: `已忽略「${artifact.title}」` }]);
-  }, []);
+  }, [dismissedIds, setDismissedIds]);
 
   const handleConfirmArtifact = useCallback(async (artifact: AgentArtifact) => {
-    if (onConfirmArtifact) {
-      await onConfirmArtifact(artifact);
+    try {
+      if (onConfirmArtifact) {
+        await onConfirmArtifact(artifact);
+      }
+      setConfirmedIds((prev) => new Set(prev).add(artifact.id));
+      setActionLog((prev) => [...prev, { id: `confirm-${artifact.id}`, artifactId: artifact.id, type: "confirmed", text: `已确认「${artifact.title}」` }]);
+    } catch {
+      setSteeringError("确认建议失败，请重试");
     }
-    setConfirmedIds((prev) => new Set(prev).add(artifact.id));
-    setActionLog((prev) => [...prev, { id: `confirm-${artifact.id}`, artifactId: artifact.id, type: "confirmed", text: `已确认「${artifact.title}」` }]);
   }, [onConfirmArtifact]);
 
   const handleUndoDismiss = useCallback((entry: { id: string; artifactId: string }) => {
     setActionLog((prev) => prev.filter((e) => e.id !== entry.id));
-    setDismissedIds((prev) => { const next = new Set(prev); next.delete(entry.artifactId); return next; });
-  }, []);
+    const next = new Set(dismissedIds);
+    next.delete(entry.artifactId);
+    setDismissedIds(next);
+  }, [dismissedIds, setDismissedIds]);
 
   useEffect(() => {
     if (confirmedIds.size === 0) return;
@@ -439,7 +538,7 @@ export function AgentSidebar({
       setConfirmedIds(new Set());
     }, 3000);
     return () => clearTimeout(timer);
-  }, [confirmedIds]);
+  }, [confirmedIds, setDismissedIds]);
 
   const submitMessage = async (content: string, options?: { skill?: string; slashCommand?: string }) => {
     const trimmed = content.trim();
@@ -505,7 +604,7 @@ export function AgentSidebar({
     <motion.aside
       data-tour-sidebar
       className={cn(
-        "relative flex h-screen flex-col border-l border-neutral-200/70 bg-bg-sidebar",
+        "relative flex h-screen flex-col border-l border-neutral-200/70 bg-bg-sidebar dark:border-neutral-700/70 dark:bg-sidebar",
         collapsed ? "w-12" : "",
         isDragging && "select-none"
       )}
@@ -516,7 +615,7 @@ export function AgentSidebar({
       <button
         type="button"
         onClick={toggle}
-        className="absolute -left-3 top-4 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-400 shadow-sm transition hover:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+        className="absolute -left-3 top-4 z-30 flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-500 shadow-sm transition hover:text-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-300 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-200"
         aria-label={collapsed ? "展开侧边栏" : "收起侧边栏"}
       >
         {collapsed ? <ChevronLeft className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -525,18 +624,27 @@ export function AgentSidebar({
       {/* 拖动调整宽度的手柄 */}
       {isExpanded && (
         <div
-          className="absolute left-0 top-0 z-20 h-full w-1.5 cursor-col-resize group"
+          role="separator"
+          aria-label="调整侧边栏宽度"
+          aria-orientation="vertical"
+          aria-valuemin={SIDEBAR_MIN_WIDTH}
+          aria-valuemax={SIDEBAR_MAX_WIDTH}
+          aria-valuenow={sidebarWidth}
+          aria-controls="agent-sidebar-content"
+          tabIndex={0}
+          className="absolute left-0 top-0 z-20 h-full w-1.5 cursor-col-resize outline-none transition-colors focus-visible:bg-moss/20 group"
           onMouseDown={handleDragStart}
+          onKeyDown={handleResizeKeyboard}
         >
           <div className={cn(
             "absolute left-0 top-1/2 -translate-y-1/2 h-12 w-1 rounded-r-full transition-all",
-            isDragging ? "bg-moss" : "bg-neutral-300 group-hover:bg-moss"
+            isDragging ? "bg-moss" : "bg-neutral-300 group-hover:bg-moss group-focus-visible:bg-moss"
           )} />
         </div>
       )}
 
-      <div className="flex h-14 items-center gap-1.5 border-b border-neutral-100 px-3" data-tour="header">
-        <Bot className="h-5 w-5 shrink-0 text-neutral-600" />
+      <div className="flex h-14 items-center gap-1.5 border-b border-neutral-100 px-3 dark:border-neutral-800" data-tour="header">
+        <Bot className="h-5 w-5 shrink-0 text-neutral-600 dark:text-neutral-300" />
         <AnimatePresence>
           {isExpanded && (
             <motion.span
@@ -544,7 +652,7 @@ export function AgentSidebar({
               animate={{ opacity: 1, width: "auto" }}
               exit={{ opacity: 0, width: 0 }}
               transition={{ duration: 0.15 }}
-              className="overflow-hidden whitespace-nowrap text-sm font-semibold text-neutral-900"
+              className="overflow-hidden whitespace-nowrap text-sm font-semibold text-neutral-900 dark:text-neutral-100"
             >
               Agent
             </motion.span>
@@ -556,13 +664,13 @@ export function AgentSidebar({
             <Button
               variant="ghost"
               size="icon-sm"
-              className="h-7 w-7 shrink-0 text-neutral-500 hover:text-neutral-700"
+              className="h-8 w-8 shrink-0 text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
               onClick={onStartNewDraft}
               disabled={isStreamingConversation || isLoadingConversationDetail}
               title="新对话"
               aria-label="新对话"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="h-4 w-4" />
             </Button>
             <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
               <SheetTrigger
@@ -570,14 +678,14 @@ export function AgentSidebar({
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    className="h-7 w-7 shrink-0 text-neutral-500 hover:text-neutral-700"
+                    className="h-8 w-8 shrink-0 text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
                     disabled={isStreamingConversation || isLoadingConversationDetail}
                     title="历史会话"
                     aria-label="历史会话"
                   />
                 }
               >
-                <History className="h-3.5 w-3.5" />
+                <History className="h-4 w-4" />
               </SheetTrigger>
               <SheetContent side="right" className="w-72 sm:max-w-72">
                 <SheetHeader>
@@ -605,7 +713,7 @@ export function AgentSidebar({
                     </div>
                   )}
                   {!isLoadingHistory && !historyError && conversationSummaries.length === 0 && (
-                    <p className="py-8 text-center text-xs text-neutral-400">
+                    <p className="py-8 text-center text-xs text-neutral-500">
                       {isDraft ? "当前为新对话（未保存）" : "暂无历史会话"}
                     </p>
                   )}
@@ -632,12 +740,12 @@ export function AgentSidebar({
                               <span className="flex items-center gap-1.5 font-medium">
                                 <span className="truncate">{summary.title || "未命名会话"}</span>
                                 {summary.visibility === "private" ? (
-                                  <Lock className="h-3 w-3 shrink-0 text-neutral-400" aria-label="私人会话" />
+                                  <Lock className="h-3 w-3 shrink-0 text-neutral-500" aria-label="私人会话" />
                                 ) : (
-                                  <Users className="h-3 w-3 shrink-0 text-neutral-400" aria-label="团队会话" />
+                                  <Users className="h-3 w-3 shrink-0 text-neutral-500" aria-label="团队会话" />
                                 )}
                               </span>
-                              <span className="flex items-center gap-1.5 text-[11px] text-neutral-400">
+                              <span className="flex items-center gap-1.5 text-[11px] text-neutral-500">
                                 <span>{summary.message_count} 条消息</span>
                                 <span>·</span>
                                 <span>{formatTimeAgo(summary.updated_at)}</span>
@@ -660,21 +768,15 @@ export function AgentSidebar({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        <div
-          className="transition-all duration-200 overflow-hidden p-3"
-          style={{
-            width: isExpanded ? "100%" : 0,
-            opacity: isExpanded ? 1 : 0,
-            maxHeight: isExpanded ? "none" : 0,
-          }}
-        >
+      <div id="agent-sidebar-content" className="flex-1 overflow-y-auto custom-scrollbar">
+        {isExpanded && (
+        <div className="transition-all duration-200 overflow-hidden p-3">
               {!hasProject && (
                 <div className="mb-4 space-y-4">
-                  <div className="rounded-md border border-neutral-200 bg-white p-4 text-center">
-                    <Bot className="mx-auto mb-3 h-8 w-8 text-neutral-600" />
-                    <p className="text-sm font-semibold text-neutral-800">Agent 助手</p>
-                    <p className="mt-1 text-xs leading-5 text-neutral-500">
+                  <div className="rounded-md border border-neutral-200 bg-white p-4 text-center dark:border-neutral-700 dark:bg-neutral-900">
+                    <Bot className="mx-auto mb-3 h-8 w-8 text-neutral-600 dark:text-neutral-400" />
+                    <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">未选择项目</p>
+                    <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
                       选择或创建一个项目开始。Agent 会通过对话帮你推进，所有建议你确认后才会生效。
                     </p>
                     <button
@@ -690,25 +792,25 @@ export function AgentSidebar({
                     </button>
                   </div>
                   <div className="space-y-1.5">
-                    <div className="flex items-start gap-2.5 rounded-md bg-neutral-50 p-2.5">
-                      <Compass className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500" />
+                    <div className="flex items-start gap-2.5 rounded-md bg-neutral-50 p-2.5 dark:bg-neutral-900">
+                      <Compass className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500 dark:text-neutral-400" />
                       <div>
-                        <p className="text-xs font-medium text-neutral-700">方向澄清</p>
-                        <p className="text-[11px] text-neutral-500">明确项目目标和边界</p>
+                        <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">方向澄清</p>
+                        <p className="text-[11px] text-neutral-500 dark:text-neutral-400">明确项目目标和边界</p>
                       </div>
                     </div>
-                    <div className="flex items-start gap-2.5 rounded-md bg-neutral-50 p-2.5">
-                      <ListTodo className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500" />
+                    <div className="flex items-start gap-2.5 rounded-md bg-neutral-50 p-2.5 dark:bg-neutral-900">
+                      <ListTodo className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500 dark:text-neutral-400" />
                       <div>
-                        <p className="text-xs font-medium text-neutral-700">任务拆解</p>
-                        <p className="text-[11px] text-neutral-500">把阶段目标拆成可执行任务</p>
+                        <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">任务拆解</p>
+                        <p className="text-[11px] text-neutral-500 dark:text-neutral-400">把阶段目标拆成可执行任务</p>
                       </div>
                     </div>
-                    <div className="flex items-start gap-2.5 rounded-md bg-neutral-50 p-2.5">
-                      <Rocket className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500" />
+                    <div className="flex items-start gap-2.5 rounded-md bg-neutral-50 p-2.5 dark:bg-neutral-900">
+                      <Rocket className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500 dark:text-neutral-400" />
                       <div>
-                        <p className="text-xs font-medium text-neutral-700">主动推进</p>
-                        <p className="text-[11px] text-neutral-500">分析进度并建议下一步行动</p>
+                        <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">主动推进</p>
+                        <p className="text-[11px] text-neutral-500 dark:text-neutral-400">分析进度并建议下一步行动</p>
                       </div>
                     </div>
                   </div>
@@ -739,7 +841,7 @@ export function AgentSidebar({
 
                   {/* Layer 3: Conversation Stream */}
                   <div className="mt-6 border-t border-neutral-100 pt-4">
-                    <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-neutral-400">
+                    <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-neutral-500">
                       <MessageSquare className="h-3.5 w-3.5" />
                       对话
                       {isDraft && (
@@ -748,7 +850,7 @@ export function AgentSidebar({
                         </Badge>
                       )}
                       {conversation?.visibility === "private" && !isDraft && (
-                        <Lock className="ml-auto h-3 w-3 text-neutral-400" aria-label="私人会话" />
+                        <Lock className="ml-auto h-3 w-3 text-neutral-500" aria-label="私人会话" />
                       )}
                     </div>
                     <div className="space-y-2">
@@ -791,7 +893,7 @@ export function AgentSidebar({
 
                       {/* Action log: inline confirm/dismiss records */}
                       {actionLog.length > 0 && (
-                        <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/50 p-2">
+                        <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/50 p-2 dark:border-neutral-800 dark:bg-neutral-900/50">
                           {actionLog.map((entry) => (
                             <motion.div
                               key={entry.id}
@@ -813,7 +915,7 @@ export function AgentSidebar({
                                 <button
                                   type="button"
                                   onClick={() => handleUndoDismiss(entry)}
-                                  className="ml-auto text-[10px] text-neutral-400 underline decoration-dotted underline-offset-2 hover:text-neutral-600"
+                                  className="ml-auto text-[10px] text-neutral-500 underline decoration-dotted underline-offset-2 hover:text-neutral-700"
                                   title="恢复此建议"
                                 >
                                   撤销
@@ -895,7 +997,6 @@ export function AgentSidebar({
                         onChange={setDraft}
                         onSubmit={(text) => void submitMessage(text)}
                         onSlashSubmit={handleSlashSubmit}
-                        onStop={onStopStreaming}
                         disabled={Boolean(pendingConversation)}
                         isStreaming={Boolean(streamTurn && streamTurn.status !== "idle" && streamTurn.status !== "completed" && streamTurn.status !== "failed" && streamTurn.status !== "cancelled" && streamTurn.status !== "disconnected")}
                         isRunning={isRunning}
@@ -935,6 +1036,7 @@ export function AgentSidebar({
               )}
 
         </div>
+        )}
 
         {!isExpanded && hasProject && (
           <CollapsedSidebarIcons focus={focus} pendingCount={pendingProposalCount} isStreaming={Boolean(streamTurn && streamTurn.status !== "idle" && streamTurn.status !== "completed" && streamTurn.status !== "failed" && streamTurn.status !== "cancelled" && streamTurn.status !== "disconnected")} onToggle={toggle} />
@@ -1027,7 +1129,7 @@ function CollapsedSidebarIcons({
       <button
         type="button"
         onClick={onToggle}
-        className="relative flex h-8 w-8 items-center justify-center rounded-md text-neutral-600 transition hover:bg-neutral-100 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+        className="relative flex h-8 w-8 items-center justify-center rounded-md text-neutral-600 transition hover:bg-neutral-100 focus:outline-none focus:ring-2 focus:ring-neutral-300 dark:text-neutral-400 dark:hover:bg-neutral-800"
         title="打开 Agent 对话"
         aria-label="打开 Agent 对话"
       >

@@ -29,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   getModelConfigs,
   addModelConfig,
@@ -563,48 +564,36 @@ export function ModelConfigTab() {
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-4">
-            <label className="flex items-center gap-2 text-sm text-neutral-700">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded border-neutral-300 text-moss focus:ring-moss"
-                checked={formData.isDefault}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    isDefault: e.target.checked,
-                  }))
-                }
-              />
-              设为默认
-            </label>
-            <label className="flex items-center gap-2 text-sm text-neutral-700">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded border-neutral-300 text-moss focus:ring-moss"
-                checked={formData.thinking}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    thinking: e.target.checked,
-                  }))
-                }
-              />
-              支持思考模式
-            </label>
-            <label className="flex items-center gap-2 text-sm text-neutral-700">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded border-neutral-300 text-moss focus:ring-moss"
-                checked={formData.vision}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    vision: e.target.checked,
-                  }))
-                }
-              />
-              支持图片输入
-            </label>
+            <Checkbox
+              checked={formData.isDefault}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  isDefault: e.target.checked,
+                }))
+              }
+              label="设为默认"
+            />
+            <Checkbox
+              checked={formData.thinking}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  thinking: e.target.checked,
+                }))
+              }
+              label="支持思考模式"
+            />
+            <Checkbox
+              checked={formData.vision}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  vision: e.target.checked,
+                }))
+              }
+              label="支持图片输入"
+            />
           </div>
 
           <div className="mt-4 flex items-center justify-end gap-2">

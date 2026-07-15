@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Brain, Database } from "lucide-react";
+import { Brain, Database, Monitor, Moon, Sun } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
   Dialog,
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useTheme } from "@/lib/theme";
 import { ModelConfigTab } from "./model-config-tab";
 
 interface SettingsDialogProps {
@@ -33,9 +34,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-hidden p-0">
         <div className="flex h-[85vh]">
           {/* Sidebar navigation */}
-          <div className="w-48 border-r bg-neutral-50/70 p-4">
+          <div className="w-48 border-r bg-neutral-50/70 p-4 dark:border-neutral-800 dark:bg-neutral-900/70">
             <DialogHeader className="mb-4">
-              <DialogTitle className="text-base">设置</DialogTitle>
+              <DialogTitle className="text-base text-neutral-900 dark:text-neutral-100">设置</DialogTitle>
             </DialogHeader>
             <nav className="space-y-1" aria-label="设置标签">
               {tabs.map((tab) => (
@@ -46,8 +47,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   className={cn(
                     "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition",
                     activeTab === tab.id
-                      ? "bg-white text-neutral-900 shadow-sm"
-                      : "text-neutral-500 hover:bg-white/60 hover:text-neutral-700",
+                      ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-800 dark:text-neutral-100"
+                      : "text-neutral-500 hover:bg-white/60 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-neutral-200",
                   )}
                   aria-current={activeTab === tab.id ? "page" : undefined}
                 >
@@ -66,6 +67,41 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ThemeSetting() {
+  const { theme, setTheme } = useTheme();
+  const options = [
+    { value: "light", label: "浅色", icon: Sun },
+    { value: "dark", label: "深色", icon: Moon },
+    { value: "system", label: "跟随系统", icon: Monitor },
+  ] as const;
+
+  return (
+    <div>
+      <h4 className="text-sm font-medium text-neutral-900">外观主题</h4>
+      <p className="mt-1 text-xs leading-5 text-neutral-600">选择 ProjectFlow 的界面配色方案。</p>
+      <div className="mt-3 flex gap-2">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => setTheme(option.value)}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition",
+              theme === option.value
+                ? "border-moss bg-moss/10 text-moss"
+                : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 hover:bg-neutral-50",
+            )}
+            aria-pressed={theme === option.value}
+          >
+            <option.icon className="h-3.5 w-3.5" aria-hidden />
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -92,9 +128,11 @@ function SystemTab({ isWorkspace }: { isWorkspace: boolean }) {
       <div>
         <h3 className="text-sm font-semibold text-neutral-900">系统</h3>
         <p className="mt-1 text-xs text-neutral-500">
-          管理演示数据和其他全局设置。
+          管理演示数据、外观主题和其他全局设置。
         </p>
       </div>
+
+      <ThemeSetting />
 
       <div className="rounded-xl border border-coral/20 bg-coral/5 p-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

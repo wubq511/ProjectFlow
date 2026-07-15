@@ -52,11 +52,11 @@ export const AgentStepIndicator = React.memo(function AgentStepIndicator({ statu
       {/* Collapsible execution timeline */}
       {hasSteps && (
         <Collapsible open={stepsOpen} onOpenChange={setStepsOpen} className="mt-2">
-          <CollapsibleTrigger className="flex min-h-[44px] w-full items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600">
+          <CollapsibleTrigger className="flex min-h-[44px] w-full items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700">
             <ChevronRight className={`h-3 w-3 shrink-0 transition-transform duration-200 ${stepsOpen ? "rotate-90" : ""}`} />
             <span>执行过程</span>
-            <span className="text-neutral-300">·</span>
-            <span className="text-neutral-300">{executionSteps.length} 步</span>
+            <span className="text-neutral-400">·</span>
+            <span className="text-neutral-400">{executionSteps.length} 步</span>
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2">
             <ul className="space-y-1">

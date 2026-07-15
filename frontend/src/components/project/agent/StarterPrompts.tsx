@@ -56,17 +56,17 @@ export function StarterPrompts({ focus, onSelect, disabled }: StarterPromptsProp
       transition={{ duration: 0.15 }}
       className="mb-4"
     >
-      <div className="mb-3 rounded-md border border-neutral-200 bg-white p-3">
-        <p className="text-xs font-medium text-neutral-700">Agent 可以帮你做什么</p>
-        <p className="mt-1 text-[11px] leading-4 text-neutral-500">
+      <div className="mb-3 rounded-md border border-neutral-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900">
+        <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Agent 可以帮你做什么</p>
+        <p className="mt-1 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
           通过对话推进项目。Agent 会分析当前状态，生成建议（方向、计划、任务、分工），你确认后才会应用到项目。
         </p>
       </div>
-      <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-neutral-400">
-        <Sparkles className="h-3 w-3 text-neutral-400" />
+      <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
+        <Sparkles className="h-3 w-3 text-neutral-500 dark:text-neutral-400" />
         快速开始
       </div>
-      <p className="mb-2.5 text-[11px] leading-4 text-neutral-500">
+      <p className="mb-2.5 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
         {FOCUS_DESCRIPTIONS[focus] ?? "Agent 会根据当前项目状态判断下一步。"}
       </p>
       <div className="space-y-1.5">
@@ -87,10 +87,11 @@ export function StarterPrompts({ focus, onSelect, disabled }: StarterPromptsProp
               "w-full rounded-md border border-neutral-200 bg-white px-3 py-2.5 text-left transition-all",
               "hover:border-neutral-300 hover:bg-neutral-50",
               "disabled:cursor-not-allowed disabled:opacity-50",
+              "dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-neutral-600 dark:hover:bg-neutral-800",
             )}
           >
-            <span className="text-xs text-neutral-700">{prompt.label}</span>
-            <span className="mt-0.5 block text-[11px] leading-4 text-neutral-400">{prompt.hint}</span>
+            <span className="text-xs text-neutral-700 dark:text-neutral-300">{prompt.label}</span>
+            <span className="mt-0.5 block text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">{prompt.hint}</span>
           </motion.button>
         ))}
       </div>

@@ -36,7 +36,7 @@ export const ModuleRunCard = React.memo(function ModuleRunCard({ module, status,
         className="flex w-full items-center justify-between px-3 py-2 text-xs"
       >
         <div className="flex items-center gap-1.5">
-          <Cpu className="h-3.5 w-3.5 text-neutral-400" />
+          <Cpu className="h-3.5 w-3.5 text-neutral-500" />
           <span className="font-medium text-neutral-700">{label}</span>
           {status === "running" && <Loader2 className="h-3 w-3 animate-spin text-moss" />}
           {status === "completed" && <CheckCircle2 className="h-3 w-3 text-moss" />}
@@ -44,9 +44,9 @@ export const ModuleRunCard = React.memo(function ModuleRunCard({ module, status,
         </div>
         <div className="flex items-center gap-1.5">
           {elapsed != null && (
-            <span className="text-[10px] text-neutral-400">{elapsed}s</span>
+            <span className="text-[10px] text-neutral-500">{elapsed}s</span>
           )}
-          <ChevronRight className={cn("h-3 w-3 text-neutral-400 transition-transform", expanded && "rotate-90")} />
+          <ChevronRight className={cn("h-3 w-3 text-neutral-500 transition-transform", expanded && "rotate-90")} />
         </div>
       </button>
       {expanded && message && (
