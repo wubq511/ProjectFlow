@@ -23,6 +23,7 @@ import {
   Sparkles,
   Users,
   XCircle,
+  Maximize2,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -226,6 +227,7 @@ interface AgentSidebarProps {
   onThinkingLevelChange?: (val: ThinkingLevel | null) => void;
   selectedModelIdProp?: string | null;
   onSelectedModelIdChange?: (val: string | null) => void;
+  onNavigateView?: (view: import("./project-sidebar").ProjectView) => void;
 }
 
 export function AgentSidebar({
@@ -270,6 +272,7 @@ export function AgentSidebar({
   onThinkingLevelChange,
   selectedModelIdProp,
   onSelectedModelIdChange,
+  onNavigateView,
 }: AgentSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -684,6 +687,16 @@ export function AgentSidebar({
         {/* T45: Conversation history controls */}
         {isExpanded && hasProject && (
           <div className="ml-auto flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="h-8 w-8 shrink-0 text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+              onClick={() => onNavigateView?.("agent")}
+              title="打开完整对话"
+              aria-label="打开完整对话"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </Button>
             <Button
               variant="ghost"
               size="icon-sm"

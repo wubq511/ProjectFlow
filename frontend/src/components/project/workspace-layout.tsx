@@ -342,6 +342,7 @@ export function WorkspaceLayout({
           onThinkingLevelChange={onThinkingLevelChange}
           selectedModelIdProp={selectedModelIdProp}
           onSelectedModelIdChange={onSelectedModelIdChange}
+          onNavigateView={onNavigateView}
         />
       )}
     </div>
