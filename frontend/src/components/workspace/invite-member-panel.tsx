@@ -105,6 +105,7 @@ export function InviteMemberPanel({ workspaceId }: InviteMemberPanelProps) {
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
       className="mx-auto max-w-lg space-y-4 p-4"
     >
       <div>
@@ -188,6 +189,7 @@ export function InviteMemberPanel({ workspaceId }: InviteMemberPanelProps) {
                   initial={{ opacity: 0, maxHeight: 0 }}
                   animate={{ opacity: 1, maxHeight: 100 }}
                   exit={{ opacity: 0, maxHeight: 0 }}
+                  transition={{ duration: 0.2, ease: [0.25, 1, 0.5, 1] }}
                   className="flex items-center justify-between gap-3 rounded-lg border bg-card p-3"
                 >
                   <div className="min-w-0 flex-1">

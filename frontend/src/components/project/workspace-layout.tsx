@@ -206,7 +206,7 @@ export function WorkspaceLayout({
           marginLeft: leftCollapsed ? 0 : 0,
           marginRight: rightCollapsed ? 0 : 0,
         }}
-        transition={{ duration: 0.2 }}
+        transition={{ duration: 0.22, ease: [0.25, 1, 0.5, 1] }}
       >
         {showWorkspace || !projectState ? (
           <WorkspaceContent

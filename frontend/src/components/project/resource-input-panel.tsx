@@ -149,7 +149,7 @@ export function ResourceInputPanel({ onChange }: ResourceInputPanelProps) {
             initial={{ opacity: 0, maxHeight: 0 }}
             animate={{ opacity: 1, maxHeight: 500 }}
             exit={{ opacity: 0, maxHeight: 0 }}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
             className="overflow-hidden"
           >
             <div className="space-y-4 rounded-lg border bg-card p-4">
@@ -170,7 +170,7 @@ export function ResourceInputPanel({ onChange }: ResourceInputPanelProps) {
                       initial={{ opacity: 0, y: -8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.15 }}
+                      transition={{ duration: 0.15, ease: [0.25, 1, 0.5, 1] }}
                       className="rounded-lg border bg-background"
                     >
                       {/* 折叠状态：摘要条 */}

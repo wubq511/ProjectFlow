@@ -608,7 +608,7 @@ export function AgentSidebar({
         collapsed ? "w-12" : "",
         isDragging && "select-none"
       )}
-      style={!collapsed ? { width: `${sidebarWidth}px`, transition: isDragging ? "none" : "width 200ms ease-out" } : undefined}
+      style={!collapsed ? { width: `${sidebarWidth}px`, transition: isDragging ? "none" : "width 220ms cubic-bezier(0.23, 1, 0.32, 1)" } : undefined}
       initial={false}
     >
       <AgentGuidedTour active={tourActive && isExpanded && hasProject} onComplete={tourComplete} />

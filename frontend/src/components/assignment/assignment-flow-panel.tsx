@@ -208,7 +208,7 @@ export function AssignmentFlowPanel({
                   key={proposal.id}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.22, ease: "easeOut" }}
+                  transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
                   className={`rounded-lg border transition-colors ${
                     isNegotiating 
                       ? "border-coral/50 bg-coral/5" 
@@ -412,7 +412,7 @@ export function AssignmentFlowPanel({
                             initial={{ opacity: 0, maxHeight: 0 }}
                             animate={{ opacity: 1, maxHeight: 300 }}
                             exit={{ opacity: 0, maxHeight: 0 }}
-                            transition={{ duration: 0.2, ease: "easeOut" }}
+                            transition={{ duration: 0.2, ease: [0.25, 1, 0.5, 1] }}
                             className="overflow-hidden"
                           >
                             <div className="mt-4 pt-4 border-t border-ink/5 flex flex-col gap-4">

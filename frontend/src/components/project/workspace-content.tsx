@@ -172,6 +172,7 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject, on
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
       className="h-full overflow-y-auto custom-scrollbar p-6"
     >
       {/* Header */}

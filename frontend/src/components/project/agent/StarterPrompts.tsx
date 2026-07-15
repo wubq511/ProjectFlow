@@ -76,6 +76,7 @@ export function StarterPrompts({ focus, onSelect, disabled }: StarterPromptsProp
             type="button"
             initial={{ opacity: 0, y: 3 }}
             animate={{ opacity: 1, y: 0 }}
+            whileTap={{ scale: 0.985 }}
             transition={{
               duration: 0.15,
               delay: index * 0.04,

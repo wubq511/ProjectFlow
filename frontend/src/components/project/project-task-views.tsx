@@ -179,6 +179,7 @@ export function MyTasksView({
             initial={{ opacity: 0, maxHeight: 0 }}
             animate={{ opacity: 1, maxHeight: 500 }}
             exit={{ opacity: 0, maxHeight: 0 }}
+            transition={{ duration: 0.2, ease: [0.25, 1, 0.5, 1] }}
             className="rounded-xl border border-primary/20 bg-primary/5 p-5"
           >
             <h2 className="text-base font-semibold text-ink">待确认分工</h2>
@@ -263,7 +264,7 @@ export function MyTasksView({
                 initial={{ opacity: 0, maxHeight: 0 }}
                 animate={{ opacity: 1, maxHeight: 500 }}
                 exit={{ opacity: 0, maxHeight: 0 }}
-                transition={{ duration: 0.2, ease: "easeInOut" }}
+                transition={{ duration: 0.2, ease: [0.25, 1, 0.5, 1] }}
                 className="mt-2 rounded-xl border border-neutral-200 bg-white overflow-hidden"
               >
                 <div className="divide-y divide-neutral-50">

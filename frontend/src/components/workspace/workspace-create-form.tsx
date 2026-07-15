@@ -133,6 +133,7 @@ export function WorkspaceCreateForm({
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
       className="mx-auto max-w-lg space-y-6 p-4"
     >
       <div>

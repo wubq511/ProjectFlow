@@ -147,6 +147,7 @@ export function NewWorkspaceDialog({
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
             >
               <Card className="border-green-200 bg-green-50/50">
                 <CardContent className="flex flex-col items-center gap-3 py-8">
@@ -172,6 +173,7 @@ export function NewWorkspaceDialog({
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
               className="space-y-4"
             >
               <div>

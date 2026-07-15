@@ -93,7 +93,7 @@ export function AgentRunStatusCard() {
             key={step}
             initial={{ opacity: 0, x: -4 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: index * 0.1, duration: 0.2 }}
+            transition={{ delay: index * 0.1, duration: 0.2, ease: [0.25, 1, 0.5, 1] }}
             className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400"
           >
             <Clock className="h-3 w-3 shrink-0 text-neutral-500 dark:text-neutral-400" />
@@ -181,7 +181,7 @@ export const AgentArtifactCard = forwardRef<HTMLDivElement, AgentArtifactCardPro
         initial={{ opacity: 0, y: 8, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
-        transition={{ duration: 0.3, ease: [0.25, 1, 0.5, 1] }}
+        transition={{ duration: 0.22, ease: [0.25, 1, 0.5, 1] }}
         className={cn(
         "mb-3 rounded-md border p-3",
         isPending
@@ -304,6 +304,7 @@ export function AgentSuggestionRow({ suggestions, disabled = false, onPick }: Ag
           type="button"
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
+          whileTap={{ scale: 0.975 }}
           transition={{
             duration: 0.2,
             delay: index * 0.06,

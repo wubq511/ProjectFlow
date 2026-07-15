@@ -227,7 +227,7 @@ export function MemberProfileWizard({
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.35 }}
+        transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
         className="mx-auto max-w-lg p-4"
       >
         <Card className="border-green-200 bg-green-50/50 dark:bg-green-950/20">
@@ -272,7 +272,7 @@ export function MemberProfileWizard({
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.35 }}
+        transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
         className="mx-auto max-w-lg p-4"
       >
         <Card className="border-destructive/30 bg-destructive/5">
@@ -630,7 +630,7 @@ export function MemberProfileWizard({
           initial="enter"
           animate="center"
           exit="exit"
-          transition={{ duration: 0.25, ease: "easeInOut" }}
+          transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
         >
           {renderCurrentStep()}
         </motion.div>

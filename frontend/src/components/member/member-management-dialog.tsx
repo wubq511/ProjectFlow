@@ -618,6 +618,7 @@ export function MemberManagementDialog({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
+              transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
               className="space-y-3 py-2"
             >
               {members.map((member) => {
@@ -697,7 +698,7 @@ export function MemberManagementDialog({
           )}
 
           {view === "add" && (
-            <motion.div key="add" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            <motion.div key="add" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}>
               <MemberForm
                 onSubmit={handleAdd}
                 onCancel={() => setView("list")}
@@ -707,7 +708,7 @@ export function MemberManagementDialog({
           )}
 
           {view === "edit" && (
-            <motion.div key="edit" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            <motion.div key="edit" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}>
               {(() => {
                 const selected = getSelectedMember()
                 if (!selected) return null
@@ -741,6 +742,7 @@ export function MemberManagementDialog({
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
               className="space-y-4 py-4"
             >
               <div className="flex flex-col items-center gap-3 py-4">

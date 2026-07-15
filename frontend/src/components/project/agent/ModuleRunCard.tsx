@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, Loader2, CheckCircle2, Cpu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MultilineText } from "@/components/ui/multiline-text";
@@ -49,15 +49,19 @@ export const ModuleRunCard = React.memo(function ModuleRunCard({ module, status,
           <ChevronRight className={cn("h-3 w-3 text-neutral-500 transition-transform", expanded && "rotate-90")} />
         </div>
       </button>
-      {expanded && message && (
-        <motion.div
-          initial={{ maxHeight: 0, opacity: 0 }}
-          animate={{ maxHeight: 200, opacity: 1 }}
-          className="border-t border-neutral-100 px-3 py-2 text-xs text-neutral-500"
-        >
-          <MultilineText text={message} />
-        </motion.div>
-      )}
+      <AnimatePresence initial={false}>
+        {expanded && message && (
+          <motion.div
+            initial={{ maxHeight: 0, opacity: 0 }}
+            animate={{ maxHeight: 200, opacity: 1 }}
+            exit={{ maxHeight: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
+            className="border-t border-neutral-100 px-3 py-2 text-xs text-neutral-500 overflow-hidden"
+          >
+            <MultilineText text={message} />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 });
