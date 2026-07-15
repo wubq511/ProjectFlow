@@ -124,7 +124,7 @@ function ReplanField({ label, value }: { label: string; value: unknown }) {
   }
   return (
     <div className="rounded-md border border-ink/8 bg-paper px-3 py-2">
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink/40">{label}</p>
+      <p className="text-xs font-semibold tracking-wider text-ink/40">{label}</p>
       <MultilineText text={replanValue(value)} className="mt-1 text-sm text-ink/70" />
     </div>
   );

@@ -283,10 +283,10 @@ export function ProjectMemoryPanel({ projectId, projectName, currentUserId }: Pr
                   <li
                     key={memory.id}
                     className={cn(
-                      "rounded-lg border p-3 transition-colors",
+                      "border-b border-neutral-100/60 last:border-b-0 py-3.5 px-1.5 transition-colors",
                       memory.status === "active"
-                        ? "border-neutral-100 bg-neutral-50/50 hover:bg-neutral-50"
-                        : "border-neutral-100 bg-neutral-50/30 text-neutral-500"
+                        ? "text-neutral-900"
+                        : "text-neutral-500 opacity-75"
                     )}
                   >
                     <MultilineText text={memory.content} className="text-sm font-medium text-neutral-900" />

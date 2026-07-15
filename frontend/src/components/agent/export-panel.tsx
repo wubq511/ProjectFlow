@@ -85,7 +85,7 @@ export function ExportPanel({ projectId }: ExportPanelProps) {
       {markdown && (
         <div className="mt-5">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">
+            <p className="text-xs font-semibold tracking-wider text-ink/45">
               预览
             </p>
             <Button

@@ -26,7 +26,7 @@ const config: Config = {
         "bg-sidebar": "#eff1f5",
         "bg-content": "#f8f9fc",
         "text-secondary": "#3f4a5a",
-        "text-tertiary": "#8896a6",
+        "text-tertiary": "#5f7188",
         neutral: {
           50: "#f7f9fc",
           100: "#edf1f8",

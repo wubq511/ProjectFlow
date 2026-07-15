@@ -87,7 +87,7 @@ export function ProjectResourcesPanel({
           {resources.map((resource) => {
             const Icon = icons[resource.type];
             return (
-              <article key={resource.id} className="group rounded-lg border border-ink/10 bg-paper/60 p-3">
+              <article key={resource.id} className="group border-b border-neutral-100/60 last:border-b-0 py-3.5 px-1.5 transition-colors hover:bg-neutral-50/30">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2 min-w-0">
                     <Icon className="h-4 w-4 shrink-0 text-moss" />
@@ -127,7 +127,7 @@ export function ProjectResourcesPanel({
       )}
 
       {onAddResource && (
-        <div className="mt-5 grid gap-3 rounded-lg border border-ink/10 bg-paper/60 p-4 md:grid-cols-[140px_1fr]">
+        <div className="mt-5 grid gap-3 rounded-xl border border-neutral-200/60 bg-neutral-50/30 p-4 md:grid-cols-[140px_1fr]">
           <Select value={type} onValueChange={(value) => setType(value as AddResourceRequest["type"])}>
             <SelectTrigger>
               <SelectValue />

@@ -74,7 +74,7 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
       {/* Source Summary */}
       {content.source_summary && (
         <div className="rounded-lg bg-paper px-4 py-3 border border-ink/8">
-          <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">依据摘要</p>
+          <p className="text-xs font-bold text-ink/60 tracking-wider">依据摘要</p>
           <div className="mt-1 text-sm leading-6 text-ink/80">
             <MultilineText text={content.source_summary} />
           </div>
@@ -87,7 +87,7 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
           <SectionHeader icon={Target} color="bg-primary/15 text-primary">核心定义</SectionHeader>
           {content.problem && (
             <div>
-              <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">核心问题</p>
+              <p className="text-xs font-bold text-ink/60 tracking-wider">核心问题</p>
               <div className="mt-1 text-base font-semibold leading-7 text-ink">
                 <MultilineText text={content.problem} />
               </div>
@@ -97,7 +97,7 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
             <div className="grid gap-4 sm:grid-cols-2">
               {content.users && (
                 <div>
-                  <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">目标用户</p>
+                  <p className="text-xs font-bold text-ink/60 tracking-wider">目标用户</p>
                   <div className="mt-1 text-sm leading-6 text-ink/80">
                     <MultilineText text={content.users} />
                   </div>
@@ -105,7 +105,7 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
               )}
               {content.value && (
                 <div>
-                  <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">核心价值</p>
+                  <p className="text-xs font-bold text-ink/60 tracking-wider">核心价值</p>
                   <div className="mt-1 text-sm leading-6 text-ink/80">
                     <MultilineText text={content.value} />
                   </div>
@@ -123,7 +123,7 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
           <div className="grid gap-4 sm:grid-cols-2">
             {deliverables.length > 0 && (
               <div>
-                <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">交付物</p>
+                <p className="text-xs font-bold text-ink/60 tracking-wider">交付物</p>
                 <ul className="mt-2 grid gap-2 text-sm leading-6 text-ink/80">
                   {deliverables.map((deliverable) => (
                     <li key={deliverable} className="flex gap-2">
@@ -136,7 +136,7 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
             )}
             {boundaries.length > 0 && (
               <div>
-                <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">边界</p>
+                <p className="text-xs font-bold text-ink/60 tracking-wider">边界</p>
                 <ul className="mt-2 grid gap-2 text-sm leading-6 text-ink/80">
                   {boundaries.map((boundary) => (
                     <li key={boundary}>{boundary}</li>
@@ -155,7 +155,7 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
           <div className="grid gap-4 sm:grid-cols-2">
             {risks.length > 0 && (
               <div>
-                <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">风险</p>
+                <p className="text-xs font-bold text-ink/60 tracking-wider">风险</p>
                 <ul className="mt-2 grid gap-2 text-sm leading-6 text-coral/85">
                   {risks.map((risk) => (
                     <li key={risk} className="flex gap-2">
@@ -168,7 +168,7 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
             )}
             {questions.length > 0 && (
               <div>
-                <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">澄清问题</p>
+                <p className="text-xs font-bold text-ink/60 tracking-wider">澄清问题</p>
                 <ul className="mt-2 grid gap-2 text-sm leading-6 text-ink/80">
                   {questions.map((question) => (
                     <li key={question} className="flex gap-2">
@@ -190,7 +190,7 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
           <div className="grid gap-4 sm:grid-cols-2">
             {assumptions.length > 0 && (
               <div>
-                <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">当前假设</p>
+                <p className="text-xs font-bold text-ink/60 tracking-wider">当前假设</p>
                 <ul className="mt-2 grid gap-2 text-sm leading-6 text-ink/80">
                   {assumptions.map((item) => (
                     <li key={item}>{item}</li>
@@ -200,7 +200,7 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
             )}
             {unknowns.length > 0 && (
               <div>
-                <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">关键信息缺口</p>
+                <p className="text-xs font-bold text-ink/60 tracking-wider">关键信息缺口</p>
                 <ul className="mt-2 grid gap-2 text-sm leading-6 text-coral/85">
                   {unknowns.map((item) => (
                     <li key={item} className="flex gap-2">
@@ -222,7 +222,7 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
           <div className="grid gap-4 sm:grid-cols-2">
             {hasMvpBoundary && (
               <div>
-                <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">MVP 边界</p>
+                <p className="text-xs font-bold text-ink/60 tracking-wider">MVP 边界</p>
                 <div className="mt-2 grid gap-3 text-sm leading-6 text-ink/80">
                   {mustHave.length > 0 && (
                     <BoundaryGroup label="必须完成" items={mustHave} tone="moss" />
@@ -238,7 +238,7 @@ export function DirectionDecisionView({ content, compact }: DirectionDecisionVie
             )}
             {decisionPoints.length > 0 && (
               <div>
-                <p className="text-xs font-bold text-ink/70 uppercase tracking-wide">待决策点</p>
+                <p className="text-xs font-bold text-ink/60 tracking-wider">待决策点</p>
                 <ul className="mt-2 grid gap-2 text-sm leading-6 text-ink/80">
                   {decisionPoints.map((item) => (
                     <li key={item} className="flex gap-2">

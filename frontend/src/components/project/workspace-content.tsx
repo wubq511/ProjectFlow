@@ -370,18 +370,18 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject, on
                   return (
                     <div
                       key={p.id}
-                      className="group flex w-full items-center justify-between rounded-xl border border-neutral-100 bg-white"
+                      className="group flex w-full items-center justify-between border-b border-neutral-100/60 last:border-b-0 py-2 px-1.5 transition-colors hover:bg-neutral-50/50 rounded-lg"
                     >
                       <button
                         onClick={() => {
                           onNavigateToProject?.(p.id);
                         }}
-                        className="flex flex-1 min-w-0 items-center justify-between px-3 py-3 text-left transition-colors hover:bg-primary/5 rounded-l-xl"
+                        className="flex flex-1 min-w-0 items-center justify-between text-left transition-colors rounded-l-lg"
                         aria-label={`打开项目 ${p.name}`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <span
-                            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
                               p.status === "at_risk"
                                 ? "bg-coral/10 text-coral"
                                 : p.status === "completed"
@@ -390,18 +390,18 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject, on
                             }`}
                           >
                             {p.status === "at_risk" ? (
-                              <TriangleAlert className="h-5 w-5" />
+                              <TriangleAlert className="h-4.5 w-4.5" />
                             ) : p.status === "completed" ? (
-                              <Archive className="h-5 w-5" />
+                              <Archive className="h-4.5 w-4.5" />
                             ) : (
-                              <FolderOpen className="h-5 w-5" />
+                              <FolderOpen className="h-4.5 w-4.5" />
                             )}
                           </span>
                           <div className="min-w-0">
-                            <p className="truncate font-medium text-neutral-800">
+                            <p className="truncate font-medium text-neutral-800 text-sm">
                               {p.name}
                             </p>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-xs text-muted-foreground mt-0.5">
                               {statusLabelMap[p.status] ?? p.status}
                             </p>
                           </div>
@@ -414,7 +414,7 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject, on
                           e.stopPropagation()
                           setDeleteConfirmId(p.id)
                         }}
-                        className="h-8 w-8 p-0 mr-1 shrink-0 text-muted-foreground hover:text-destructive"
+                        className="h-8 w-8 p-0 mr-1 shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                         aria-label="删除项目"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -438,9 +438,9 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject, on
                           <AlertDialogFooter>
                             <AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
                             <AlertDialogAction
-                              onClick={() => handleDeleteProject(p.id)}
-                              disabled={deleting}
-                              className="bg-destructive hover:bg-destructive/90"
+                                onClick={() => handleDeleteProject(p.id)}
+                                disabled={deleting}
+                                className="bg-destructive hover:bg-destructive/90"
                             >
                               {deleting ? "删除中..." : "确认删除"}
                             </AlertDialogAction>

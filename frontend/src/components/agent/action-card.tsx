@@ -249,7 +249,7 @@ export function ActionCardsList({
             <div className="mt-3 grid gap-3">
               {doneCards.length > 0 && (
                 <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-moss/70">
+                  <p className="mb-2 text-xs font-semibold tracking-wider text-moss/70">
                     已完成（{doneCards.length}）
                   </p>
                   {doneCards.map((card) => (
@@ -261,7 +261,7 @@ export function ActionCardsList({
               )}
               {dismissedCards.length > 0 && (
                 <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">
+                  <p className="mb-2 text-xs font-semibold tracking-wider text-ink/45">
                     已忽略（{dismissedCards.length}）
                   </p>
                   {dismissedCards.map((card) => (

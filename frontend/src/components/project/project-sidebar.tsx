@@ -603,9 +603,9 @@ function MenuItem({
         disabled={disabled}
         title={disabled ? "请先选择一个项目" : undefined}
         className={cn(
-          "flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-moss/30",
+          "relative flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-moss/30",
           isActive
-            ? "bg-moss/10 text-moss"
+            ? "text-moss"
             : disabled
               ? "cursor-not-allowed text-neutral-300 opacity-60"
               : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-800",
@@ -613,7 +613,14 @@ function MenuItem({
         )}
         aria-current={isActive ? "page" : undefined}
       >
-        <Icon className="h-4 w-4 shrink-0" aria-hidden />
+        {isActive && (
+          <motion.div
+            layoutId="activeNavBackground"
+            className="absolute inset-0 rounded-lg bg-moss/10"
+            transition={{ type: "spring", stiffness: 380, damping: 30 }}
+          />
+        )}
+        <Icon className="h-4 w-4 shrink-0 z-10" aria-hidden />
         <AnimatePresence>
           {isExpanded && (
             <motion.span
@@ -621,7 +628,7 @@ function MenuItem({
               animate={{ opacity: 1, width: "auto" }}
               exit={{ opacity: 0, width: 0 }}
               transition={{ duration: 0.15 }}
-              className="flex-1 overflow-hidden whitespace-nowrap text-left"
+              className="flex-1 overflow-hidden whitespace-nowrap text-left z-10"
             >
               {item.label}
             </motion.span>
@@ -632,7 +639,7 @@ function MenuItem({
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             className={cn(
-              "ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold",
+              "ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold z-10",
               isActive
                 ? "bg-moss/20 text-moss"
                 : "bg-neutral-100 text-neutral-500"

@@ -316,7 +316,7 @@ export function TaskBreakdownBoard({ stages, tasks, pendingProposal }: TaskBreak
                       return (
                         <article
                           key={task.id}
-                          className="group rounded-lg border border-ink/10 bg-white p-3.5 transition-shadow hover:shadow-sm"
+                          className="group rounded-lg border border-neutral-200/65 bg-white p-3.5 hover:shadow-sm transition-all"
                         >
                           <div className="flex flex-wrap items-start gap-3">
                             {/* Priority + status badges */}

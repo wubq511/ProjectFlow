@@ -240,7 +240,7 @@ function ProposalDetailSection({ label, items }: { label: string; items: unknown
   if (!items || items.length === 0) return null;
   return (
     <div className="mt-2">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">{label}</p>
+      <p className="text-xs font-semibold tracking-wider text-ink/45">{label}</p>
       <ul className="mt-1 space-y-1.5">
         {items.map((item, i) => (
           <li key={i} className="rounded bg-white/70 px-2.5 py-1.5 text-[11px] leading-relaxed text-ink/60">
@@ -363,11 +363,11 @@ export function ReplanDiff({
 
           <div className="mt-3 grid gap-3 md:grid-cols-2 text-[11px] leading-relaxed">
             <div className="rounded-md bg-white px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink/35">调整前</p>
+              <p className="text-[10px] font-semibold tracking-wider text-ink/35">调整前</p>
               <div className="mt-1">{renderSummary(effectiveProposal.before)}</div>
             </div>
             <div className="rounded-md bg-white px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink/35">调整后</p>
+              <p className="text-[10px] font-semibold tracking-wider text-ink/35">调整后</p>
               <div className="mt-1">{renderSummary(effectiveProposal.after)}</div>
             </div>
           </div>

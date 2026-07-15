@@ -129,10 +129,10 @@ export const ChatMessage = React.memo(function ChatMessage({
         ease: [0.25, 1, 0.5, 1],
       }}
       className={cn(
-        "rounded-md border p-3",
+        "rounded-2xl border p-3.5 transition-all shadow-[0_2px_8px_rgba(0,0,0,0.015)]",
         isUser
-          ? "ml-6 border-neutral-200 bg-white text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300"
-          : "mr-0 border-neutral-100 bg-neutral-50/80 text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900/80 dark:text-neutral-300",
+          ? "ml-6 rounded-tr-none border-neutral-200/80 bg-white text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300"
+          : "mr-0 rounded-tl-none border-neutral-100 bg-neutral-50/60 text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900/80 dark:text-neutral-300",
       )}
     >
       <div className="mb-1 text-[10px] font-semibold text-neutral-500 dark:text-neutral-400">

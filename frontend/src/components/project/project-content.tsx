@@ -274,7 +274,7 @@ function ViewRenderer({
       return (
         <div className="space-y-6">
           {/* Project Header Card */}
-          <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-[0_2px_8px_rgba(0,0,0,0.01)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.015)] transition-all">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <h1 className="font-display text-3xl font-normal text-neutral-900">
@@ -302,7 +302,7 @@ function ViewRenderer({
                 </div>
                 <MultilineText text={project.idea} className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500 line-clamp-2" />
               </div>
-              <div className="grid min-w-56 gap-2 rounded-lg border border-neutral-100 bg-neutral-50/50 p-4">
+              <div className="grid min-w-56 gap-2 rounded-xl border border-neutral-200/50 bg-neutral-50/20 p-4">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-neutral-400">当前阶段</span>
                   <span className="font-medium text-neutral-900">{currentStage?.name ?? "暂无阶段"}</span>
@@ -346,7 +346,7 @@ function ViewRenderer({
 
             if (nextAction) {
               return (
-                <section className="rounded-xl border border-moss/20 bg-moss/[0.04] p-5 shadow-sm transition-colors hover:bg-moss/[0.06]">
+                <section className="rounded-xl border border-moss/15 bg-moss/[0.03] p-5 transition-all hover:bg-moss/[0.05] hover:shadow-[0_4px_16px_rgba(45,109,195,0.02)]">
                   <div className="flex items-start gap-3">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-moss/10">
                       <Sparkles className="h-5 w-5 text-moss" />

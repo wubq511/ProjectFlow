@@ -220,7 +220,7 @@ export function AgentTimeline({ events }: AgentTimelineProps) {
                 return (
                   <article
                     key={event.id}
-                    className="rounded-lg border border-ink/10 bg-paper/50 p-4"
+                    className="border-b border-neutral-100/60 last:border-b-0 py-4 transition-colors hover:bg-neutral-50/30 px-1"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="flex items-center gap-2">
