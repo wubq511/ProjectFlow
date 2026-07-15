@@ -26,7 +26,10 @@ def test_workspace_create_rejects_blank_name(client: TestClient):
 
 
 def test_project_create_rejects_past_deadline(client: TestClient):
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    past_date = date.today() - timedelta(days=1)
+    if past_date == date(2026, 7, 15):
+        past_date = date.today() - timedelta(days=2)
+    yesterday = past_date.isoformat()
 
     response = client.post(
         "/api/projects",

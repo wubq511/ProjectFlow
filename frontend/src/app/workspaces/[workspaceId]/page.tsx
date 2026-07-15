@@ -123,6 +123,9 @@ export default function WorkspaceDashboardPage() {
   const [pendingAgentInstruction, setPendingAgentInstruction] = useState<string | null>(null);
   const [agentConversationError, setAgentConversationError] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel | null>(null);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [showWorkspace, setShowWorkspace] = useState(!projectParam);
   const showWorkspaceRef = useRef(showWorkspace);
   const [loading, setLoading] = useState(true);
@@ -873,6 +876,12 @@ export default function WorkspaceDashboardPage() {
       projectState={projectState}
       showWorkspace={showWorkspace}
       currentUserId={currentUserId}
+      draft={draft}
+      onDraftChange={setDraft}
+      thinkingLevelProp={thinkingLevel}
+      onThinkingLevelChange={setThinkingLevel}
+      selectedModelIdProp={selectedModelId}
+      onSelectedModelIdChange={setSelectedModelId}
       pendingAction={pendingAction}
       agentConversation={conversationHistory.activeConversation}
       agentConversationSuggestions={agentConversationSuggestions}

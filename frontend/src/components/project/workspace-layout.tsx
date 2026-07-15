@@ -6,6 +6,7 @@ import { ProjectSidebar, type ProjectView } from "./project-sidebar";
 import { AgentSidebar } from "./agent-sidebar";
 import { ProjectContent } from "./project-content";
 import { WorkspaceContent } from "./workspace-content";
+import { AgentConversationPage } from "./agent/AgentConversationPage";
 import type { AddResourceRequest, AgentArtifact, AgentConversation, AgentConversationSummary, AgentStreamPhase, AgentStreamTurn, ArchivedAgentStreamTurn, AgentSuggestion, ProjectState, WorkspaceState, ThinkingLevel } from "@/lib/types";
 import type { AgentAction } from "./project-actions";
 
@@ -96,6 +97,12 @@ interface WorkspaceLayoutProps {
   onSwitchConversation?: (conversationId: string) => void;
   onRetryHistory?: () => void;
   onLoadOlderMessages?: () => void;
+  draft?: string;
+  onDraftChange?: (val: string) => void;
+  thinkingLevelProp?: ThinkingLevel | null;
+  onThinkingLevelChange?: (val: ThinkingLevel | null) => void;
+  selectedModelIdProp?: string | null;
+  onSelectedModelIdChange?: (val: string | null) => void;
 }
 
 export function WorkspaceLayout({
@@ -158,6 +165,12 @@ export function WorkspaceLayout({
   onSwitchConversation,
   onRetryHistory,
   onLoadOlderMessages,
+  draft,
+  onDraftChange,
+  thinkingLevelProp,
+  onThinkingLevelChange,
+  selectedModelIdProp,
+  onSelectedModelIdChange,
 }: WorkspaceLayoutProps) {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
@@ -215,6 +228,48 @@ export function WorkspaceLayout({
             onNavigateToProject={handleSelectProject}
             onRefresh={onRefresh}
           />
+        ) : viewParam === "agent" ? (
+          <AgentConversationPage
+            state={projectState}
+            currentUserId={currentUserId}
+            conversation={agentConversation}
+            conversationSuggestions={agentConversationSuggestions}
+            conversationArtifacts={agentConversationArtifacts}
+            pendingConversationInstruction={pendingAgentInstruction}
+            conversationError={agentConversationError}
+            pendingConversation={pendingAgentConversation}
+            pendingAction={pendingAction}
+            actionError={actionError}
+            actionSuccess={actionSuccess}
+            onSendMessage={onSendAgentMessage}
+            streamTurn={streamTurn}
+            archivedStreamTurns={archivedStreamTurns}
+            streamStatus={streamStatus}
+            activeRunId={activeRunId}
+            onStopStreaming={onStopStreaming}
+            onToggleThinking={onToggleThinking}
+            onConfirmArtifact={onConfirmAgentArtifact}
+            completedAnnouncement={completedAnnouncement}
+            conversationSummaries={conversationSummaries}
+            isDraft={isDraft}
+            isStreamingConversation={isStreamingConversation}
+            isLoadingHistory={isLoadingHistory}
+            isLoadingConversationDetail={isLoadingConversationDetail}
+            historyError={historyError}
+            hasOlderMessages={hasOlderMessages}
+            isLoadingOlder={isLoadingOlder}
+            onStartNewDraft={onStartNewDraft}
+            onSwitchConversation={onSwitchConversation}
+            onRetryHistory={onRetryHistory}
+            onLoadOlderMessages={onLoadOlderMessages}
+            draft={draft}
+            onDraftChange={onDraftChange}
+            thinkingLevelProp={thinkingLevelProp}
+            onThinkingLevelChange={onThinkingLevelChange}
+            selectedModelIdProp={selectedModelIdProp}
+            onSelectedModelIdChange={onSelectedModelIdChange}
+            onRunAgent={onRunAgent}
+          />
         ) : (
           <ProjectContent
             state={projectState}
@@ -245,43 +300,50 @@ export function WorkspaceLayout({
       </motion.main>
 
       {/* Right Agent Sidebar */}
-      <AgentSidebar
-        state={sidebarState}
-        selectedProjectId={selectedProjectId}
-        hasProject={hasProject}
-        conversation={agentConversation}
-        conversationSuggestions={agentConversationSuggestions}
-        conversationArtifacts={agentConversationArtifacts}
-        pendingConversationInstruction={pendingAgentInstruction}
-        conversationError={agentConversationError}
-        pendingConversation={pendingAgentConversation}
-        pendingAction={pendingAction}
-        actionError={actionError}
-        actionSuccess={actionSuccess}
-        onRunAgent={onRunAgent ?? (() => {})}
-        onSendMessage={onSendAgentMessage}
-        streamTurn={streamTurn}
-        archivedStreamTurns={archivedStreamTurns}
-        streamStatus={streamStatus}
-        activeRunId={activeRunId}
-        onStopStreaming={onStopStreaming}
-        onToggleThinking={onToggleThinking}
-        onConfirmArtifact={onConfirmAgentArtifact}
-        completedAnnouncement={completedAnnouncement}
-        // T45: Conversation history
-        conversationSummaries={conversationSummaries}
-        isDraft={isDraft}
-        isStreamingConversation={isStreamingConversation}
-        isLoadingHistory={isLoadingHistory}
-        isLoadingConversationDetail={isLoadingConversationDetail}
-        historyError={historyError}
-        hasOlderMessages={hasOlderMessages}
-        isLoadingOlder={isLoadingOlder}
-        onStartNewDraft={onStartNewDraft}
-        onSwitchConversation={onSwitchConversation}
-        onRetryHistory={onRetryHistory}
-        onLoadOlderMessages={onLoadOlderMessages}
-      />
+      {viewParam !== "agent" && (
+        <AgentSidebar
+          state={sidebarState}
+          selectedProjectId={selectedProjectId}
+          hasProject={hasProject}
+          conversation={agentConversation}
+          conversationSuggestions={agentConversationSuggestions}
+          conversationArtifacts={agentConversationArtifacts}
+          pendingConversationInstruction={pendingAgentInstruction}
+          conversationError={agentConversationError}
+          pendingConversation={pendingAgentConversation}
+          pendingAction={pendingAction}
+          actionError={actionError}
+          actionSuccess={actionSuccess}
+          onRunAgent={onRunAgent ?? (() => {})}
+          onSendMessage={onSendAgentMessage}
+          streamTurn={streamTurn}
+          archivedStreamTurns={archivedStreamTurns}
+          streamStatus={streamStatus}
+          activeRunId={activeRunId}
+          onStopStreaming={onStopStreaming}
+          onToggleThinking={onToggleThinking}
+          onConfirmArtifact={onConfirmAgentArtifact}
+          completedAnnouncement={completedAnnouncement}
+          conversationSummaries={conversationSummaries}
+          isDraft={isDraft}
+          isStreamingConversation={isStreamingConversation}
+          isLoadingHistory={isLoadingHistory}
+          isLoadingConversationDetail={isLoadingConversationDetail}
+          historyError={historyError}
+          hasOlderMessages={hasOlderMessages}
+          isLoadingOlder={isLoadingOlder}
+          onStartNewDraft={onStartNewDraft}
+          onSwitchConversation={onSwitchConversation}
+          onRetryHistory={onRetryHistory}
+          onLoadOlderMessages={onLoadOlderMessages}
+          draft={draft}
+          onDraftChange={onDraftChange}
+          thinkingLevelProp={thinkingLevelProp}
+          onThinkingLevelChange={onThinkingLevelChange}
+          selectedModelIdProp={selectedModelIdProp}
+          onSelectedModelIdChange={onSelectedModelIdChange}
+        />
+      )}
     </div>
   );
 }

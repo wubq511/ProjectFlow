@@ -34,6 +34,13 @@ from app.schemas.agent_conversation import (
     StreamErrorEventSchema,
     StreamStatusEventSchema,
     StreamToolEventSchema,
+    StreamProcessStartedSchema,
+    StreamProcessDeltaSchema,
+    StreamActivityEventSchema,
+    StreamProcessCompletedSchema,
+    StreamAnswerStartedSchema,
+    StreamAnswerDeltaSchema,
+    StreamRunCompletedSchema,
 )
 from app.services.memory_service import validate_viewer
 from app.services.workspace_state_service import get_workspace_state
@@ -529,7 +536,43 @@ def process_conversation_message_stream(
                             continue
 
                         # Map sidecar events to frontend events
-                        if current_event == "status":
+                        if current_event == "process_started":
+                            try:
+                                validated = StreamProcessStartedSchema.model_validate(data)
+                                yield _sse_event("process_started", validated.model_dump(mode="json"))
+                            except ValidationError as exc:
+                                logger.warning("Invalid process_started event (skipped): %s", exc)
+                        elif current_event == "process_delta":
+                            try:
+                                validated = StreamProcessDeltaSchema.model_validate(data)
+                                yield _sse_event("process_delta", validated.model_dump(mode="json"))
+                            except ValidationError as exc:
+                                logger.warning("Invalid process_delta event (skipped): %s", exc)
+                        elif current_event == "activity":
+                            try:
+                                validated = StreamActivityEventSchema.model_validate(data)
+                                yield _sse_event("activity", validated.model_dump(mode="json"))
+                            except ValidationError as exc:
+                                logger.warning("Invalid activity event (skipped): %s", exc)
+                        elif current_event == "process_completed":
+                            try:
+                                validated = StreamProcessCompletedSchema.model_validate(data)
+                                yield _sse_event("process_completed", validated.model_dump(mode="json"))
+                            except ValidationError as exc:
+                                logger.warning("Invalid process_completed event (skipped): %s", exc)
+                        elif current_event == "answer_started":
+                            try:
+                                validated = StreamAnswerStartedSchema.model_validate(data)
+                                yield _sse_event("answer_started", validated.model_dump(mode="json"))
+                            except ValidationError as exc:
+                                logger.warning("Invalid answer_started event (skipped): %s", exc)
+                        elif current_event == "answer_delta":
+                            try:
+                                validated = StreamAnswerDeltaSchema.model_validate(data)
+                                yield _sse_event("answer_delta", validated.model_dump(mode="json"))
+                            except ValidationError as exc:
+                                logger.warning("Invalid answer_delta event (skipped): %s", exc)
+                        elif current_event == "status":
                             try:
                                 validated_status = StreamStatusEventSchema.model_validate(data)
                                 yield _sse_event("status", validated_status.model_dump(mode="json"))
@@ -562,13 +605,13 @@ def process_conversation_message_stream(
                             # The repository is deployed atomically. Untyped legacy tokens are
                             # deliberately ignored so they cannot bypass the typed content contract.
                             logger.warning("Legacy token event ignored: len=%d", len(data_str))
-                        elif current_event == "done":
+                        elif current_event in ("run_completed", "done"):
                             received_terminal = True
-                            # Validate done payload with Pydantic before persisting.
-                            # Fallback: if validation fails, use accumulated_content as final_content
-                            # and empty execution_steps/thinking_content.
                             try:
-                                done_payload = StreamDonePayloadSchema.model_validate(data)
+                                if current_event == "run_completed":
+                                    done_payload = StreamRunCompletedSchema.model_validate(data)
+                                else:
+                                    done_payload = StreamDonePayloadSchema.model_validate(data)
                                 final_content = (
                                     done_payload.final_content
                                     if done_payload.final_content.strip()
@@ -576,6 +619,8 @@ def process_conversation_message_stream(
                                 )
                                 execution_steps = [s.model_dump() for s in done_payload.execution_steps]
                                 thinking_content = done_payload.thinking_content
+                                activities = done_payload.activities
+                                run_summary = done_payload.run_summary
                             except ValidationError as exc:
                                 logger.warning("Invalid done payload (using safe fallback): len=%d err=%s", len(data_str), type(exc).__name__)
                                 # SAFE FALLBACK: never persist unvalidated fields.
@@ -583,6 +628,8 @@ def process_conversation_message_stream(
                                 final_content = accumulated_content
                                 execution_steps = []
                                 thinking_content = ""
+                                activities = None
+                                run_summary = None
                             # If there's no answer content at all, return error instead of saving empty message
                             if not final_content.strip():
                                 yield _sse_event("error", {"message": "Agent 未生成有效回答，请重试。"})
@@ -592,12 +639,14 @@ def process_conversation_message_stream(
                                 session, conversation, final_content,
                                 execution_steps=execution_steps,
                                 thinking_content=thinking_content,
+                                activities=activities,
+                                run_summary=run_summary,
                             )
                             # 5. Build and yield done event
                             turn = _build_done_turn(
                                 session, conversation, user_message, assistant_message,
                             )
-                            yield _sse_event("done", turn.model_dump(mode="json"))
+                            yield _sse_event("run_completed" if current_event == "run_completed" else "done", turn.model_dump(mode="json"))
                             return
                         elif current_event == "error":
                             received_terminal = True
@@ -665,6 +714,8 @@ def _save_assistant_message(
     *,
     execution_steps: list[dict[str, Any]] | None = None,
     thinking_content: str | None = None,
+    activities: list[dict[str, Any]] | None = None,
+    run_summary: dict[str, Any] | None = None,
 ) -> AgentMessage:
     """Save assistant message and update conversation."""
     next_labels = _next_suggestions_from_conversation(session, conversation)
@@ -683,6 +734,10 @@ def _save_assistant_message(
         payload["execution_steps"] = execution_steps
     if thinking_content:
         payload["thinking_content"] = thinking_content
+    if activities:
+        payload["activities"] = activities
+    if run_summary:
+        payload["run_summary"] = run_summary
     assistant_message.set_structured_payload(payload)
     session.add(assistant_message)
 

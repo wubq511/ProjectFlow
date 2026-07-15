@@ -38,6 +38,7 @@ import type {
   ProviderCatalogModel,
   StreamContentEvent,
   StreamToolEvent,
+  RunActivityItem,
 } from "./types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
@@ -677,6 +678,12 @@ export type AgentStreamCallbacks = {
   onError: (error: string) => void;
   /** Network-level disconnection (distinct from model/policy errors). */
   onDisconnect?: (reason?: string) => void;
+  onProcessStarted?: (data: { stream_sequence: number; started_at: string }) => void;
+  onProcessDelta?: (data: { stream_sequence: number; activity_id: string; content: string }) => void;
+  onActivity?: (data: { stream_sequence: number; data: RunActivityItem }) => void;
+  onProcessCompleted?: (data: { stream_sequence: number; completed_at: string; processing_duration_ms: number }) => void;
+  onAnswerStarted?: (data: { stream_sequence: number; started_at: string }) => void;
+  onAnswerDelta?: (data: { stream_sequence: number; content: string }) => void;
 };
 
 function agentStreamHttpErrorMessage(status: number): string {
@@ -727,6 +734,24 @@ export async function consumeAgentConversationSSE(
 
         try {
           switch (currentEvent) {
+            case "process_started":
+              callbacks.onProcessStarted?.(data as { stream_sequence: number; started_at: string });
+              break;
+            case "process_delta":
+              callbacks.onProcessDelta?.(data as { stream_sequence: number; activity_id: string; content: string });
+              break;
+            case "activity":
+              callbacks.onActivity?.(data as { stream_sequence: number; data: RunActivityItem });
+              break;
+            case "process_completed":
+              callbacks.onProcessCompleted?.(data as { stream_sequence: number; completed_at: string; processing_duration_ms: number });
+              break;
+            case "answer_started":
+              callbacks.onAnswerStarted?.(data as { stream_sequence: number; started_at: string });
+              break;
+            case "answer_delta":
+              callbacks.onAnswerDelta?.(data as { stream_sequence: number; content: string });
+              break;
             case "status":
               callbacks.onStatus(data as { phase: string; module?: string; message: string });
               break;
@@ -736,6 +761,7 @@ export async function consumeAgentConversationSSE(
             case "tool":
               callbacks.onToolEvent?.(data as StreamToolEvent);
               break;
+            case "run_completed":
             case "done":
               callbacks.onDone(normalizeAgentConversationTurn(data as BackendAgentConversationTurn));
               receivedTerminal = true;

@@ -12,6 +12,8 @@ import { StreamingText } from "./StreamingText";
 import { MessageActions } from "./MessageActions";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { executionStepStatusIcon } from "./stream-display";
+import { RunActivity } from "./RunActivity";
+import type { RunActivityItem } from "@/lib/types";
 
 interface ChatMessageProps {
   message: AgentConversationMessage;
@@ -83,6 +85,14 @@ export const ChatMessage = React.memo(function ChatMessage({
   const answerContent = isLive
     ? streamTurn!.finalContent ?? (streamedAnswerContent || message.content)
     : message.content;
+
+  // Activities: live from turn, or persisted from structured_payload
+  const activities: RunActivityItem[] = isLive
+    ? (streamTurn!.activities || [])
+    : Array.isArray(message.structured_payload?.activities)
+      ? message.structured_payload.activities
+      : [];
+  const hasActivities = activities.length > 0;
 
   // Execution steps: live from turn, or persisted from structured_payload
   const executionSteps: ExecutionStep[] = isLive
@@ -157,46 +167,57 @@ export const ChatMessage = React.memo(function ChatMessage({
         })()
       ) : (
         <>
-          {/* Collapsible thinking section */}
-          {hasThinking && (
-            <Collapsible open={effectiveThinkingOpen} onOpenChange={handleThinkingToggle} className="mb-2">
-              <CollapsibleTrigger
-                className="flex w-full items-center gap-1 rounded-md px-1.5 py-2 text-[11px] text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 min-h-[44px] dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-                aria-expanded={effectiveThinkingOpen}
-                aria-controls={thinkingContentId}
-              >
-                <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform duration-200", effectiveThinkingOpen && "rotate-90")} />
-                <span>{thinkingTitle}</span>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2 dark:border-neutral-800 dark:bg-neutral-900/60" id={thinkingContentId}>
-                <p className="whitespace-pre-wrap text-[11px] leading-5 text-neutral-500 dark:text-neutral-400">{thinkingContent}</p>
-              </CollapsibleContent>
-            </Collapsible>
-          )}
-          {/* Collapsible execution steps section */}
-          {hasExecutionSteps && (
-            <Collapsible open={stepsOpen} onOpenChange={setStepsOpen} className="mb-2">
-              <CollapsibleTrigger
-                className="flex min-h-[44px] w-full items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-                aria-expanded={stepsOpen}
-                aria-controls={stepsContentId}
-              >
-                <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform duration-200", stepsOpen && "rotate-90")} />
-                <span>执行过程</span>
-                <span className="text-neutral-400">·</span>
-                <span className="text-neutral-400">{executionSteps.length} 步</span>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2 dark:border-neutral-800 dark:bg-neutral-900/60" id={stepsContentId}>
-                <ul className="space-y-1">
-                  {executionSteps.map((step, i) => (
-                    <li key={i} className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
-                      <span>{executionStepStatusIcon(step.status)}</span>
-                      <span>{step.label}</span>
-                    </li>
-                  ))}
-                </ul>
-              </CollapsibleContent>
-            </Collapsible>
+          {/* Two-stage Activity Timeline */}
+          {hasActivities ? (
+            <RunActivity
+              activities={activities}
+              durationMs={isLive ? streamTurn!.processDurationMs : (message.structured_payload?.run_summary as any)?.processing_duration_ms}
+              isStreaming={isActivelyStreaming && streamTurn!.status === "thinking"}
+            />
+          ) : (
+            <>
+              {/* Collapsible thinking section */}
+              {hasThinking && (
+                <Collapsible open={effectiveThinkingOpen} onOpenChange={handleThinkingToggle} className="mb-2">
+                  <CollapsibleTrigger
+                    className="flex w-full items-center gap-1 rounded-md px-1.5 py-2 text-[11px] text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 min-h-[44px] dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                    aria-expanded={effectiveThinkingOpen}
+                    aria-controls={thinkingContentId}
+                  >
+                    <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform duration-200", effectiveThinkingOpen && "rotate-90")} />
+                    <span>{thinkingTitle}</span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2 dark:border-neutral-800 dark:bg-neutral-900/60" id={thinkingContentId}>
+                    <p className="whitespace-pre-wrap text-[11px] leading-5 text-neutral-500 dark:text-neutral-400">{thinkingContent}</p>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+              {/* Collapsible execution steps section */}
+              {hasExecutionSteps && (
+                <Collapsible open={stepsOpen} onOpenChange={setStepsOpen} className="mb-2">
+                  <CollapsibleTrigger
+                    className="flex min-h-[44px] w-full items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                    aria-expanded={stepsOpen}
+                    aria-controls={stepsContentId}
+                  >
+                    <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform duration-200", stepsOpen && "rotate-90")} />
+                    <span>执行过程</span>
+                    <span className="text-neutral-400">·</span>
+                    <span className="text-neutral-400">{executionSteps.length} 步</span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2 dark:border-neutral-800 dark:bg-neutral-900/60" id={stepsContentId}>
+                    <ul className="space-y-1">
+                      {executionSteps.map((step, i) => (
+                        <li key={i} className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+                          <span>{executionStepStatusIcon(step.status)}</span>
+                          <span>{step.label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+            </>
           )}
           {/* Answer content: streaming or persisted — NOT aria-live (announcement is separate) */}
           {isAnswerStreaming && answerContent.length > 0 ? (

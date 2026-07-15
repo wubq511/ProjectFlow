@@ -9,6 +9,8 @@ import type {
   AgentStreamTurn,
   AgentConversationMessage,
   AgentConversationTurn,
+  RunActivityItem,
+  RunSummary,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -28,11 +30,17 @@ type StreamTurnAction =
   | { type: "TOOL_COMPLETED"; tool_name: string; tool_call_id?: string }
   | { type: "TOOL_FAILED"; tool_name: string; tool_call_id?: string }
   | { type: "TOOL_BLOCKED"; tool_name: string; tool_call_id?: string; label?: string }
-  | { type: "DONE"; finalContent: string; thinkingContent: string; executionSteps: ExecutionStep[] }
+  | { type: "DONE"; finalContent: string; thinkingContent: string; executionSteps: ExecutionStep[]; activities?: RunActivityItem[]; runSummary?: RunSummary | null }
   | { type: "ERROR"; message: string }
   | { type: "CANCEL" }
   | { type: "DISCONNECT" }
-  | { type: "TOGGLE_THINKING" };
+  | { type: "TOGGLE_THINKING" }
+  | { type: "PROCESS_STARTED"; startedAt: string; streamSequence: number }
+  | { type: "PROCESS_DELTA"; activityId: string; content: string; streamSequence: number }
+  | { type: "ACTIVITY"; data: RunActivityItem; streamSequence: number }
+  | { type: "PROCESS_COMPLETED"; completedAt: string; processingDurationMs: number; streamSequence: number }
+  | { type: "ANSWER_STARTED"; startedAt: string; streamSequence: number }
+  | { type: "ANSWER_DELTA"; content: string; streamSequence: number };
 
 // ---------------------------------------------------------------------------
 // Initial state
@@ -51,6 +59,12 @@ export function createInitialTurn(): AgentStreamTurn {
     executionSteps: [],
     error: null,
     finalContent: null,
+    activities: [],
+    runSummary: null,
+    processStartedAt: null,
+    processCompletedAt: null,
+    processDurationMs: 0,
+    streamSequence: 0,
   };
 }
 
@@ -271,10 +285,91 @@ export function streamTurnReducer(state: AgentStreamTurn, action: StreamTurnActi
         blockOrder: blocks === state.blocks ? state.blockOrder : state.blockOrder + 1,
         finalContent: action.finalContent,
         executionSteps: action.executionSteps.length > 0 ? action.executionSteps : state.executionSteps,
+        activities: action.activities && action.activities.length > 0 ? action.activities : state.activities,
+        runSummary: action.runSummary ?? state.runSummary,
         thinkingOpen: false, // Fold on completion
         error: null,
       };
     }
+
+    case "PROCESS_STARTED":
+      return {
+        ...state,
+        status: "thinking",
+        processStartedAt: action.startedAt,
+        thinkingOpen: true,
+        streamSequence: action.streamSequence,
+      };
+
+    case "PROCESS_DELTA": {
+      const updatedActivities = state.activities.map((act) => {
+        if (act.id === action.activityId && act.kind === "progress") {
+          return { ...act, content: act.content + action.content };
+        }
+        return act;
+      });
+      return {
+        ...state,
+        activities: updatedActivities,
+        streamSequence: action.streamSequence,
+      };
+    }
+
+    case "ACTIVITY": {
+      const exists = state.activities.some((act) => act.id === action.data.id);
+      const updatedActivities = exists
+        ? state.activities.map((act) => (act.id === action.data.id ? action.data : act))
+        : [...state.activities, action.data];
+      
+      let updatedSteps = state.executionSteps;
+      if (action.data.kind === "tool") {
+        const toolAct = action.data;
+        if (toolAct.status === "running") {
+          const stepExists = state.executionSteps.some((s) => s.tool_call_id === toolAct.tool_call_id);
+          if (!stepExists) {
+            updatedSteps = [...state.executionSteps, {
+              tool_name: toolAct.tool_name,
+              tool_call_id: toolAct.tool_call_id,
+              status: "started",
+              label: toolAct.label.replace(/^正在/, ""),
+            }];
+          }
+        } else if (toolAct.status === "completed" || toolAct.status === "failed" || toolAct.status === "blocked") {
+          updatedSteps = updateStep(state.executionSteps, toolAct.tool_call_id, toolAct.tool_name, toolAct.status);
+        }
+      }
+
+      return {
+        ...state,
+        activities: updatedActivities.sort((a, b) => a.sequence - b.sequence),
+        executionSteps: updatedSteps,
+        streamSequence: action.streamSequence,
+      };
+    }
+
+    case "PROCESS_COMPLETED":
+      return {
+        ...state,
+        processCompletedAt: action.completedAt,
+        processDurationMs: action.processingDurationMs,
+        thinkingOpen: !state.thinkingWasManuallyToggled ? false : state.thinkingOpen,
+        thinkingWasAutoFolded: true,
+        streamSequence: action.streamSequence,
+      };
+
+    case "ANSWER_STARTED":
+      return {
+        ...state,
+        status: "answering",
+        streamSequence: action.streamSequence,
+      };
+
+    case "ANSWER_DELTA":
+      return {
+        ...state,
+        status: "answering",
+        streamSequence: action.streamSequence,
+      };
 
     case "ERROR":
       return {
@@ -381,8 +476,8 @@ export function useAgentStreamTurn() {
     dispatch({ type: "TOOL_BLOCKED", tool_name, tool_call_id, label });
   }, []);
 
-  const done = useCallback((finalContent: string, thinkingContent: string, executionSteps: ExecutionStep[]) => {
-    dispatch({ type: "DONE", finalContent, thinkingContent, executionSteps });
+  const done = useCallback((finalContent: string, thinkingContent: string, executionSteps: ExecutionStep[], activities?: RunActivityItem[], runSummary?: RunSummary | null) => {
+    dispatch({ type: "DONE", finalContent, thinkingContent, executionSteps, activities, runSummary });
   }, []);
 
   const error = useCallback((message: string) => {
@@ -399,6 +494,30 @@ export function useAgentStreamTurn() {
 
   const toggleThinking = useCallback(() => {
     dispatch({ type: "TOGGLE_THINKING" });
+  }, []);
+
+  const processStarted = useCallback((startedAt: string, streamSequence: number) => {
+    dispatch({ type: "PROCESS_STARTED", startedAt, streamSequence });
+  }, []);
+
+  const processDelta = useCallback((activityId: string, content: string, streamSequence: number) => {
+    dispatch({ type: "PROCESS_DELTA", activityId, content, streamSequence });
+  }, []);
+
+  const activity = useCallback((data: RunActivityItem, streamSequence: number) => {
+    dispatch({ type: "ACTIVITY", data, streamSequence });
+  }, []);
+
+  const processCompleted = useCallback((completedAt: string, processingDurationMs: number, streamSequence: number) => {
+    dispatch({ type: "PROCESS_COMPLETED", completedAt, processingDurationMs, streamSequence });
+  }, []);
+
+  const answerStarted = useCallback((startedAt: string, streamSequence: number) => {
+    dispatch({ type: "ANSWER_STARTED", startedAt, streamSequence });
+  }, []);
+
+  const answerDelta = useCallback((content: string, streamSequence: number) => {
+    dispatch({ type: "ANSWER_DELTA", content, streamSequence });
   }, []);
 
   // Derived: is the turn actively streaming?
@@ -436,6 +555,12 @@ export function useAgentStreamTurn() {
     cancel,
     disconnect,
     toggleThinking,
+    processStarted,
+    processDelta,
+    activity,
+    processCompleted,
+    answerStarted,
+    answerDelta,
     isStreaming,
     thinkingContent,
     answerContent,

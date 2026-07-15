@@ -18,6 +18,7 @@ import {
   Loader2,
   Lightbulb,
   BookOpen,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MultilineText } from "@/components/ui/multiline-text";
@@ -49,6 +50,11 @@ const VIEW_META: Record<
   ProjectView,
   { title: string; icon: React.ElementType; description: string }
 > = {
+  agent: {
+    title: "Agent 对话",
+    icon: Bot,
+    description: "与项目 Agent 对话交流推进工作",
+  },
   overview: {
     title: "项目总览",
     icon: LayoutDashboard,

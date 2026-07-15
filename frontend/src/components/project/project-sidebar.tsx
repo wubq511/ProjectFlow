@@ -24,6 +24,7 @@ import {
   Settings,
   Crown,
   BookOpen,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ProjectState, Workspace } from "@/lib/types";
@@ -40,6 +41,7 @@ import { setCurrentUserId, clearLastWorkspaceId } from "@/components/app-shell";
 import { listWorkspaces } from "@/lib/api";
 
 export type ProjectView =
+  | "agent"
   | "overview"
   | "direction"
   | "stages"
@@ -56,6 +58,7 @@ const MENU_ITEMS: {
   icon: React.ElementType;
   badge?: (state: ProjectState, currentUserId?: string) => number;
 }[] = [
+  { id: "agent", label: "Agent 对话", icon: Bot },
   { id: "overview", label: "项目总览", icon: LayoutDashboard },
   { id: "direction", label: "方向卡", icon: Compass },
   { id: "stages", label: "阶段计划", icon: GitBranch },
@@ -86,7 +89,7 @@ const MENU_ITEMS: {
   { id: "retro", label: "项目复盘", icon: BarChart3 },
 ];
 
-const OVERVIEW_GROUP: ProjectView[] = ["overview", "direction", "stages"];
+const OVERVIEW_GROUP: ProjectView[] = ["agent", "overview", "direction", "stages"];
 const EXECUTION_GROUP: ProjectView[] = [
   "my-tasks",
   "team-tasks",

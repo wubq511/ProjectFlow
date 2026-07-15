@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentConversationMessage, AgentConversationTurn, AgentStreamPhase, ArchivedAgentStreamTurn, ExecutionStep, StreamToolEvent } from "./types";
+import type { AgentConversationMessage, AgentConversationTurn, AgentStreamPhase, ArchivedAgentStreamTurn, ExecutionStep, StreamToolEvent, RunActivityItem, RunSummary } from "./types";
 import { sendAgentConversationMessageStream } from "./api";
 import { useAgentStreamTurn } from "./use-agent-stream-turn";
 
@@ -85,6 +85,12 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
     cancel: streamCancel,
     disconnect: streamDisconnect,
     toggleThinking,
+    processStarted,
+    processDelta,
+    activity,
+    processCompleted,
+    answerStarted,
+    answerDelta,
     isStreaming: isStreamActive,
     thinkingContent: streamThinkingContent,
     answerContent: streamAnswerContent,
@@ -184,6 +190,30 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
                   break;
               }
             },
+            onProcessStarted: (data) => {
+              if (generationRef.current !== gen) return;
+              processStarted(data.started_at, data.stream_sequence);
+            },
+            onProcessDelta: (data) => {
+              if (generationRef.current !== gen) return;
+              processDelta(data.activity_id, data.content, data.stream_sequence);
+            },
+            onActivity: (data) => {
+              if (generationRef.current !== gen) return;
+              activity(data.data, data.stream_sequence);
+            },
+            onProcessCompleted: (data) => {
+              if (generationRef.current !== gen) return;
+              processCompleted(data.completed_at, data.processing_duration_ms, data.stream_sequence);
+            },
+            onAnswerStarted: (data) => {
+              if (generationRef.current !== gen) return;
+              answerStarted(data.started_at, data.stream_sequence);
+            },
+            onAnswerDelta: (data) => {
+              if (generationRef.current !== gen) return;
+              answerDelta(data.content, data.stream_sequence);
+            },
             onDone: (turn) => {
               if (generationRef.current !== gen) return;
               setStreamStatus(null);
@@ -199,7 +229,11 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
                       s != null && typeof s === "object" && typeof s.tool_name === "string" && typeof s.status === "string" && typeof s.label === "string",
                   )
                 : [];
-              streamDone(finalContent, thinkingContent, executionSteps);
+              const rawActivities = assistantMsg?.structured_payload?.activities;
+              const activitiesList: RunActivityItem[] = Array.isArray(rawActivities) ? rawActivities : [];
+              const runSummary = (assistantMsg?.structured_payload?.run_summary as RunSummary | undefined) ?? null;
+
+              streamDone(finalContent, thinkingContent, executionSteps, activitiesList, runSummary);
               // Set explicit completion announcement token
               setCompletedAnnouncement(turn.assistant_message?.id ?? clientTurnId);
               setActiveRunId(null);
@@ -258,6 +292,12 @@ export function useAgentConversationStream(options: UseAgentConversationStreamOp
       toolCompleted,
       toolFailed,
       toolBlocked,
+      processStarted,
+      processDelta,
+      activity,
+      processCompleted,
+      answerStarted,
+      answerDelta,
       streamDone,
       streamError,
       streamDisconnect,

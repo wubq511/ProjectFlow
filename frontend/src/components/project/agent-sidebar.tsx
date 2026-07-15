@@ -220,6 +220,12 @@ interface AgentSidebarProps {
   isLoadingOlder?: boolean;
   /** Callback to load older messages. */
   onLoadOlderMessages?: () => void;
+  draft?: string;
+  onDraftChange?: (val: string) => void;
+  thinkingLevelProp?: ThinkingLevel | null;
+  onThinkingLevelChange?: (val: ThinkingLevel | null) => void;
+  selectedModelIdProp?: string | null;
+  onSelectedModelIdChange?: (val: string | null) => void;
 }
 
 export function AgentSidebar({
@@ -258,13 +264,26 @@ export function AgentSidebar({
   hasOlderMessages = false,
   isLoadingOlder = false,
   onLoadOlderMessages,
+  draft: draftProp,
+  onDraftChange,
+  thinkingLevelProp,
+  onThinkingLevelChange,
+  selectedModelIdProp,
+  onSelectedModelIdChange,
 }: AgentSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  /** null = auto (no explicit override); non-null = user explicitly chose this level. */
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel | null>(null);
+  
+  const [localThinkingLevel, setLocalThinkingLevel] = useState<ThinkingLevel | null>(null);
+  const thinkingLevel = thinkingLevelProp !== undefined ? thinkingLevelProp : localThinkingLevel;
+  const setThinkingLevel = onThinkingLevelChange !== undefined ? onThinkingLevelChange : setLocalThinkingLevel;
+  
   const [modelConfigs, setModelConfigs] = useState<ModelConfigEntry[]>([]);
-  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  
+  const [localSelectedModelId, setLocalSelectedModelId] = useState<string | null>(null);
+  const selectedModelId = selectedModelIdProp !== undefined ? selectedModelIdProp : localSelectedModelId;
+  const setSelectedModelId = onSelectedModelIdChange !== undefined ? onSelectedModelIdChange : setLocalSelectedModelId;
+
   const [modelsLoaded, setModelsLoaded] = useState(false);
 
   // Load model configs from sidecar on mount
@@ -291,8 +310,12 @@ export function AgentSidebar({
       }
     })();
     return () => { cancelled = true; };
-  }, []);
-  const [draft, setDraft] = useState("");
+  }, [setSelectedModelId]);
+
+  const [localDraft, setLocalDraft] = useState("");
+  const draft = draftProp !== undefined ? draftProp : localDraft;
+  const setDraft = onDraftChange !== undefined ? onDraftChange : setLocalDraft;
+
   const [dismissedIds, setDismissedIds] = useLocalStorageSet(getDismissedStorageKey(selectedProjectId));
   const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set());
   const [actionLog, setActionLog] = useState<Array<{ id: string; artifactId: string; type: "confirmed" | "dismissed"; text: string }>>([]);
@@ -575,7 +598,7 @@ export function AgentSidebar({
     if (thinkingLevel !== null && supportedLevels && !supportedLevels.includes(thinkingLevel)) {
       setThinkingLevel(null);
     }
-  }, [modelConfigs, thinkingLevel]);
+  }, [modelConfigs, thinkingLevel, setSelectedModelId, setThinkingLevel]);
 
   const handleSendSteering = useCallback(
     async (content: string) => {

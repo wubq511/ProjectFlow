@@ -120,13 +120,7 @@ class StreamDoneExecutionStepSchema(BaseModel):
 
 
 class StreamDonePayloadSchema(BaseModel):
-    """Strict schema for the done event payload from sidecar.
-
-    Matches the wire format produced by sidecar's buildDonePayload:
-    {run_id, status, final_content, thinking_content?, execution_steps?}
-
-    final_content is required — a done without an answer is malformed.
-    """
+    """Strict schema for the done event payload from sidecar."""
     model_config = ConfigDict(extra="forbid")
     run_id: str = Field(min_length=1, strict=True)
     status: Literal["completed"]
@@ -135,6 +129,62 @@ class StreamDonePayloadSchema(BaseModel):
     execution_steps: list[StreamDoneExecutionStepSchema] = Field(default_factory=list)
     memory_evidence: dict[str, Any] = Field(default_factory=dict)
     metrics: dict[str, float | int] = Field(default_factory=dict)
+    run_summary: dict[str, Any] | None = None
+    activities: list[dict[str, Any]] | None = None
+
+
+class StreamProcessStartedSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    stream_sequence: int = Field(ge=0, strict=True)
+    started_at: str = Field(min_length=1, strict=True)
+
+
+class StreamProcessDeltaSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    stream_sequence: int = Field(ge=0, strict=True)
+    activity_id: str = Field(min_length=1, strict=True)
+    content: str
+
+
+class StreamActivityEventSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    stream_sequence: int = Field(ge=0, strict=True)
+    data: dict[str, Any]
+
+
+class StreamProcessCompletedSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    stream_sequence: int = Field(ge=0, strict=True)
+    completed_at: str = Field(min_length=1, strict=True)
+    processing_duration_ms: int = Field(ge=0, strict=True)
+
+
+class StreamAnswerStartedSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    stream_sequence: int = Field(ge=0, strict=True)
+    started_at: str = Field(min_length=1, strict=True)
+
+
+class StreamAnswerDeltaSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    stream_sequence: int = Field(ge=0, strict=True)
+    content: str
+
+
+class StreamRunCompletedSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    stream_sequence: int = Field(ge=0, strict=True)
+    completed_at: str = Field(min_length=1, strict=True)
+    run_id: str = Field(min_length=1, strict=True)
+    status: Literal["completed"]
+    final_content: str = Field(min_length=0, strict=True)
+    thinking_content: str = ""
+    execution_steps: list[StreamDoneExecutionStepSchema] = Field(default_factory=list)
+    memory_evidence: dict[str, Any] = Field(default_factory=dict)
+    metrics: dict[str, float | int] = Field(default_factory=dict)
+    run_summary: dict[str, Any] | None = None
+    activities: list[dict[str, Any]] | None = None
+
 
 
 class AgentTurnPlan(BaseModel):

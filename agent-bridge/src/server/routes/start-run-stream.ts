@@ -238,14 +238,50 @@ export async function handleStartRunStream(
     "X-Accel-Buffering": "no",
   });
 
-  // Emit initial status
-  writeSSE(res, "status", {
-    phase: "planning",
-    message: "正在理解你的需求...",
-    run_id: runState.runId,
-    request_mode: outcomeContract.requestType === "answer" ? "answer" : "action",
-    selected_skills: allSkillContexts.map((skill) => skill.name),
+  // Emit process_started
+  const streamStartedAt = Date.now();
+  let streamSequence = 0;
+  let activitySeq = 0;
+  const activities: any[] = [];
+  let hasSentProcessCompleted = false;
+  let processCompletedAt: string | undefined = undefined;
+  let processingDurationMs = 0;
+
+  writeSSE(res, "process_started", {
+    stream_sequence: ++streamSequence,
+    started_at: new Date(streamStartedAt).toISOString(),
   });
+
+  // Emit preflight loaded skills as SkillActivity
+  for (const skill of allSkillContexts) {
+    const labelMap: Record<string, string> = {
+      "project-intake": "项目澄清",
+      "project-planning": "阶段规划",
+      "task-breakdown": "任务拆解",
+      "assignment-planning": "分工推荐",
+      "project-status": "主动推进",
+      "risk-analysis": "风险分析",
+      "risk-replan": "计划调整",
+    };
+    const skillNameCn = labelMap[skill.name] ?? skill.name;
+    const skillActivity = {
+      id: `skill-${skill.name}`,
+      sequence: ++activitySeq,
+      created_at: new Date(streamStartedAt).toISOString(),
+      kind: "skill",
+      skill_name: skill.name,
+      status: "loaded",
+      label: `已读取${skillNameCn}技能`,
+      started_at: new Date(streamStartedAt).toISOString(),
+      completed_at: new Date(streamStartedAt).toISOString(),
+      duration_ms: 0,
+    };
+    activities.push(skillActivity);
+    writeSSE(res, "activity", {
+      stream_sequence: ++streamSequence,
+      data: skillActivity,
+    });
+  }
 
   // Step 4: Subscribe to EventStream and forward as SSE
   let runCompleted = false;
@@ -273,7 +309,6 @@ export async function handleStartRunStream(
   /** Bounded execution steps collected from tool lifecycle events. */
   const executionSteps: Array<{ tool_name: string; tool_call_id?: string; status: string; label: string }> = [];
   const outputSanitizer = createOutputSanitizer(wireRequest.workspace_state);
-  const streamStartedAt = Date.now();
   let inputTokens = 0;
   let outputTokens = 0;
   let reasoningTokens = 0;
@@ -318,6 +353,12 @@ export async function handleStartRunStream(
   const flushSanitizedTail = (contentIndex = 0): void => {
     const tail = outputSanitizer.flush();
     emitSanitizedText(tail, contentIndex);
+    if (tail) {
+      writeSSE(res, "answer_delta", {
+        stream_sequence: ++streamSequence,
+        content: tail,
+      });
+    }
   };
 
   // Abort runtime when client disconnects mid-stream
@@ -370,17 +411,50 @@ export async function handleStartRunStream(
         } else if (deltaType === "text_start") {
           const evt: StreamContentEvent = { kind: "text", phase: "start", content_index: contentIndex, message_seq: messageSeq };
           writeSSE(res, "content", evt);
+          if (!hasSentProcessCompleted) {
+            processCompletedAt = new Date().toISOString();
+            processingDurationMs = Date.now() - streamStartedAt;
+            writeSSE(res, "process_completed", {
+              stream_sequence: ++streamSequence,
+              completed_at: processCompletedAt,
+              processing_duration_ms: processingDurationMs,
+            });
+            writeSSE(res, "answer_started", {
+              stream_sequence: ++streamSequence,
+              started_at: processCompletedAt,
+            });
+            hasSentProcessCompleted = true;
+          }
         } else if (deltaType === "text_delta") {
           if (tokenText) {
             const safeText = outputSanitizer.push(tokenText);
             emitSanitizedText(safeText, contentIndex);
+            if (!hasSentProcessCompleted) {
+              processCompletedAt = new Date().toISOString();
+              processingDurationMs = Date.now() - streamStartedAt;
+              writeSSE(res, "process_completed", {
+                stream_sequence: ++streamSequence,
+                completed_at: processCompletedAt,
+                processing_duration_ms: processingDurationMs,
+              });
+              writeSSE(res, "answer_started", {
+                stream_sequence: ++streamSequence,
+                started_at: processCompletedAt,
+              });
+              hasSentProcessCompleted = true;
+            }
+            if (safeText) {
+              writeSSE(res, "answer_delta", {
+                stream_sequence: ++streamSequence,
+                content: safeText,
+              });
+            }
           }
         } else if (deltaType === "text_end") {
           flushSanitizedTail(contentIndex);
           const evt: StreamContentEvent = { kind: "text", phase: "end", content_index: contentIndex, message_seq: messageSeq };
           writeSSE(res, "content", evt);
         }
-        // toolcall_start, toolcall_delta, toolcall_end → never reach here (filtered by event-mapper)
         break;
       }
       case "agent.status":
@@ -433,14 +507,30 @@ export async function handleStartRunStream(
           const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "工具";
           const label = toolLabel(toolName);
           const toolCallId = typeof data.payload?.tool_call_id === "string" ? data.payload.tool_call_id : undefined;
-          // Send typed tool SSE event (frontend dispatches directly to reducer)
+          
           writeSSE(res, "tool", { phase: "started", tool_call_id: toolCallId ?? toolName, tool_name: toolName, label });
-          // Also send status event for UI phase indicator
+          
+          const toolActivity = {
+            id: toolCallId ?? `tool-${toolName}-${Date.now()}`,
+            sequence: ++activitySeq,
+            created_at: new Date().toISOString(),
+            kind: "tool" as const,
+            tool_call_id: toolCallId ?? toolName,
+            tool_name: toolName,
+            status: "running" as const,
+            label: `正在${label}`,
+            started_at: new Date().toISOString(),
+          };
+          activities.push(toolActivity);
+          writeSSE(res, "activity", {
+            stream_sequence: ++streamSequence,
+            data: toolActivity,
+          });
+
           writeSSE(res, "status", {
             phase: "executing",
             message: `正在${label}...`,
           });
-          // Collect execution step (started)
           executionSteps.push({ tool_name: toolName, tool_call_id: toolCallId, status: "started", label });
         }
         break;
@@ -448,10 +538,25 @@ export async function handleStartRunStream(
         {
           const toolCallId = typeof data.payload?.tool_call_id === "string" ? data.payload.tool_call_id : undefined;
           const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "工具";
-          // Send typed tool SSE event
+          const label = toolLabel(toolName);
+          
           writeSSE(res, "tool", { phase: "completed", tool_call_id: toolCallId ?? toolName, tool_name: toolName });
           writeSSE(res, "status", { phase: "generating", message: "正在整理结果..." });
-          // Update matching step to completed (prefer tool_call_id for precision)
+          
+          const act = activities.find(a => a.kind === "tool" && a.tool_call_id === (toolCallId ?? toolName));
+          if (act) {
+            act.status = "completed";
+            act.completed_at = new Date().toISOString();
+            act.label = `已${label}`;
+            if (act.started_at) {
+              act.duration_ms = new Date(act.completed_at).getTime() - new Date(act.started_at).getTime();
+            }
+            writeSSE(res, "activity", {
+              stream_sequence: ++streamSequence,
+              data: act,
+            });
+          }
+
           const step = toolCallId
             ? executionSteps.find((s) => s.tool_call_id === toolCallId && s.status === "started")
             : [...executionSteps].reverse().find((s) => s.tool_name === toolName && s.status === "started");
@@ -462,9 +567,24 @@ export async function handleStartRunStream(
         {
           const toolCallId = typeof data.payload?.tool_call_id === "string" ? data.payload.tool_call_id : undefined;
           const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "工具";
-          // Send typed tool SSE event
+          const label = toolLabel(toolName);
+          
           writeSSE(res, "tool", { phase: "failed", tool_call_id: toolCallId ?? toolName, tool_name: toolName });
-          // Update matching step to failed (prefer tool_call_id for precision)
+          
+          const act = activities.find(a => a.kind === "tool" && a.tool_call_id === (toolCallId ?? toolName));
+          if (act) {
+            act.status = "failed";
+            act.completed_at = new Date().toISOString();
+            act.label = `${label}失败`;
+            if (act.started_at) {
+              act.duration_ms = new Date(act.completed_at).getTime() - new Date(act.started_at).getTime();
+            }
+            writeSSE(res, "activity", {
+              stream_sequence: ++streamSequence,
+              data: act,
+            });
+          }
+
           const step = toolCallId
             ? executionSteps.find((s) => s.tool_call_id === toolCallId && s.status === "started")
             : [...executionSteps].reverse().find((s) => s.tool_name === toolName && s.status === "started");
@@ -477,7 +597,7 @@ export async function handleStartRunStream(
           const toolName = typeof data.payload?.tool_name === "string" ? data.payload.tool_name : "";
           const label = toolLabel(toolName || "工具");
           const eventId = typeof data.payload?.event_id === "string" ? data.payload.event_id : `blocked-${executionSteps.length}`;
-          // Send typed tool SSE event (blocked has optional tool_call_id)
+          
           writeSSE(res, "tool", {
             phase: "blocked",
             ...(toolCallId ? { tool_call_id: toolCallId } : {}),
@@ -485,15 +605,41 @@ export async function handleStartRunStream(
             label,
             event_id: eventId,
           });
-          // Update matching step to blocked (policy gate rejection, distinct from execution failure)
+
+          const act = activities.find(a => a.kind === "tool" && a.tool_call_id === (toolCallId ?? toolName));
+          if (act) {
+            act.status = "blocked";
+            act.completed_at = new Date().toISOString();
+            act.label = `${label}已被阻止`;
+            writeSSE(res, "activity", {
+              stream_sequence: ++streamSequence,
+              data: act,
+            });
+          } else {
+            const blockedActivity = {
+              id: eventId,
+              sequence: ++activitySeq,
+              created_at: new Date().toISOString(),
+              kind: "tool" as const,
+              tool_call_id: toolCallId,
+              tool_name: toolName,
+              status: "blocked" as const,
+              label: `${label}已被阻止`,
+              completed_at: new Date().toISOString(),
+            };
+            activities.push(blockedActivity);
+            writeSSE(res, "activity", {
+              stream_sequence: ++streamSequence,
+              data: blockedActivity,
+            });
+          }
+
           const step = toolCallId
             ? executionSteps.find((s) => s.tool_call_id === toolCallId && s.status === "started")
             : [...executionSteps].reverse().find((s) => s.tool_name === toolName && s.status === "started");
           if (step) {
             step.status = "blocked";
           } else {
-            // No matching started step — append standalone blocked entry so it
-            // survives in executionSteps and is persisted in the done payload.
             executionSteps.push({
               tool_name: toolName || "工具",
               tool_call_id: toolCallId,
@@ -504,8 +650,6 @@ export async function handleStartRunStream(
         }
         break;
       case "tool.progress":
-        // Tool progress updates — do NOT forward raw message to avoid leaking
-        // English/internal IDs. Use a controlled Chinese status instead.
         writeSSE(res, "status", { phase: "executing", message: "正在执行任务..." });
         break;
       case "proposal.created":
@@ -524,8 +668,6 @@ export async function handleStartRunStream(
         writeSSE(res, "status", { phase: "generating", message: "咨询记录已创建" });
         break;
       case "runtime.error": {
-        // Runtime-level errors (budget exceeded, policy violation, etc.)
-        // Use fixed Chinese category messages — never leak raw error/reason to frontend
         const errorCode = data.payload?.code;
         let userMessage: string;
         if (errorCode === "budget_exceeded") {
@@ -548,16 +690,47 @@ export async function handleStartRunStream(
       case "run.completed": {
         runCompleted = true;
         flushSanitizedTail();
-        // Capture final_content from the runtime (extracted from last assistant message's TextContent).
         finalAnswerFromRuntime = typeof data.payload?.final_content === "string"
           ? outputSanitizer.sanitize(data.payload.final_content)
           : "";
-        const donePayload = buildDonePayload(
+        
+        if (!hasSentProcessCompleted) {
+          processCompletedAt = new Date().toISOString();
+          processingDurationMs = Date.now() - streamStartedAt;
+          writeSSE(res, "process_completed", {
+            stream_sequence: ++streamSequence,
+            completed_at: processCompletedAt,
+            processing_duration_ms: processingDurationMs,
+          });
+          writeSSE(res, "answer_started", {
+            stream_sequence: ++streamSequence,
+            started_at: processCompletedAt,
+          });
+          hasSentProcessCompleted = true;
+        }
+
+        const donePayload: any = buildDonePayload(
           runState.runId, finalAnswerFromRuntime,
           thinkingBlocks, textBlocks, accumulatedContent, executionSteps,
           currentMetrics(),
         );
         donePayload.memory_evidence = finalMemoryEvidence();
+        donePayload.activities = activities;
+        donePayload.run_summary = {
+          started_at: new Date(streamStartedAt).toISOString(),
+          process_completed_at: processCompletedAt,
+          completed_at: new Date().toISOString(),
+          processing_duration_ms: processingDurationMs,
+          duration_ms: Date.now() - streamStartedAt,
+          status: "completed",
+          activity_count: activities.length,
+        };
+        
+        writeSSE(res, "run_completed", {
+          stream_sequence: ++streamSequence,
+          completed_at: new Date().toISOString(),
+          ...donePayload
+        });
         writeSSE(res, "done", donePayload);
         res.end();
         break;
@@ -565,7 +738,6 @@ export async function handleStartRunStream(
       case "agent.failed":
       case "run.failed": {
         runCompleted = true;
-        // Fixed Chinese message — never leak raw error/reason
         writeSSE(res, "error", { message: "Agent 处理失败，请稍后重试。" });
         res.end();
         break;
@@ -577,7 +749,6 @@ export async function handleStartRunStream(
         break;
       }
       default:
-        // Forward unknown events as status for debugging
         break;
     }
   });
@@ -617,12 +788,41 @@ export async function handleStartRunStream(
           if (!runCompleted) {
             runCompleted = true;
             flushSanitizedTail();
-            const donePayload = buildDonePayload(
+            if (!hasSentProcessCompleted) {
+              processCompletedAt = new Date().toISOString();
+              processingDurationMs = Date.now() - streamStartedAt;
+              writeSSE(res, "process_completed", {
+                stream_sequence: ++streamSequence,
+                completed_at: processCompletedAt,
+                processing_duration_ms: processingDurationMs,
+              });
+              writeSSE(res, "answer_started", {
+                stream_sequence: ++streamSequence,
+                started_at: processCompletedAt,
+              });
+              hasSentProcessCompleted = true;
+            }
+            const donePayload: any = buildDonePayload(
               state.runId, finalAnswerFromRuntime,
               thinkingBlocks, textBlocks, accumulatedContent, executionSteps,
               currentMetrics(),
             );
             donePayload.memory_evidence = finalMemoryEvidence();
+            donePayload.activities = activities;
+            donePayload.run_summary = {
+              started_at: new Date(streamStartedAt).toISOString(),
+              process_completed_at: processCompletedAt,
+              completed_at: new Date().toISOString(),
+              processing_duration_ms: processingDurationMs,
+              duration_ms: Date.now() - streamStartedAt,
+              status: "completed",
+              activity_count: activities.length,
+            };
+            writeSSE(res, "run_completed", {
+              stream_sequence: ++streamSequence,
+              completed_at: new Date().toISOString(),
+              ...donePayload
+            });
             writeSSE(res, "done", donePayload);
             res.end();
           }
@@ -631,7 +831,6 @@ export async function handleStartRunStream(
           ctx.sessionStore.clearAbortController(state.runId);
           if (!runCompleted) {
             runCompleted = true;
-            // Fixed Chinese message — never leak raw error.message
             writeSSE(res, "error", { message: "Agent 执行出错，请稍后重试。" });
             res.end();
           }
@@ -641,7 +840,6 @@ export async function handleStartRunStream(
   } catch (_err) {
     if (!runCompleted) {
       runCompleted = true;
-      // Fixed Chinese message — never leak raw error.message
       writeSSE(res, "error", { message: "Agent 执行出错，请稍后重试。" });
       res.end();
     }

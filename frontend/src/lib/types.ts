@@ -591,6 +591,106 @@ export type AgentStreamTokenEvent = {
   data: { content: string };
 };
 
+export type BaseActivity = {
+  id: string;
+  sequence: number;
+  created_at: string;
+};
+
+export type ProgressActivity = BaseActivity & {
+  kind: "progress";
+  content: string;
+  phase?: "planning" | "exploring" | "executing" | "verifying" | "summarizing";
+};
+
+export type SkillActivity = BaseActivity & {
+  kind: "skill";
+  skill_name: string;
+  status: "loading" | "loaded" | "failed" | "blocked";
+  label: string;
+  completed_label?: string;
+  started_at: string;
+  completed_at?: string;
+  duration_ms?: number;
+};
+
+export type ToolActivity = BaseActivity & {
+  kind: "tool";
+  tool_call_id: string;
+  tool_name: string;
+  status: "running" | "completed" | "failed" | "blocked";
+  label: string;
+  completed_label?: string;
+  summary?: string;
+  started_at: string;
+  completed_at?: string;
+  duration_ms?: number;
+};
+
+export type ApprovalActivity = BaseActivity & {
+  kind: "approval";
+  status: "waiting" | "approved" | "rejected";
+  label: string;
+};
+
+export type SteeringActivity = BaseActivity & {
+  kind: "steering";
+  content: string;
+  status: "accepted" | "queued" | "applied";
+};
+
+export type RunActivityItem =
+  | ProgressActivity
+  | SkillActivity
+  | ToolActivity
+  | ApprovalActivity
+  | SteeringActivity;
+
+export type RunSummary = {
+  started_at: string;
+  process_completed_at?: string;
+  completed_at: string;
+  processing_duration_ms?: number;
+  duration_ms: number;
+  status: "completed" | "failed" | "cancelled" | "disconnected";
+  activity_count: number;
+};
+
+export type AgentStreamProcessStartedEvent = {
+  event: "process_started";
+  data: { stream_sequence: number; started_at: string };
+};
+
+export type AgentStreamProcessDeltaEvent = {
+  event: "process_delta";
+  data: { stream_sequence: number; activity_id: string; content: string };
+};
+
+export type AgentStreamActivityEvent = {
+  event: "activity";
+  data: { stream_sequence: number; data: RunActivityItem };
+};
+
+export type AgentStreamProcessCompletedEvent = {
+  event: "process_completed";
+  data: { stream_sequence: number; completed_at: string; processing_duration_ms: number };
+};
+
+export type AgentStreamAnswerStartedEvent = {
+  event: "answer_started";
+  data: { stream_sequence: number; started_at: string };
+};
+
+export type AgentStreamAnswerDeltaEvent = {
+  event: "answer_delta";
+  data: { stream_sequence: number; content: string };
+};
+
+export type AgentStreamRunCompletedEvent = {
+  event: "run_completed";
+  data: AgentConversationTurn & { stream_sequence: number; completed_at: string };
+};
+
 export type AgentStreamDoneEvent = {
   event: "done";
   data: AgentConversationTurn;
@@ -613,7 +713,15 @@ export type AgentStreamEvent =
   | AgentStreamTokenEvent
   | AgentStreamDoneEvent
   | AgentStreamErrorEvent
-  | AgentStreamDisconnectEvent;
+  | AgentStreamDisconnectEvent
+  | AgentStreamProcessStartedEvent
+  | AgentStreamProcessDeltaEvent
+  | AgentStreamActivityEvent
+  | AgentStreamProcessCompletedEvent
+  | AgentStreamAnswerStartedEvent
+  | AgentStreamAnswerDeltaEvent
+  | AgentStreamRunCompletedEvent;
+
 
 // --- Stream Turn State ---
 
@@ -656,6 +764,12 @@ export type AgentStreamTurn = {
   executionSteps: ExecutionStep[];
   error: string | null;
   finalContent: string | null;
+  activities: RunActivityItem[];
+  runSummary: RunSummary | null;
+  processStartedAt: string | null;
+  processCompletedAt: string | null;
+  processDurationMs: number;
+  streamSequence: number;
 };
 
 export type ArchivedAgentStreamTurn = {
