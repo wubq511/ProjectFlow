@@ -6,6 +6,7 @@ All notable changes to ProjectFlow are documented here. Format follows [Keep a C
 
 ### Added
 
+- 2026-07-15 Workspace UI/UX Polish: Darkened text-tertiary for 4.5:1 WCAG AA contrast; cleared nested cards inside project lists, resources panel, task breakdown cards, project memories list, and agent timeline events; removed redundant uppercase CSS classes from Chinese headings; upgraded AI chat bubbles to premium asymmetric speech bubble layouts; added spring sliding active background transitions to sidebar menu items using Framer Motion layoutId; added interactive hover transitions and shadows to stats and next action cards.
 - T45 private multi-conversation history: creator-owned private conversations, migrated team history, viewer-scoped list/create/read APIs, stable message cursor pagination, deterministic titles, URL-deep-linked selection, and streaming-safe Agent sidebar switching.
 - T44 normalized usage evidence now records input/output/reasoning/cache-read/cache-write tokens, uncached input, detailed cost, requested model, resolved model and fallback reason without converting unavailable provider fields to zero.
 - Prompt Kernel 2.0 and Context Ledger receipts separate stable rules from dynamic facts, gate time injection, preserve block versions/hashes, and keep the current request as the final dynamic block.

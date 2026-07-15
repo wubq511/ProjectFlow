@@ -4,6 +4,40 @@ Status: current as of 2026-07-14.
 
 ## Latest Architecture Handoff
 
+### 2026-07-15 — Workspace UI/UX Polish, Accessibility Contrast, Nested Cards Removal and Framer Motion Transitions
+
+Implemented in commit `768ae89` (with visual upgrades in follow-up).
+
+**Frontend UX & Accessibility Polish:**
+
+- **Contrast enhancement**: Darkened the `--color-text-tertiary-token` / `text-tertiary` from `#8896a6` to `#5f7188` to meet the 4.5:1 WCAG 2.1 AA contrast ratio standard on light backgrounds.
+- **Speech bubbles upgrade**: Re-styled chat message bubbles inside `ChatMessage` to use asymmetric rounded corners (`rounded-2xl rounded-tr-none border-neutral-200/80 bg-white` for user, `rounded-tl-none border-neutral-100 bg-neutral-50/60` for agent) with an ambient drop shadow, elevating the AI chat feel.
+- **Sliding navigation active background**: Enabled spring-loaded sliding background pills for sidebar menu items inside `ProjectSidebar` via Framer Motion's `layoutId="activeNavBackground"`, providing smooth physical feedback when changing views.
+- **Hover elevation transitions**: Added border color and drop-shadow hover transition effects to metric stat panels (`CompactStat`), Next Action banner, and primary card blocks, providing immediate responsiveness to cursor hover events.
+- **Typography cleanup**: Removed the vestigial AI-generated `uppercase` class from Chinese section headers and subheaders inside `direction-decision-view.tsx`, `replan-diff.tsx`, `agent-proposal-panel.tsx`, `action-card.tsx`, and `export-panel.tsx` to align letter casing with standard Chinese typography conventions.
+- **Nested cards elimination**: Cleared nested card container anti-patterns by refactoring projects lists (`workspace-content.tsx`), resource items (`project-resources-panel.tsx`), project memories list (`project-memory-panel.tsx`), and timeline events (`timeline.tsx`) into clean flat list rows separated by subtle dividers, complying with `DESIGN.md` guidelines.
+
+**Key files:**
+
+- `frontend/src/styles/globals.css`
+- `frontend/tailwind.config.ts`
+- `frontend/src/components/ui/compact-stat.tsx`
+- `frontend/src/components/project/project-content.tsx`
+- `frontend/src/components/project/project-sidebar.tsx`
+- `frontend/src/components/project/workspace-content.tsx`
+- `frontend/src/components/project/project-resources-panel.tsx`
+- `frontend/src/components/project/project-memory-panel.tsx`
+- `frontend/src/components/agent/timeline.tsx`
+- `frontend/src/components/project/agent/ChatMessage.tsx`
+- `frontend/src/components/risk/replan-diff.tsx`
+- `frontend/src/components/agent/agent-proposal-panel.tsx`
+- `frontend/src/components/agent/action-card.tsx`
+- `frontend/src/components/agent/export-panel.tsx`
+- `frontend/src/components/agent/direction-decision-view.tsx`
+- `frontend/src/components/task/task-breakdown-board.tsx`
+
+**Verification:** Frontend Vitest unit tests (191 passed) and production compiler build (`npm run build`) completed successfully.
+
 ### 2026-07-14 — Settings Relocation, AgentSidebar Cleanup, Settings UI Polish, Slash Command Chips, and Composer Steering
 
 Implemented in commit `20e4ea2`.
