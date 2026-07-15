@@ -1,0 +1,715 @@
+# Agent 对话体验与 Codex 对齐设计
+
+> 日期：2026-07-16  
+> 状态：待实现  
+> 交付对象：Gemini 或后续 Coding Agent  
+> 范围：产品信息架构、前端交互、Agent SSE 活动协议、会话展示与验收标准  
+> 非目标：本设计不直接实现代码，不改变 Proposal-Confirm、会话隐私或 ProjectMemory 边界
+
+## 1. 结论
+
+ProjectFlow 应把 Agent 体验拆成两个共用同一会话状态的展示面：
+
+1. **Agent 专属对话页**：左侧项目导航中的第一项，位于“项目总览”上方。进入后隐藏右侧 Agent 栏，让主内容区成为完整对话工作台。
+2. **其他项目页面的 Agent 侧栏**：继续存在，但改为紧凑伴随模式，并提供“打开完整对话”按钮。按钮跳转到同一个 conversation，不创建新会话、不丢失流式状态。
+
+两种展示面必须复用同一套 Conversation Timeline、Run Activity、Composer 和会话控制器。禁止维护两套消息渲染逻辑。
+
+目标不是复刻 Codex 的颜色和尺寸，而是对齐它最重要的交互模型：
+
+- Agent 的阶段性说明、工具调用和最终回答按真实时间顺序出现。
+- 每个工具都有开始、完成、失败或阻止状态；完成后仍可回看。
+- 运行中过程展开，完成后收敛为“已处理 54 秒 · 6 步”。
+- 最终回答是正文主角，过程信息退居第二层。
+- Composer 永远可用且不随消息滚走。
+- 用户向上阅读时不被强制拉回底部；新内容到达时提供“回到最新”。
+- 运行中允许追加约束或停止，且反馈明确。
+
+## 2. 设计依据
+
+### 2.1 用户提供的 Codex 参考
+
+参考截图表现出以下稳定模式：
+
+- 顶部用“正在处理 / 已处理 + 耗时”概括一次运行。
+- 执行过程由 Agent 阶段性文字和工具状态共同组成，不是一个孤立 spinner。
+- 工具完成后出现单独、低噪音的状态行，例如“编辑了文件”。
+- 完成态默认折叠过程，保留完整最终回答。
+- Composer 固定在视口底部，页面滚动不影响输入。
+- 运行时 Composer 仍承担追加信息和停止任务的控制面。
+
+### 2.2 Codex 官方行为边界
+
+Codex 官方文档确认了本设计需要保留的几个行为：
+
+- 用户可以在运行中发送 follow-up；消息可以 **Steer** 当前运行，或 **Queue** 到下一轮。  
+  参考：[Prompting: Steering and queuing](https://learn.chatgpt.com/docs/prompting#steering-and-queuing)
+- 长任务应保留可见进度，并允许暂停、恢复、追加约束或询问状态。  
+  参考：[Long-running work](https://learn.chatgpt.com/docs/long-running-work)
+- 项目负责共享上下文，不同任务或对话应保留各自 transcript。  
+  参考：[Projects, chats, and tasks](https://learn.chatgpt.com/docs/projects)
+
+ProjectFlow 不需要复制 Codex 的代码工作区、权限控制或 worktree 概念；只借鉴对话、运行和工具活动的呈现模型。
+
+### 2.3 2026-07-16 本地实测
+
+在本地演示项目中发送多轮消息并查看运行状态后，确认以下问题：
+
+1. `ChatMessage` 和 `AgentStepIndicator` 会在运行中同时渲染“执行过程”，同一次运行出现两份步骤列表。
+2. 展开后的工具标签过于泛化：
+   - 4 步示例：`获取工作区状态`、`执行项目操作`、`执行项目操作`、`创建风险记录`。
+   - 6 步示例：`获取工作区状态`、`执行项目操作`、`创建风险记录` × 4。
+3. 工具只保留状态和 label，没有开始时间、耗时、完成摘要或安全的结果说明。
+4. 模型正文会自己描述“让我读取”“已经创建”，但工具活动不与这些文字交错，用户无法判断真实顺序。
+5. 运行完成后，模型可能写出与真实工具活动矛盾的总结。审计事实不能依赖模型自述。
+6. 窄侧栏直接渲染大型 Markdown 表格和长报告，阅读密度过高。
+7. `#agent-sidebar-content` 是唯一 `overflow-y:auto` 容器，Composer 位于其中且 `position: static`。实测滚动区高度为 664px、内容高度为 4204px、Composer 顶部位于 4092px；滚到旧消息时输入框必然离开视口。
+8. “新对话”点击后存在没有切换为新草稿、URL conversation 仍保留的现象，需纳入回归测试。
+9. 当前完整会话、历史、运行状态、产物、建议回复和 Composer 全部耦合在 `agent-sidebar.tsx`，难以安全复用到完整页面。
+
+## 3. 目标与非目标
+
+### 3.1 目标
+
+- 新增项目级 Agent 专属对话 view。
+- 让完整页与侧栏共享同一会话和同一运行。
+- 让工具活动成为确定性、可回放、可持久化的时间线。
+- 建立正确的自动滚动和固定 Composer 行为。
+- 提升长回答、Markdown 表格、工具密集型运行的可读性。
+- 保留 T45 私人多会话、URL conversation 选择、消息分页和 viewer 校验。
+- 保留当前模型选择、思考深度、斜杠命令、停止运行和 steering 能力。
+- 覆盖 loading、empty、streaming、completed、failed、blocked、cancelled、disconnected 状态。
+
+### 3.2 非目标
+
+- 不把 Agent 变成代码执行器。
+- 不扩大 LLM-callable tools 的写入权限。
+- 不跳过 Proposal-Confirm。
+- 不改变私人会话和团队会话的读取边界。
+- 不把对话或运行日志自动写入 ProjectMemory。
+- 不增加会话删除、分享、重命名、全文搜索或后台并行会话。
+- 不展示原始 Chain-of-Thought；只展示明确的进度说明、工具活动和可公开的处理摘要。
+
+## 4. 方案比较
+
+### 方案 A：只修现有右侧栏
+
+做法：固定 Composer，优化执行步骤，保留当前三栏布局。
+
+优点：改动最小。  
+缺点：无法承载长回答和复杂工具过程；Markdown 表格仍被挤压；不能满足用户明确提出的完整 Agent 页面。  
+结论：不采用。
+
+### 方案 B：新增独立路由 `/projects/{id}/agent`
+
+做法：为 Agent 创建新的 App Router 页面，与现有 workspace 页面并列。
+
+优点：隔离清晰，页面布局自由。  
+缺点：违反当前“`/workspaces/[workspaceId]` 是唯一动态入口”的仓库约定；项目状态、身份、conversation URL 和流式清理边界会重复实现。  
+结论：不采用。
+
+### 方案 C：在现有 workspace shell 中新增 `view=agent`
+
+做法：扩展 `ProjectView`，主内容区条件渲染完整 Agent 页；其他 view 保留紧凑右栏。
+
+优点：复用现有 project、viewer、conversation 和 URL 状态；符合当前导航架构；从侧栏切换到完整页时可保持同一运行。  
+代价：需要抽离目前集中在 `agent-sidebar.tsx` 和 workspace page 中的会话控制逻辑。  
+结论：**采用此方案**。
+
+## 5. 信息架构
+
+### 5.1 路由与 URL
+
+继续使用唯一动态路由：
+
+```text
+/workspaces/{workspaceId}?project={projectId}&view=agent&conversation={conversationId}
+```
+
+规则：
+
+- `view=agent` 表示完整 Agent 对话页。
+- `conversation` 继续是当前会话的唯一 URL 身份。
+- 切换 view 不清理 conversation，不中断当前 stream。
+- 切换 project 时按现有规则验证或清理 conversation。
+- 新草稿在首条消息之前不要求 URL 中有 conversation；创建成功后再写入。
+
+### 5.2 左侧项目导航
+
+`MENU_ITEMS` 第一项新增：
+
+```text
+Agent 对话
+项目总览
+方向卡
+阶段计划
+...
+```
+
+建议图标使用 `Bot` 或 `MessageSquareMore`，标签统一为“Agent 对话”。
+
+### 5.3 完整 Agent 页
+
+完整页保留现有项目左栏，隐藏右侧 AgentSidebar。
+
+```text
+┌────────────项目导航────────────┬──────────────────────── Agent 对话 ────────────────────────┐
+│ Agent 对话                      │ [会话标题]  [私人]             [新对话] [历史会话]          │
+│ 项目总览                        ├───────────────────────────────────────────────────────────┤
+│ 方向卡                          │                                                           │
+│ ...                             │  用户消息                                                  │
+│                                 │                                                           │
+│                                 │  已处理 54 秒 · 6 步  ▾                                   │
+│                                 │  Agent 最终回答（正文宽度 68–75ch）                        │
+│                                 │                                                           │
+│                                 │                       [↓ 回到最新]                         │
+│                                 ├───────────────────────────────────────────────────────────┤
+│                                 │  固定 Composer：输入 / model / thinking / send-or-stop     │
+└─────────────────────────────────┴───────────────────────────────────────────────────────────┘
+```
+
+历史会话不再常驻为第二条左侧栏。原因是 ProjectFlow 已有项目导航，永久增加会话栏会形成三层导航。历史入口在页头打开 320–360px Sheet；桌面宽屏可以从右侧覆盖，移动端全屏显示。
+
+### 5.4 其他 view 的紧凑 Agent 侧栏
+
+侧栏职责缩减为：
+
+- 顶部：Agent、运行状态、新对话、历史、打开完整对话、折叠。
+- 中部：当前 conversation timeline。
+- 底部：固定 Composer。
+
+当前阶段的大块 context card 改为单行 context strip，例如：
+
+```text
+核心实现 · 7 个开放风险 · 2 条待确认
+```
+
+用户点击后可跳到相应项目 view；禁止继续占据大块首屏空间。
+
+## 6. 运行时间线设计
+
+### 6.1 统一时间线，而不是“正文 + 另一个步骤框”
+
+每个 assistant turn 由一个有序 timeline 构成：
+
+```ts
+type RunActivityItem =
+  | ProgressActivity
+  | ToolActivity
+  | ApprovalActivity
+  | SteeringActivity;
+
+type BaseActivity = {
+  id: string;
+  sequence: number;
+  created_at: string;
+};
+
+type ProgressActivity = BaseActivity & {
+  kind: "progress";
+  content: string;
+};
+
+type ToolActivity = BaseActivity & {
+  kind: "tool";
+  tool_call_id: string;
+  tool_name: string;
+  status: "running" | "completed" | "failed" | "blocked";
+  label: string;
+  completed_label?: string;
+  summary?: string;
+  started_at: string;
+  completed_at?: string;
+  duration_ms?: number;
+};
+
+type ApprovalActivity = BaseActivity & {
+  kind: "approval";
+  status: "waiting" | "approved" | "rejected";
+  label: string;
+};
+
+type SteeringActivity = BaseActivity & {
+  kind: "steering";
+  content: string;
+  status: "accepted" | "queued" | "applied";
+};
+```
+
+最终回答不塞进 activity 数组，作为 assistant turn 的 `answer` 独立渲染。这样完成后可以折叠过程而保留正文。
+
+### 6.2 过程内容边界
+
+可展示：
+
+- Agent 主动发出的用户可读进度说明。
+- 工具开始、完成、失败、阻止。
+- 等待确认、用户批准或拒绝。
+- 用户在运行中追加的约束及其处理状态。
+
+不可展示：
+
+- 原始内部推理 token。
+- 原始工具参数 JSON。
+- 原始工具结果 JSON。
+- 用户 ID、任务 ID、run ID、tool_call_id 等内部标识。
+- secret、token、文件绝对路径或不必要的调试信息。
+
+当前 `thinking_content` 不能直接当 Codex 式进度说明。协议应新增 `progress` / `commentary` 语义；如果第一阶段暂时没有该事件，则只渲染确定性 status 和 tool activity，不把完整 thinking token 展开给用户。
+
+### 6.3 工具文案
+
+工具 manifest 或独立 display map 必须提供状态文案：
+
+```ts
+type ToolDisplayMetadata = {
+  running: string;
+  completed: string;
+  failed: string;
+  blocked: string;
+};
+```
+
+示例：
+
+| Tool | Running | Completed |
+|---|---|---|
+| `get_project_state` | 正在读取项目状态 | 已读取项目状态 |
+| `get_workspace_state` | 正在读取工作区状态 | 已读取工作区状态 |
+| `timeline_slice` | 正在查看最近进展 | 已查看最近进展 |
+| `create_risk` | 正在创建风险记录 | 已创建风险记录 |
+| `generate_replan_proposal` | 正在生成重排草案 | 已生成重排草案，等待确认 |
+
+禁止使用“执行项目操作”作为正常 fallback。未知工具的 fallback 应是：
+
+```text
+正在执行 {safe tool display name}
+已完成 {safe tool display name}
+```
+
+### 6.4 展开与收起
+
+运行中：
+
+- 默认展开 activity。
+- 顶部显示“正在处理 · 已完成 N 步”。
+- 当前工具有 spinner，完成工具有 check，失败为 error，blocked 为 shield。
+- 不显示 `1 / 6`，除非 runtime 确实知道总步骤数。禁止伪造分母。
+
+完成后：
+
+- activity 自动收起。
+- 标题显示“已处理 54 秒 · 6 步”。
+- 用户可手动展开完整顺序。
+- 每个工具仍保留一行；重复调用不能合并丢失，只允许在折叠标题中汇总。
+
+失败、停止或断线：
+
+- 标题分别为“处理失败”“已停止”“连接中断”。
+- 已完成步骤保留；失败步骤显示原因摘要和恢复动作。
+
+### 6.5 审计事实来源
+
+工具活动由 runtime event 生成，是执行事实源。模型最终回答中的“已读取”“已创建”“没有执行工具”等文字不具备审计权威。
+
+如果模型文字与活动日志矛盾：
+
+- UI 继续展示真实 activity。
+- 可在完成态显示轻量提示：“回答描述与执行记录不一致，请以执行记录为准。”
+- 记录可观察性事件，供后续 prompt/eval 修复。
+
+## 7. SSE 与持久化协议
+
+### 7.1 当前缺口
+
+当前 `StreamContentEvent` 有 `message_seq`，但 `StreamToolEvent` 没有统一 sequence；前端分别保存 content blocks 和 execution steps，因此无法可靠交错渲染。
+
+当前 persisted `ExecutionStep` 只有：
+
+```ts
+{ tool_name, tool_call_id?, status, label }
+```
+
+页面刷新后无法恢复耗时、完成文案、摘要和准确顺序。
+
+### 7.2 目标协议
+
+所有 activity event 增加单调递增的 `sequence` 和服务器时间：
+
+```ts
+type StreamActivityEvent = {
+  event: "activity";
+  data: RunActivityItem;
+};
+```
+
+兼容迁移期间可以继续发送旧 `tool` event，但前端优先消费 `activity`。
+
+`done` 中持久化：
+
+```ts
+structured_payload: {
+  run_summary: {
+    started_at: string;
+    completed_at: string;
+    duration_ms: number;
+    status: "completed" | "failed" | "cancelled" | "disconnected";
+    activity_count: number;
+  };
+  activities: RunActivityItem[];
+  thinking_content?: string; // 保留兼容，但不作为默认用户可见过程
+}
+```
+
+要求：
+
+- `sequence` 在一次 run 内唯一且稳定。
+- tool started/completed 根据 `tool_call_id` 合并为同一个 activity item。
+- completed/failed event 必须保留 started 时的 label，不再用 tool_name 反向猜测。
+- duration 由 sidecar/runtime 计算，不能由浏览器时钟作为最终事实。
+- `summary` 必须由确定性 normalizer 生成，不能直接透传工具原始 result。
+- 历史消息和实时消息使用同一 view model，刷新前后视觉一致。
+
+## 8. 消息与视觉层级
+
+### 8.1 完整页
+
+- 内容列最大宽度建议 820–900px。
+- 普通正文控制在 68–75ch。
+- 用户消息使用轻量右对齐气泡，最大宽度 70%。
+- Agent 回答使用无外层卡片的文档式正文；不要再包浅灰大圆角卡。
+- Activity 使用低噪音行，不使用 emoji 作为状态图标。
+- Artifact 可以使用卡片，因为它确实是可操作实体；禁止把整个回答再包进 artifact card。
+- Markdown 表格在窄宽度下放入水平滚动容器；侧栏中优先转换为 definition list 或可横向滚动表格。
+
+### 8.2 侧栏
+
+- 侧栏继续显示完整 conversation，但正文排版更紧凑。
+- 超宽表格不压缩列到不可读；允许局部水平滚动。
+- 长 artifact 默认显示摘要，点击“查看详情”进入完整 Agent 页并定位到对应 turn。
+- “打开完整对话”按钮必须一直可达，建议放在 header。
+
+### 8.3 动效
+
+- 新 activity 淡入 120–180ms。
+- activity 折叠 180–220ms，使用 ease-out。
+- 不动画高度较大的 Markdown 正文。
+- `prefers-reduced-motion` 下取消位移，只保留瞬时或淡入状态切换。
+
+## 9. 固定 Composer 与滚动算法
+
+### 9.1 布局结构
+
+完整页和侧栏统一采用三行 shell：
+
+```css
+.agent-surface {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  overflow: hidden;
+}
+
+.agent-timeline {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.agent-composer-region {
+  position: relative;
+  border-top: 1px solid var(--border);
+  background: var(--background);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+```
+
+Composer 必须是 timeline 的 sibling，不能继续放在 `#agent-sidebar-content` 内部。
+
+### 9.2 自动跟随
+
+维护 `isNearBottom`：
+
+```text
+distanceToBottom = scrollHeight - scrollTop - clientHeight
+isNearBottom = distanceToBottom <= 80px
+```
+
+规则：
+
+- 用户发送消息后滚到底部。
+- `isNearBottom=true` 时，新 token/activity 自动跟随。
+- 用户向上滚动超过阈值后暂停自动跟随。
+- 暂停期间显示悬浮“↓ 回到最新”，可带未读 activity 数。
+- 点击后平滑滚到底部并恢复跟随；reduced-motion 使用 instant。
+- streaming 不得每个 token 都调用 `scrollIntoView`；在 animation frame 中批量更新。
+- 切换 conversation 时恢复该 conversation 的内存滚动位置；重新进入时默认定位最新消息。
+
+### 9.3 Composer 状态
+
+Idle：
+
+- placeholder：“告诉 Agent 你想推进什么…”。
+- Enter 发送，Shift+Enter 换行。
+- model 与 thinking level 保留。
+
+Running：
+
+- placeholder：“追加约束或纠正当前运行…”。
+- Enter 默认 Steer 当前运行。
+- 提供明确的“停止”按钮。
+- 如果未来加入 Queue，queued messages 显示在 Composer 上方，可编辑或移除。
+
+Error：
+
+- 草稿保留。
+- 显示“重新发送”与简短恢复说明。
+
+## 10. 会话控制
+
+### 10.1 新对话
+
+- 点击后立即进入本地 draft 状态，清空当前 timeline 展示，不创建数据库记录。
+- 首条消息提交前创建 conversation，成功后更新 URL。
+- 创建失败时恢复 draft 和输入，不返回旧会话造成错觉。
+- stream 运行中禁用新建；用户先停止后再切换。
+
+### 10.2 历史会话
+
+- 继续使用 T45 summary list 和 cursor pagination。
+- Sheet 中显示 title、private/team、更新时间、消息数、preview。
+- 当前会话有明确 selected 状态。
+- 切换失败时保留当前会话，并显示可重试错误。
+- 私人会话仍只有 creator 可读；完整 Agent 页不能放宽权限。
+
+### 10.3 从侧栏跳转完整页
+
+跳转只修改 `view=agent`：
+
+```ts
+nextParams.set("view", "agent");
+// 保留 project 和 conversation
+```
+
+如果正在 streaming：
+
+- 不 abort。
+- 不 reset stream reducer。
+- 完整页接管同一个 controller/context 并继续显示。
+
+## 11. 前端组件边界
+
+建议结构：
+
+```text
+components/project/agent/
+├── AgentConversationSurface.tsx   # full/sidebar 两种布局壳
+├── AgentConversationPage.tsx      # 完整页装配
+├── AgentCompactSidebar.tsx        # 侧栏装配
+├── AgentThreadHeader.tsx           # 标题、会话、跳转控制
+├── ConversationTimeline.tsx        # 消息列表、分页、滚动控制
+├── ConversationTurn.tsx            # 单轮 user + assistant
+├── RunActivity.tsx                  # 运行摘要与折叠过程
+├── ToolActivityItem.tsx             # 单个工具生命周期
+├── ProgressActivityItem.tsx         # 用户可读进度说明
+├── JumpToLatestButton.tsx           # 回到底部
+├── StickyChatComposer.tsx           # Composer 区域
+└── AgentArtifactCard.tsx            # 复用现有产物卡
+```
+
+状态层：
+
+- 从 workspace page 抽出 `AgentConversationProvider` 或等价 controller。
+- provider 持有当前 conversation、draft、history、stream turn、active run、composer draft 和 actions。
+- `AgentConversationPage` 与 `AgentCompactSidebar` 只消费 provider，不各自创建 hook。
+- `useAgentConversationStream` 保持唯一实例，view 切换不能触发 unmount cleanup。
+
+`agent-sidebar.tsx` 最终只保留兼容导出或改为 `AgentCompactSidebar` 包装器，不继续承载全部状态和渲染。
+
+## 12. 预计文件范围
+
+### 前端
+
+- `frontend/src/components/project/project-sidebar.tsx`
+  - `ProjectView` 增加 `agent`。
+  - `MENU_ITEMS` 在 overview 前加入 Agent 对话。
+- `frontend/src/components/project/workspace-layout.tsx`
+  - `view=agent` 时渲染完整页并隐藏右栏。
+  - provider 放在两种展示面的共同祖先。
+- `frontend/src/components/project/project-content.tsx`
+  - 不建议把 Agent 页塞进通用业务 `ViewRenderer`；可以由 workspace layout 特判，避免给 ProjectContent 传入大量 conversation props。
+- `frontend/src/components/project/agent-sidebar.tsx`
+  - 拆分为共享组件和紧凑壳。
+- `frontend/src/components/project/agent/ChatMessage.tsx`
+  - 移除独立 execution steps 渲染，改用统一 `RunActivity`。
+- `frontend/src/components/project/agent/AgentStepIndicator.tsx`
+  - 删除或降级为兼容适配，禁止与 turn 内过程同时出现。
+- `frontend/src/components/project/agent/ChatComposer.tsx`
+  - 变成纯输入组件，由 StickyChatComposer 负责固定区域。
+- `frontend/src/lib/types.ts`
+  - 新增 activity union、run summary 与 sequence/timing 字段。
+- `frontend/src/lib/use-agent-stream-turn.ts`
+  - reducer 改为有序 activity timeline。
+- `frontend/src/lib/useAgentConversationStream.ts`
+  - 消费新 activity event；保留旧 tool event 兼容路径。
+- `frontend/src/lib/use-conversation-history.ts`
+  - 回归新草稿、切换、URL 与分页。
+- `frontend/src/styles/globals.css`
+  - 仅补充共享布局和 reduced-motion 所需样式，不创建独立视觉系统。
+
+### Agent bridge
+
+- `agent-bridge/src/server/routes/start-run-stream.ts`
+  - 为 content/tool/progress 生成统一 sequence。
+  - 计算 duration，并输出安全 completed label/summary。
+- `agent-bridge/src/types/stream-content.ts`
+  - 新增 `StreamActivityEvent` 或扩展统一事件类型。
+- `agent-bridge/src/tools/*`
+  - 为 tool manifest 增加 display metadata 或集中 display map。
+- `agent-bridge/src/runtime/pi-runtime.ts`
+  - 暴露用户可读 progress/commentary 事件时必须与 thinking 分离。
+
+### Backend
+
+- `backend/app/schemas/agent_conversation.py`
+  - 扩展 done execution/activity schema。
+- `backend/app/api/routes_agent_conversations.py`
+  - 更新 SSE schema 转发和兼容。
+- 持久化 assistant message 的 service
+  - 保存 `run_summary` 与 ordered `activities`。
+
+## 13. 状态与错误设计
+
+| 状态 | 页面行为 |
+|---|---|
+| Loading conversation | timeline skeleton，Composer 暂时 disabled |
+| Empty draft | 简短 Starter Prompts，Composer 聚焦 |
+| Connecting | 用户消息立即出现，显示“正在连接 Agent” |
+| Running | activity 展开，Composer 切换为 Steer，停止按钮可用 |
+| Completed | activity 自动折叠，最终回答和建议显示 |
+| Failed | 保留完成步骤，显示失败摘要、重试 |
+| Blocked | 显示被策略阻止及用户下一步，不暴露内部策略 JSON |
+| Cancelled | 保留部分输出，显示“已停止”与继续提问入口 |
+| Disconnected | 保留已接收内容，显示重连或重试 |
+| History error | 保留当前会话，Sheet 内显示重试 |
+| Conversation forbidden/not found | 清理无效 URL conversation，回到新草稿并说明原因 |
+
+## 14. 响应式与可访问性
+
+- `>= 1280px`：项目左栏 + 完整 Agent 主区，其他 view 为三栏。
+- `768–1279px`：项目左栏可折叠，Agent 完整页占剩余区域；其他 view 的 Agent 侧栏默认收起或 overlay。
+- `< 768px`：Agent 对话作为单一主页面；项目导航和历史会话使用 Sheet；Composer 固定底部并处理 safe area。
+- 所有 icon button 有中文 accessible name。
+- activity 折叠使用 button + `aria-expanded` + `aria-controls`。
+- tool status 不能只靠颜色，必须有图标和文字。
+- 完成、失败和 blocked 使用 `aria-live="polite"`，token 流本身不放进 live region。
+- 键盘焦点在打开/关闭历史 Sheet 后正确返回触发按钮。
+
+## 15. 测试与验收标准
+
+### 15.1 导航
+
+- 左侧“Agent 对话”位于“项目总览”上方。
+- `view=agent` 隐藏右侧栏并展示完整页。
+- 从任意项目 view 点击“打开完整对话”后，project 和 conversation 参数不变。
+- 流式运行中切换完整页/侧栏不会 abort、重置或重复请求。
+
+### 15.2 运行过程
+
+- 每个 tool call 恰好渲染一个 activity item。
+- started → completed/failed/blocked 更新同一 item，不新增重复行。
+- 同名工具连续调用通过 tool_call_id 分开显示。
+- 运行中只出现一个过程区域。
+- 完成后标题包含真实 duration 和实际 activity 数。
+- 刷新页面后步骤顺序、状态、duration 与完成前一致。
+- 工具 label 不再出现无信息量的“执行项目操作”。
+- 用户看不到工具原始 JSON、内部 ID 或敏感字段。
+
+### 15.3 Composer 与滚动
+
+- 无论 timeline 滚动到何处，Composer 都保持可见。
+- 用户在底部时，stream 自动跟随。
+- 用户向上滚动后，stream 不抢滚动位置。
+- 暂停跟随时出现“回到最新”，点击后恢复。
+- 长 Markdown、表格和 20+ 工具步骤不会让 Composer 离开视口。
+- reduced-motion 下滚动和折叠仍可用。
+
+### 15.4 会话
+
+- 点击“新对话”立即展示空 draft，不残留旧消息。
+- 首条发送成功后创建 conversation 并更新 URL。
+- 新建失败不丢草稿、不错误回显旧会话。
+- 私人会话不能被其他成员读取。
+- team conversation 仍只注入 team-visible ProjectMemory。
+- 历史切换失败时当前 conversation 保持不变。
+
+### 15.5 运行中追加与停止
+
+- Running 时输入框明确表示“追加约束”。
+- Steer 成功后出现一条 `steering` activity，显示已接收/已应用。
+- 如果 run 已在边界前完成，消息明确变成下一轮，而不是悄悄改变语义。
+- 点击停止后状态变为 cancelled，部分内容和完成工具步骤保留。
+
+### 15.6 回归验证
+
+- frontend：Agent sidebar、ChatMessage、Composer、history、stream hook、navigation 全部单测通过。
+- agent-bridge：SSE sequence、tool lifecycle、duration、done persistence、blocked/failed 映射测试通过。
+- backend：conversation schema、私有会话权限、message pagination、SSE public scenario 通过。
+- frontend lint/build、agent-bridge typecheck/build、backend ruff 通过。
+- 浏览器场景至少覆盖：空对话、2 轮普通对话、6+ 工具调用、运行中 steer、停止、向上滚动、刷新恢复、侧栏到完整页跳转。
+
+## 16. 建议实施顺序
+
+### Slice 1：共享布局与完整 Agent view
+
+- 添加 `view=agent`。
+- 抽出 provider 和共享 surface。
+- 完整页/侧栏共用同一 conversation。
+- Composer 移出 scroller。
+
+### Slice 2：统一 Run Activity 前端模型
+
+- 消除 ChatMessage 与 AgentStepIndicator 重复。
+- 先用现有 tool event 适配 activity UI。
+- 完成自动折叠、回到最新、长内容适配。
+
+### Slice 3：SSE activity 协议与持久化
+
+- sequence、timestamps、duration、completed labels、safe summary。
+- progress/commentary 与 thinking 分离。
+- 刷新恢复一致性。
+
+### Slice 4：会话与运行边界加固
+
+- 修复新对话草稿与 URL。
+- 明确 Steer 与下一轮边界。
+- 失败、blocked、cancelled、disconnected 完整状态。
+
+### Slice 5：浏览器验收与视觉收尾
+
+- Codex 对齐场景回放。
+- responsive、a11y、reduced motion、表格和长消息。
+- 扫描重复 execution UI、泛化工具 label 和 stale composer 布局。
+
+## 17. 实施约束
+
+- 不得通过复制 `AgentSidebar` 生成完整页。
+- 不得新增 `/projects/*` 独立路由。
+- 不得把 Composer 做成 viewport `position: fixed` 并覆盖全局页面；应固定在各 Agent surface 的第三行。
+- 不得根据模型自然语言推断工具是否成功。
+- 不得将 raw thinking 重新包装成“Codex 执行过程”。
+- 不得因为 UI 对齐扩大 tool effect ceiling 或 Proposal-Confirm 范围。
+- 不得在完整页绕过 viewer 校验或 conversation visibility。
+- 所有用户可见工具文案为中文，且使用 display name/title，不使用原始 ID。
+
+## 18. 完成定义
+
+只有同时满足以下结果，才算完成：
+
+1. 用户能从左侧进入完整 Agent 对话页，并从任何项目页侧栏无损跳转过去。
+2. 用户在完整页和侧栏看到同一个 conversation、同一个正在运行的 turn。
+3. 每个真实工具调用都以一条可读、可追踪、可持久化的 activity 呈现。
+4. 过程和最终回答层级清晰，运行中展开、完成后收敛，没有重复过程框。
+5. Composer 始终可见，滚动行为符合阅读预期。
+6. 新对话、历史、steering、停止、错误和刷新恢复都通过浏览器场景测试。
+7. 现有 Proposal-Confirm、T45 会话隐私和 ProjectMemory 可见性没有回归。
+
