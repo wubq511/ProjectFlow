@@ -267,6 +267,7 @@ export default function WorkspaceDashboardPage() {
   // Conversation identity is scoped by project and viewer. Changing either must
   // clear private transcript state before loading the new scope.
   const conversationScopeRef = useRef<string | null>(null);
+  const lastUrlParamRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     const scope = selectedProjectId && currentUserId
       ? `${selectedProjectId}:${currentUserId}`
@@ -274,6 +275,7 @@ export default function WorkspaceDashboardPage() {
     if (conversationScopeRef.current !== scope) {
       conversationScopeRef.current = scope;
       resetConversationHistory();
+      lastUrlParamRef.current = undefined;
     }
   }, [currentUserId, resetConversationHistory, selectedProjectId]);
 
@@ -289,26 +291,38 @@ export default function WorkspaceDashboardPage() {
       }
       return;
     }
-    if (!conversationParam && conversationHistory.isDraft) return;
+
+    const normalizedParam = conversationParam || null;
+    const prevParam = lastUrlParamRef.current;
+
+    // Skip synchronization if the URL parameter has not changed to avoid
+    // overwriting active/draft transitions due to asynchronous router lag.
+    if (prevParam !== undefined && normalizedParam === prevParam) {
+      return;
+    }
+
+    lastUrlParamRef.current = normalizedParam;
+
+    if (!normalizedParam && conversationHistory.isDraft) return;
     let ignore = false;
 
     void (async () => {
       const summaries = await loadHistory(selectedProjectId, currentUserId);
       if (ignore || summaries === null) return;
 
-      if (conversationParam) {
+      if (normalizedParam) {
         const outcome = await switchToConversation(
-          conversationParam,
+          normalizedParam,
           selectedProjectId,
           currentUserId,
         );
         if (ignore || outcome === "loaded" || outcome === "error") return;
       }
 
-      const fallback = summaries.find((item) => item.id !== conversationParam);
+      const fallback = summaries.find((item) => item.id !== normalizedParam);
       if (!fallback) {
         startNewDraft();
-        if (conversationParam) replaceConversationParam(null);
+        if (normalizedParam) replaceConversationParam(null);
         return;
       }
 
