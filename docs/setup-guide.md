@@ -7,8 +7,8 @@
 | 工具 | 最低版本 | 验证命令 |
 |------|---------|---------|
 | Python | 3.11+ | `python --version` |
-| Node.js | 18+（Next.js 16 需要） | `node --version` |
-| npm | 9+ | `npm --version` |
+| Node.js | 应用开发 18+；仓库自动化固定 24.15.0 | `node --version` |
+| npm | 仓库自动化固定 11.12.1 | `npm --version` |
 | Git | 任意 | `git --version` |
 
 Windows 用户全程使用 PowerShell。
@@ -132,7 +132,7 @@ cd backend
 .venv\Scripts\python -m ruff check app
 ```
 
-预期：后端测试全部通过，ruff 无问题。2026-07-14 的测试基线为 `852 passed, 4 skipped`。
+预期：后端测试全部通过，ruff 无问题。2026-07-17 的测试基线为 `866 passed, 4 skipped`。
 
 ### 前端验证
 
@@ -143,17 +143,17 @@ npm run lint
 npm run build
 ```
 
-预期：191 个前端测试通过（18 个测试文件），lint 无错误，build 成功。`npm run test` / `npm run lint` / `npm run build` 会先或后归一 `next-env.d.ts`，避免 Next.js dev/build 类型路径切换污染 git diff。
+预期：333 个前端测试通过、6 个跳过（26 个测试文件），lint 无错误，build 成功。`npm run test` / `npm run lint` / `npm run build` 会先或后归一 `next-env.d.ts`，避免 Next.js dev/build 类型路径切换污染 git diff。
 
 ### Agent Bridge 测试
 
 ```bash
-cd agent-bridge
-npx vitest run
-npx tsc --noEmit
+scripts/project-npm --prefix agent-bridge run test
+scripts/project-npm --prefix agent-bridge run typecheck
+scripts/project-npm --prefix agent-bridge run build
 ```
 
-预期：1142 个 agent-bridge 测试通过（58 个测试文件），typecheck 与 build 通过。
+预期：1198 个 agent-bridge 测试通过（60 个测试文件），typecheck 与 build 通过。
 
 ## 第五步：启动 Agent Bridge Sidecar
 
@@ -534,3 +534,5 @@ npm run build
 | [演示脚本](demo-script.md) | 5 分钟演示路径 |
 | [种子场景](seed-scenarios.md) | 演示数据中的 blocker/风险/重排场景 |
 | [交接状态](handoff.md) | 当前完成状态和下一步工作 |
+| [T46 Evaluation Lab 规格](T46/ProjectFlow_Agent_Evaluation_Lab_Spec.md) | Agent 评测完整架构、切片与硬门禁 |
+| [T46 Slice 0 交接](T46/ProjectFlow_Agent_Evaluation_Lab_Slice0_Handoff.md) | Coding Agent 使用命令、成本口径、证据与恢复语义 |

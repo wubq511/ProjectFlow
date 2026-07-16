@@ -1,6 +1,6 @@
 # ProjectFlow API Contract
 
-Status: current as of 2026-07-14. All planned MVP endpoints are implemented; proposal confirmation and project creation validate workspace membership; T41/T43 internal agent-tool, run, steering, checkpoint and tool-resource endpoints require service-to-service Bearer auth.
+Status: current as of 2026-07-17. All planned MVP endpoints are implemented; proposal confirmation and project creation validate workspace membership; T41/T43 internal agent-tool, run, steering, checkpoint and tool-resource endpoints require service-to-service Bearer auth; T46 evaluation health/seed boundaries require evaluator-owned identity and paths.
 
 This document records the implemented MVP API surface. Post-MVP ideas should be tracked in roadmap docs, not mixed into this contract.
 
@@ -28,6 +28,8 @@ Response:
   "service": "projectflow-backend"
 }
 ```
+
+Normal development health remains unauthenticated. When `APP_ENV=evaluation`, callers must send both `X-Evaluation-Nonce` and `X-Evaluation-Instance-Id`; missing or mismatched values return `403`. A successful evaluation response also contains `app_env: "evaluation"` and the matching `evaluation_instance_id`, but never returns the nonce.
 
 ### LLM Diagnostics
 
@@ -476,7 +478,7 @@ POST /api/seed/reset
 
 `POST /api/seed/reset` deletes all rows from all tables. Use for a clean demo reset.
 
-Seed/reset endpoints are open only in `APP_ENV=development`. Outside development, callers must send `X-ProjectFlow-Admin-Token` matching `DEMO_ADMIN_TOKEN`; if no token is configured, these endpoints are disabled.
+Seed/reset endpoints are open in `APP_ENV=development`. In ordinary non-development environments, callers must send `X-ProjectFlow-Admin-Token` matching `DEMO_ADMIN_TOKEN`; if no token is configured, these endpoints are disabled. In `APP_ENV=evaluation`, the admin token alone is insufficient: the request must also present the matching evaluation nonce and instance ID, the ownership marker must match, and the resolved SQLite/upload paths must remain inside `EVALUATION_TEMP_ROOT`.
 
 ### Export
 

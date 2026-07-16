@@ -1,8 +1,27 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-16.
+Status: current as of 2026-07-17.
 
 ## Latest Architecture Handoff
+
+### 2026-07-17 — T46 Evaluation Lab Slice 0 Trustworthy Minimum Loop
+
+GitHub Issue #94 is implemented on `main`. The local Coding Agent entrypoint is `scripts/eval-lab`; it performs zero-token validation, starts evaluator-owned backend/sidecar processes and paths, reuses the T43 public HTTP/SSE `answer-no-tool` scenario, enforces bounded SUT cost/token/request/time budgets, and publishes resumable immutable evidence with provenance and SHA-256 integrity roots.
+
+Trust boundaries now covered by deterministic and adversarial tests include evaluation nonce + instance identity, ownership marker/path containment, development/production target isolation, `.env` and provider-secret exclusion, symlink escape, malformed/truncated SSE, unsupported future schemas, atomic checkpoint/final publication, and truthful three-bucket cost accounting. Slice 0 permits only `mock:mock-model`; paid models fail closed until a frozen price table and pre-call worst-case estimate exist. External Coding Agent cost stays separate and does not count against the ProjectFlow Agent cap.
+
+**Operator/Coding Agent commands:**
+
+```bash
+scripts/eval-lab validate --preset smoke --model mock:mock-model
+scripts/eval-lab run --preset smoke --model mock:mock-model --json
+scripts/eval-lab status <run-id>
+scripts/eval-lab verify <run-id>
+```
+
+**Key files:** `agent-bridge/src/evaluation/lab/`, `.agents/skills/evaluation-lab/SKILL.md`, `scripts/eval-lab`, `scripts/project-npm`, and `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice0_Handoff.md`.
+
+**Verification:** backend 866 passed / 4 skipped plus Ruff; agent-bridge 1198 passed across 60 files plus typecheck/build; frontend 333 passed / 6 skipped across 26 files. Final clean-worktree mock smoke passed 1/1 and its integrity root verified.
 
 ### 2026-07-16 — Agent 历史会话文案统一与空状态 UI 抛光
 
@@ -1175,7 +1194,7 @@ All 6 remediation slices (R1–R6, R8) completed. R7 (optional vector) remains s
 
 ## Verification Baseline
 
-Latest deterministic verification baseline after the 2026-07-14 UX/Runtime polish (T44/T45 canary hardening plus settings, slash chips, and composer steering):
+Latest deterministic verification baseline after T46 Slice 0 closure on 2026-07-17:
 
 ```bash
 cd backend
@@ -1192,9 +1211,9 @@ npm audit --omit=dev
 
 Results:
 
-- Backend: 852 tests passed, 4 skipped; Ruff passed.
-- Agent-bridge: 1142 tests passed across 58 files; typecheck/build passed.
-- Frontend tests: 196 passed across 19 files.
+- Backend: 866 tests passed, 4 skipped; Ruff passed.
+- Agent-bridge: 1198 tests passed across 60 files; typecheck/build passed.
+- Frontend tests: 333 passed, 6 skipped across 26 files.
 - Frontend lint and production build passed.
 - Frontend build passed.
 - Frontend production dependency audit reported 0 vulnerabilities.
@@ -1383,7 +1402,7 @@ Verification: backend 218/218 tests pass; frontend 24/24 tests pass; frontend li
 
 ## Next Work
 
-T41-T45 deterministic implementation and the repeated post-T44 production canary are complete. Flash remains the default; Pro is an explicit quality escalation rather than automatic same-provider fallback. A future routing change still requires its own product criteria and evidence.
+T41-T45, T46 Evaluation Lab Slice 0, and the repeated post-T44 production canary are complete. The next Evaluation Lab dependency is Slice 1 hard-domain evaluation: normalized evidence snapshots, state constraints, Milestone DAG, Proposal-Confirm, privacy/visibility, read-only purity, Skill and controlled multi-turn graders. Dashboard, semantic Judge, automatic RCA and Repair Packet work remain blocked on their earlier slice gates. Flash remains the default; Pro is an explicit quality escalation rather than automatic same-provider fallback.
 
 The main accepted limitation is free-text member constraints: `constraint_respected` proves that the Agent supplied review evidence, not that the proposed assignment is semantically compliant. A stronger guarantee requires a structured constraint model and deterministic task/constraint matching. A second bounded optimization candidate is a compact workspace read view: one post-fix Pro risk observation still paged a large `get_workspace_state` result, although it remained within the latency gate. Post-MVP backlog also includes auth, deployment, collaboration permissions and broader UI hardening.
 

@@ -28,10 +28,10 @@ __pycache__/
 .DS_Store
 Thumbs.db
 scripts/
-!scripts/
-scripts/*
-!scripts/eval-lab
-!scripts/project-npm
+!/scripts/
+/scripts/*
+!/scripts/eval-lab
+!/scripts/project-npm
 !agent-bridge/scripts/
 agent-bridge/scripts/*
 !agent-bridge/scripts/run-agent-canary.ts

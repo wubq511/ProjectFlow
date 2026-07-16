@@ -2,7 +2,7 @@
 
 > Issue：[#94](https://github.com/wubq511/ProjectFlow/issues/94)
 > 范围：Minimum Trustworthy Loop；不包含 Slice 1–4
-> 状态：实现完成，等待 PR review/merge
+> 状态：已于 2026-07-17 合并到 `main`（implementation commit `a69cad2`）
 
 ## 1. 交付结论
 

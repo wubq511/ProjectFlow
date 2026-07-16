@@ -1,6 +1,6 @@
 # ProjectFlow CodeWiki
 
-> 最初基于 2026-06-02 代码库全量扫描生成；Phase 40 更新于 2026-06-07，2026-07-14 同步设置入口迁移、AgentSidebar 精简与重置流程变更，2026-07-15 同步视图导航防抖 hook 与测试。
+> 最初基于 2026-06-02 代码库全量扫描生成；2026-07-17 同步 T46 Evaluation Lab Slice 0、锁定工具链和最新验证基线。
 
 ---
 
@@ -59,11 +59,12 @@ ProjectFlow/
 │   │   ├── tools/             # registry.ts, fastapi-client.ts, projectflow-tools.ts, register-defaults.ts, mock-tools.ts, result-normalizer.ts
 │   │   ├── policy/            # policy-engine.ts, budget.ts, boundaries
 │   │   ├── events/            # event-mapper.ts, stream.ts, trace-envelope.ts
+│   │   ├── evaluation/        # T43 public-seam scenarios + T46 lab contracts/runner/artifacts/CLI
 │   │   ├── skills/            # skill-index.ts, skill-loader.ts, skill-selector.ts
 │   │   ├── types/             # run-state.ts, tool-manifest.ts, tool-result.ts, wire.ts, runtime-event.ts
 │   │   └── utils/             # 工具函数
 │   ├── skills/                # 6 SKILL.md files
-│   └── tests/unit/            # 18 test files, 540 tests
+│   └── tests/unit/            # 60 test files, 1198 tests
 ├── frontend/
 │   ├── src/
 │   │   ├── app/               # Next.js 页面路由（不写业务逻辑）
@@ -106,7 +107,7 @@ ProjectFlow/
 │   │   │   ├── output_schemas.py # Agent 输出 Pydantic 校验模型
 │   │   │   └── modules/       # 9 个能力模块
 │   │   ├── seed/              # Demo 种子数据
-│   │   └── tests/             # pytest 测试（17 个 test_*.py 文件）
+│   │   └── tests/             # pytest 测试（41 个 test_*.py 文件）
 │   └── pyproject.toml
 └── .agents/                   # Skills 和 Plugins 配置
 ```
@@ -725,7 +726,7 @@ Compatibility singular GET 只返回最新可访问会话且不创建数据。Pr
 
 ## 9. 测试
 
-### 后端测试（重点文件；当前共 26 个 `test_*.py`）
+### 后端测试（重点文件；当前共 41 个 `test_*.py`）
 
 | 文件 | 覆盖范围 |
 |------|---------|
@@ -754,11 +755,11 @@ Compatibility singular GET 只返回最新可访问会话且不创建数据。Pr
 - vitest + @testing-library/react
 - 覆盖：api.ts、app-shell、projectflow-home、action-card、agent-proposal-panel、project-dashboard、task-status-update、error-boundaries
 
-### 验证基线（2026-07-08）
+### 验证基线（2026-07-17）
 
-- 后端 pytest：519 passing, 4 skipped
-- agent-bridge：540 tests passing, typecheck passing, build passing
-- 前端：55 tests passing, lint passing, build passing
+- 后端 pytest：866 passing, 4 skipped；Ruff passing
+- agent-bridge：1198 tests passing（60 files），typecheck/build passing
+- 前端：333 passing, 6 skipped（26 files）
 
 ---
 
@@ -821,6 +822,10 @@ npm audit --omit=dev                # 安全审计
 | `AGENT_BRIDGE_PORT` | `4000` | Sidecar 监听端口 |
 | `MEMORY_VECTOR_ENABLED` | `false` | 向量检索开关 |
 | `MEMORY_VECTOR_MODEL` | `shibing624/text2vec-base-chinese` | Embedding 模型 |
+| `UPLOAD_DIR` | `backend/data/uploads` | 上传目录；evaluation 模式强制改为 evaluator temp root 内路径 |
+| `EVALUATION_NONCE` | — | evaluation-only 临时身份凭据，不回显 |
+| `EVALUATION_INSTANCE_ID` | — | evaluation backend/sidecar 实例身份 |
+| `EVALUATION_TEMP_ROOT` | — | evaluator-owned SQLite/upload/config/staging 根目录 |
 
 ---
 
