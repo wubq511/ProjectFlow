@@ -674,7 +674,7 @@ export function AgentConversationPage({
           onScroll={handleScroll}
           className="h-full overflow-y-auto px-6 py-6 custom-scrollbar"
         >
-          <div className="mx-auto max-w-3xl space-y-6 pb-48">
+          <div className="mx-auto max-w-3xl space-y-6 pb-40">
             {/* Suggestions/Context Panel if empty */}
             {timelineEntries.length === 0 && !pendingConversationInstruction && (
               <div className="my-8 space-y-6">
