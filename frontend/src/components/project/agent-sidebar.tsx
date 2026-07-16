@@ -44,6 +44,7 @@ import {
 } from "./agent";
 import type { AgentStreamStatus } from "./agent/AgentStepIndicator";
 import type { AgentAction } from "./project-actions";
+import { useRafScroll } from "./agent/useRafScroll";
 import {
   AgentArtifactCard,
   AgentContextCard,
@@ -342,23 +343,19 @@ export function AgentSidebar({
   const dragStartWidth = useRef(0);
   const [clearedForRunId, setClearedForRunId] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const { scrollToBottom: rafScrollToBottom, forceScrollToBottom, handleScroll: rafHandleScroll, isNearBottom } = useRafScroll(scrollContainerRef, 120);
   const isNearBottomRef = useRef(true);
 
   /** Track whether the user is near the bottom of the scroll area. */
   const handleScroll = useCallback(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-  }, []);
+    rafHandleScroll();
+    isNearBottomRef.current = isNearBottom();
+  }, [rafHandleScroll, isNearBottom]);
 
-  /** Scroll to bottom if user is near the bottom. Shared by reveal progress,
-   *  streamTurn activity updates, and conversation/message switches. */
+  /** Scroll to bottom if user is near the bottom. Coalesced via rAF. */
   const scrollToBottomIfNear = useCallback(() => {
-    if (!isNearBottomRef.current) return;
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, []);
+    rafScrollToBottom();
+  }, [rafScrollToBottom]);
 
   /** Auto-scroll when streamTurn activity/execution updates arrive via SSE. */
   const streamActivities = streamTurn?.activities;

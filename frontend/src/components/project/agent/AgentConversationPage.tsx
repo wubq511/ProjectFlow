@@ -54,6 +54,7 @@ import {
 } from "../agent";
 import type { AgentStreamStatus } from "../agent/AgentStepIndicator";
 import type { AgentAction } from "../project-actions";
+import { useRafScroll } from "./useRafScroll";
 import {
   AgentArtifactCard,
   AgentContextCard,
@@ -266,7 +267,7 @@ export function AgentConversationPage({
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
-  const isNearBottomRef = useRef(true);
+  const { scrollToBottom: rafScrollToBottom, forceScrollToBottom, handleScroll: rafHandleScroll, isNearBottom } = useRafScroll(scrollContainerRef);
 
   // Load model configs from sidecar on mount
   useEffect(() => {
@@ -546,42 +547,37 @@ export function AgentConversationPage({
     setClearedForRunId(activeRunId);
   }
 
-  // Scroll to bottom handling
+  // Scroll to bottom handling — uses rAF-coalesced helper
   const handleScroll = () => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    // Show button if user scrolls up by more than 150px
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
-    isNearBottomRef.current = nearBottom;
-    setShowScrollBottom(!nearBottom);
+    rafHandleScroll();
+    setShowScrollBottom(!isNearBottom());
   };
 
-  /** Auto-scroll during StreamingText RAF reveal when user is near bottom. */
+  /** Auto-scroll during StreamingText RAF reveal when user is near bottom.
+   *  Coalesced via rAF — multiple calls per frame result in one DOM scroll. */
   const handleRevealProgress = useCallback(() => {
-    if (!isNearBottomRef.current) return;
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, []);
+    rafScrollToBottom();
+  }, [rafScrollToBottom]);
 
-  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    el.scrollTo({
-      top: el.scrollHeight,
-      behavior,
-    });
-  };
+    if (behavior === "smooth") {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    } else {
+      forceScrollToBottom();
+    }
+  }, [forceScrollToBottom]);
 
   useEffect(() => {
     if (isStreamingConversation && !showScrollBottom) {
       scrollToBottom("auto");
     }
-  }, [streamTurn, isStreamingConversation, showScrollBottom]);
+  }, [streamTurn, isStreamingConversation, showScrollBottom, scrollToBottom]);
 
   useEffect(() => {
     scrollToBottom("smooth");
-  }, [conversation?.id, messages.length]);
+  }, [conversation?.id, messages.length, scrollToBottom]);
 
   return (
     <div className="flex h-full flex-col bg-[var(--color-bg-primary-token)]">

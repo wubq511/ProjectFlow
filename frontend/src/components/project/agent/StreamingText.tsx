@@ -1,8 +1,9 @@
 "use client";
 
 import React from "react";
-import { MarkdownContent } from "./MarkdownContent";
 import { useStableTextReveal } from "./useStableTextReveal";
+import { useIncrementalMarkdown } from "./useIncrementalMarkdown";
+import { IncrementalMarkdown } from "./IncrementalMarkdown";
 
 interface StreamingTextProps {
   buffer: string;
@@ -27,14 +28,28 @@ export const StreamingText = React.memo(function StreamingText({
     onRevealProgress,
   });
 
-  const showCursor = isStreaming || displayLength < buffer.length;
   const displayText = buffer.slice(0, displayLength);
+
+  // Stay in "presentation streaming" mode until the visual display has caught
+  // up with the full buffer. This prevents useIncrementalMarkdown from
+  // finalizing (and forcing a full ReactMarkdown re-parse every rAF frame)
+  // while the reveal scheduler is still catching up after the network ended.
+  const presentationStreaming = isStreaming || displayLength < buffer.length;
+  const showCursor = presentationStreaming;
+
+  const { stableBlocks, activeTail, isFinalized, finalizedContent } =
+    useIncrementalMarkdown(displayText, presentationStreaming);
 
   if (!displayText && !isStreaming) return null;
 
   return (
     <div className={className}>
-      <MarkdownContent content={displayText || " "} />
+      <IncrementalMarkdown
+        stableBlocks={stableBlocks}
+        activeTail={activeTail}
+        isFinalized={isFinalized}
+        finalizedContent={finalizedContent}
+      />
       {showCursor && (
         <span
           className="ml-0.5 inline-block h-3.5 w-px bg-moss animate-pulse"

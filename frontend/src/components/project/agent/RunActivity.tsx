@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Shield, BookOpen } from "lucide-react";
+import { ChevronDown, Loader2, CheckCircle2, XCircle, Shield, BookOpen } from "lucide-react";
 import { motion, AnimatePresence, type Variants } from "framer-motion";
 import type { RunActivityItem } from "@/lib/types";
 import { ProcessMarkdown } from "./ProcessMarkdown";
@@ -18,6 +18,8 @@ interface RunActivityProps {
   onToggle?: () => void;
   /** Timestamp when processing started (ISO string). Used for live elapsed. */
   processStartedAt?: string | null;
+  /** Called when the collapse exit animation completes (for phase handoff). */
+  onCollapseExitComplete?: () => void;
 }
 
 /**
@@ -138,30 +140,26 @@ function isLastProgress(activities: RunActivityItem[], i: number): boolean {
 
 /**
  * Animation variants for the collapse/expand container.
- * Uses opacity + clipPath only (no height/maxHeight per spec).
- * clip-path is a compositor property — no layout reflow during the exit.
  *
- * Height change is handled by AnimatePresence mode="wait": after the exit
- * animation completes, the element unmounts → wrapper height drops to 0 →
- * Framer Motion layout system detects the position change on the answer
- * surface and animates it via layout="position".
+ * Uses opacity + translate3d (composited properties) instead of clipPath
+ * or height to avoid per-frame repaint on long content.
+ *
+ * Full transform strings are used instead of y/scale shorthand for
+ * explicit composited-property control.
+ *
+ * Height change is handled by AnimatePresence mode="popLayout": the exiting
+ * element is removed from layout flow immediately, so the answer surface
+ * (with layout="position") can reposition without waiting for the exit
+ * animation to complete.
  */
 export const collapseVariants: Variants = {
   expanded: {
     opacity: 1,
-    clipPath: "inset(0 0 0 0)",
-    transition: {
-      duration: 0.15,
-      ease: [0.23, 1, 0.32, 1],
-    },
+    transform: "translate3d(0,0,0)",
   },
   collapsed: {
     opacity: 0,
-    clipPath: "inset(0 0 100% 0)",
-    transition: {
-      duration: 0.12,
-      ease: [0.23, 1, 0.32, 1],
-    },
+    transform: "translate3d(0,-4px,0)",
   },
 };
 
@@ -172,6 +170,7 @@ export function RunActivity({
   isExpanded = true,
   onToggle,
   processStartedAt,
+  onCollapseExitComplete,
 }: RunActivityProps) {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -202,9 +201,12 @@ export function RunActivity({
   // Use faster auto-collapse variants, slower manual toggle
   const variants = prefersReducedMotion ? undefined : collapseVariants;
 
+  // Reduced motion: ensure onExitComplete fires immediately
+  const reducedMotionTransition = prefersReducedMotion ? { duration: 0 } : undefined;
+
   return (
     <div className="my-2">
-      {/* Collapsible Trigger Header */}
+      {/* Collapsible Trigger Header — single ChevronDown with CSS rotate */}
       <button
         type="button"
         onClick={onToggle}
@@ -212,11 +214,12 @@ export function RunActivity({
         aria-expanded={isExpanded}
         aria-controls={contentId}
       >
-        {isExpanded ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform duration-200" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-200" />
-        )}
+        <ChevronDown
+          className="h-3.5 w-3.5 shrink-0 transition-transform duration-[170ms]"
+          style={{
+            transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)",
+          }}
+        />
         <span>{summaryLabel}</span>
         {isStreaming && processStartedAt && (
           <LiveElapsed startedAt={processStartedAt} className="text-neutral-400 dark:text-neutral-500 tabular-nums" />
@@ -224,18 +227,30 @@ export function RunActivity({
       </button>
 
       {/* Activities List — animated collapse/expand.
-          mode="wait" lets the exit complete → element unmounts → wrapper height
-          drops to 0 → downstream layout="position" surfaces animate the shift. */}
-      <AnimatePresence initial={false} mode="wait">
+          mode="popLayout" removes the exiting element from layout flow immediately,
+          so downstream layout="position" surfaces can reposition without waiting.
+          layoutDependency ties layout animation to expand state — answer only
+          repositions when toggle changes, not on every content token.
+          onExitComplete fires the phase handoff for answer reveal. */}
+      <AnimatePresence
+        initial={false}
+        mode="popLayout"
+        onExitComplete={onCollapseExitComplete}
+      >
         {isExpanded && (
           <motion.div
             key="activity-content"
             id={contentId}
-            layout
             variants={variants}
             initial="collapsed"
             animate="expanded"
             exit="collapsed"
+            transition={reducedMotionTransition || {
+              duration: 0.18,
+              ease: [0.23, 1, 0.32, 1],
+            }}
+            layout
+            layoutDependency={isExpanded}
             className="overflow-hidden"
           >
             <div className="pl-4 pt-1 space-y-1 border-l border-neutral-100 dark:border-neutral-800 mt-1">
@@ -280,8 +295,8 @@ const ActivityRow = React.memo(function ActivityRow({
 
     return (
       <motion.div
-        initial={prefersReducedMotion ? false : { opacity: 0, y: 2 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={prefersReducedMotion ? false : { opacity: 0, transform: "translate3d(0,2px,0)" }}
+        animate={{ opacity: 1, transform: "translate3d(0,0,0)" }}
         transition={{ duration: 0.12, ease: "easeOut" }}
         className="flex items-start gap-1.5 py-0.5"
       >
@@ -302,8 +317,8 @@ const ActivityRow = React.memo(function ActivityRow({
 
   return (
     <motion.div
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 2 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={prefersReducedMotion ? false : { opacity: 0, transform: "translate3d(0,2px,0)" }}
+      animate={{ opacity: 1, transform: "translate3d(0,0,0)" }}
       transition={{ duration: 0.12, ease: "easeOut" }}
       className="flex items-center gap-2 py-0.5 text-xs text-neutral-500 dark:text-neutral-400"
     >

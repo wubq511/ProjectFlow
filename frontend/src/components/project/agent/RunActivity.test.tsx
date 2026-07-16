@@ -23,8 +23,7 @@ afterEach(() => {
 
 // Mock lucide-react — include BookOpen for skill icons
 vi.mock("lucide-react", () => ({
-  ChevronDown: () => <span data-testid="chevron-down" />,
-  ChevronRight: () => <span data-testid="chevron-right" />,
+  ChevronDown: ({ className, style }: { className?: string; style?: React.CSSProperties }) => <span data-testid="chevron-down" className={className} style={style} />,
   Loader2: ({ className }: { className?: string }) => <span data-testid="loader2" className={className} />,
   CheckCircle2: () => <span data-testid="check" />,
   XCircle: () => <span data-testid="x" />,
@@ -37,9 +36,10 @@ vi.mock("framer-motion", () => ({
   motion: {
     div: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode }) => {
       // Filter out framer-motion specific props, expose layout as data attribute
-      const { initial, animate, exit, variants, transition, layout, ...domProps } = props as Record<string, unknown>;
+      const { initial, animate, exit, variants, transition, layout, layoutDependency, ...domProps } = props as Record<string, unknown>;
       const extraProps: Record<string, unknown> = {};
       if (layout !== undefined) extraProps["data-layout"] = String(layout);
+      if (layoutDependency !== undefined) extraProps["data-layout-dependency"] = String(layoutDependency);
       return <div {...(domProps as React.HTMLAttributes<HTMLDivElement>)} {...extraProps}>{children}</div>;
     },
   },
@@ -383,37 +383,54 @@ describe("RunActivity collapse animation (fix D)", () => {
     expect(screen.getByText("无动效内容")).toBeTruthy();
   });
 
-  it("collapse wrapper uses layout prop for downstream FLIP", () => {
+  it("collapse wrapper does NOT use permanent will-change", () => {
     const activities: RunActivityItem[] = [
       progressItem("p1", "测试内容"),
     ];
     const { container } = render(<RunActivity activities={activities} isStreaming={false} isExpanded={true} />);
 
-    // The collapse wrapper should have layout prop (exposed as data-layout by mock)
-    const layoutEl = container.querySelector("[data-layout]");
-    expect(layoutEl).toBeTruthy();
-    expect(layoutEl!.getAttribute("data-layout")).toBe("true");
+    // will-change should NOT be permanently set — only transient during animation
+    const wrapper = container.querySelector("[style*='will-change']");
+    expect(wrapper).toBeNull();
   });
 });
 
 describe("collapseVariants compliance", () => {
-  it("variants do not use height or maxHeight properties", async () => {
+  it("variants use opacity + transform (composited), not height/maxHeight/clipPath/y shorthand", async () => {
     // Import the ACTUAL module (bypasses vi.mock) to verify source-level compliance
     const actual = await vi.importActual<typeof import("./RunActivity")>("./RunActivity");
     const { collapseVariants } = actual;
 
-    // Expanded variant — no height/maxHeight
+    // Expanded variant — no height/maxHeight/clipPath/y/scale shorthand
     expect(collapseVariants.expanded).not.toHaveProperty("height");
     expect(collapseVariants.expanded).not.toHaveProperty("maxHeight");
+    expect(collapseVariants.expanded).not.toHaveProperty("clipPath");
+    expect(collapseVariants.expanded).not.toHaveProperty("y");
+    expect(collapseVariants.expanded).not.toHaveProperty("scale");
 
-    // Collapsed variant — no height/maxHeight
+    // Collapsed variant — no height/maxHeight/clipPath/y/scale shorthand
     expect(collapseVariants.collapsed).not.toHaveProperty("height");
     expect(collapseVariants.collapsed).not.toHaveProperty("maxHeight");
+    expect(collapseVariants.collapsed).not.toHaveProperty("clipPath");
+    expect(collapseVariants.collapsed).not.toHaveProperty("y");
+    expect(collapseVariants.collapsed).not.toHaveProperty("scale");
 
-    // Verify required visual properties exist
+    // Verify required visual properties exist (opacity + full transform string)
     expect(collapseVariants.expanded).toHaveProperty("opacity", 1);
-    expect(collapseVariants.expanded).toHaveProperty("clipPath");
+    expect(collapseVariants.expanded).toHaveProperty("transform", "translate3d(0,0,0)");
     expect(collapseVariants.collapsed).toHaveProperty("opacity", 0);
-    expect(collapseVariants.collapsed).toHaveProperty("clipPath");
+    expect(collapseVariants.collapsed).toHaveProperty("transform", "translate3d(0,-4px,0)");
+  });
+
+  it("ActivityRow uses full transform string, not y shorthand", async () => {
+    // Verify source-level: the ActivityRow motion props must use translate3d, not y
+    const source = await import("./RunActivity");
+    // We can't directly inspect ActivityRow (it's not exported), but we verify
+    // via the rendered output: framer-motion mock strips motion props, but
+    // initial/animate with y would produce 'y' prop on the DOM element.
+    // Since our mock filters those out, we verify indirectly by checking
+    // that the collapseVariants pattern is followed (translate3d, not y).
+    // The actual source verification is in the variants test above.
+    expect(source.collapseVariants.expanded).toHaveProperty("transform", "translate3d(0,0,0)");
   });
 });

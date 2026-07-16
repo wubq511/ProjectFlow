@@ -1,8 +1,9 @@
 "use client";
 
 import React from "react";
-import { ProcessMarkdown } from "./ProcessMarkdown";
 import { useStableTextReveal } from "./useStableTextReveal";
+import { useIncrementalMarkdown } from "./useIncrementalMarkdown";
+import { IncrementalProcessMarkdown } from "./IncrementalProcessMarkdown";
 
 interface StreamingProcessTextProps {
   /** The full text content to display. */
@@ -20,9 +21,12 @@ interface StreamingProcessTextProps {
 /**
  * Streaming-aware process text renderer.
  *
- * Uses useStableTextReveal for progressive character display when streaming.
- * When not streaming (completed/historical), renders full content immediately
- * via ProcessMarkdown without any reveal animation.
+ * Uses the same incremental markdown logic as StreamingText:
+ * - Stable blocks (paragraphs separated by double newlines outside code fences)
+ *   are individually memoized via ProcessMarkdown.
+ * - Active tail is rendered as safe plain text (no ReactMarkdown on incomplete content).
+ * - Uses useStableTextReveal for progressive character display when streaming.
+ * - Non-streaming (historical/completed): renders full content immediately via ProcessMarkdown.
  */
 export const StreamingProcessText = React.memo(function StreamingProcessText({
   content,
@@ -36,12 +40,34 @@ export const StreamingProcessText = React.memo(function StreamingProcessText({
     onRevealProgress,
   });
 
-  // Non-streaming: render full content immediately (historical/completed messages)
+  // Always call useIncrementalMarkdown (Rules of Hooks).
+  // When not streaming, this returns finalized state immediately.
+  const displayText = content.slice(0, displayLength);
+  const { stableBlocks, activeTail, isFinalized, finalizedContent } =
+    useIncrementalMarkdown(displayText, isStreaming);
+
+  // Non-streaming: short-circuit render with finalized content.
+  // The hook returns isFinalized=true when !isStreaming, but we also
+  // explicitly pass finalizedContent=content for the fast path.
   if (!isStreaming) {
-    return <ProcessMarkdown content={content} className={className} />;
+    return (
+      <IncrementalProcessMarkdown
+        stableBlocks={[]}
+        activeTail=""
+        isFinalized={true}
+        finalizedContent={content}
+        className={className}
+      />
+    );
   }
 
-  // Streaming: progressive reveal via hook
-  const displayText = content.slice(0, displayLength);
-  return <ProcessMarkdown content={displayText || " "} className={className} />;
+  return (
+    <IncrementalProcessMarkdown
+      stableBlocks={stableBlocks}
+      activeTail={activeTail}
+      isFinalized={isFinalized}
+      finalizedContent={finalizedContent}
+      className={className}
+    />
+  );
 });

@@ -4,6 +4,8 @@ import { renderHook, act } from "@testing-library/react";
 // jsdom does not implement matchMedia; mock it before each test
 let reducedMotion = false;
 
+// jsdom does not implement requestAnimationFrame; polyfill with setTimeout
+// so vi.useFakeTimers() can control the scheduler.
 beforeEach(() => {
   reducedMotion = false;
   Object.defineProperty(window, "matchMedia", {
@@ -15,13 +17,63 @@ beforeEach(() => {
       removeEventListener: vi.fn(),
     }),
   });
+
+  // Polyfill rAF/cRAF for jsdom — delegates to setTimeout so fake timers control it
+  let rafId = 0;
+  const rafMap = new Map<number, ReturnType<typeof setTimeout>>();
+  window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+    const id = ++rafId;
+    rafMap.set(id, setTimeout(() => cb(performance.now()), 16));
+    return id;
+  };
+  window.cancelAnimationFrame = (id: number) => {
+    const t = rafMap.get(id);
+    if (t !== undefined) {
+      clearTimeout(t);
+      rafMap.delete(id);
+    }
+  };
 });
 
 afterEach(() => {
   vi.useRealTimers();
 });
 
-import { useStableTextReveal } from "./useStableTextReveal";
+import { useStableTextReveal, advanceToBoundary } from "./useStableTextReveal";
+
+describe("advanceToBoundary", () => {
+  it("stops at word boundary (space)", () => {
+    const buf = "Hello World test";
+    // current=0, target=7 → should stop at 6 (after "Hello") or 5 ("Hello")
+    // "Hello World" — position 5 is 'o', position 6 is ' '
+    const result = advanceToBoundary(0, 7, buf);
+    expect(result).toBe(6); // after "Hello "
+  });
+
+  it("stops at newline", () => {
+    const buf = "Line1\nLine2";
+    const result = advanceToBoundary(0, 8, buf);
+    expect(result).toBe(6); // after "Line1\n"
+  });
+
+  it("stops at Chinese punctuation", () => {
+    const buf = "你好，世界！测试";
+    const result = advanceToBoundary(0, 5, buf);
+    expect(result).toBe(3); // after "你好，"
+  });
+
+  it("returns target if no better boundary found", () => {
+    const buf = "abcdefghijklmno";
+    const result = advanceToBoundary(0, 5, buf);
+    expect(result).toBe(5);
+  });
+
+  it("returns target when target >= buffer.length", () => {
+    const buf = "abc";
+    const result = advanceToBoundary(0, 3, buf);
+    expect(result).toBe(3);
+  });
+});
 
 describe("useStableTextReveal scheduler", () => {
   it("500-char burst: 100ms shows partial, ~2s shows significant catch-up", () => {
@@ -31,7 +83,7 @@ describe("useStableTextReveal scheduler", () => {
       useStableTextReveal({ buffer: burst, isStreaming: true }),
     );
 
-    // After 100ms (2 ticks), should show partial content
+    // After 100ms (several rAF frames), should show partial content
     act(() => {
       vi.advanceTimersByTime(100);
     });
@@ -90,9 +142,9 @@ describe("useStableTextReveal scheduler", () => {
       useStableTextReveal({ buffer: longBuffer, isStreaming: true }),
     );
 
-    // After first tick (50ms), displayLength should be > 0 but < 500
+    // After first frame (~16ms), displayLength should be > 0 but < 500
     act(() => {
-      vi.advanceTimersByTime(60);
+      vi.advanceTimersByTime(32);
     });
     expect(result.current).toBeLessThan(500);
     expect(result.current).toBeGreaterThan(0);
@@ -212,7 +264,7 @@ describe("useStableTextReveal onRevealProgress", () => {
 });
 
 describe("useStableTextReveal cadence", () => {
-  it("reveals at ~20fps with adaptive backlog, not all at once", () => {
+  it("reveals at ~16fps with adaptive backlog, not all at once", () => {
     vi.useFakeTimers();
     const longBuffer = "A".repeat(500);
 
@@ -233,5 +285,27 @@ describe("useStableTextReveal cadence", () => {
       vi.advanceTimersByTime(6000);
     });
     expect(result.current).toBe(500);
+  });
+});
+
+describe("useStableTextReveal cleanup", () => {
+  it("cancels rAF on unmount", () => {
+    vi.useFakeTimers();
+    const cancelSpy = vi.spyOn(window, "cancelAnimationFrame");
+    const longBuffer = "A".repeat(500);
+
+    const { unmount } = renderHook(() =>
+      useStableTextReveal({ buffer: longBuffer, isStreaming: true }),
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+
+    unmount();
+
+    // cancelAnimationFrame should have been called during cleanup
+    expect(cancelSpy).toHaveBeenCalled();
+    cancelSpy.mockRestore();
   });
 });

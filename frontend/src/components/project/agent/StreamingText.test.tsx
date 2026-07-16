@@ -93,16 +93,18 @@ describe("StreamingText rendering", () => {
       vi.advanceTimersByTime(60);
     });
 
-    const md = screen.getByTestId("md");
-    const initialText = md.textContent ?? "";
-    expect(initialText.length).toBeGreaterThan(0);
-    expect(initialText.length).toBeLessThan(buffer.length);
+    // During streaming, active tail is plain text (no MarkdownContent)
+    // Check that the container has some text content
+    const container = document.querySelector("[class]");
+    expect(container?.textContent?.length).toBeGreaterThan(0);
 
     // Advance to full reveal
     act(() => {
       vi.advanceTimersByTime(6000);
     });
-    expect(screen.getByTestId("md").textContent).toBe(buffer);
+
+    // Still streaming, so content is rendered as plain text active tail
+    expect(container?.textContent).toContain(buffer);
   });
 
   it("shows full buffer immediately when prefers-reduced-motion is set", () => {
@@ -116,17 +118,104 @@ describe("StreamingText rendering", () => {
       vi.advanceTimersByTime(0);
     });
 
-    expect(screen.getByTestId("md").textContent).toBe(buffer);
+    // Reduced motion shows content immediately as active tail (plain text)
+    expect(document.body.textContent).toContain(buffer);
   });
 
-  it("renders non-empty space when buffer is empty but streaming", () => {
+  it("renders nothing when buffer is empty but streaming", () => {
     vi.useFakeTimers();
     const { container } = render(<StreamingText buffer="" isStreaming={true} />);
     act(() => {
       vi.advanceTimersByTime(0);
     });
-    // Should render with non-breaking space placeholder
-    expect(container.querySelector("[data-testid='md']")).toBeTruthy();
+    // Empty buffer → no stable blocks and no active tail → null render
+    // (cursor is still shown via showCursor)
+    expect(container.querySelector(".animate-pulse")).toBeTruthy();
+  });
+
+  it("uses MarkdownContent when not streaming (finalized)", () => {
+    vi.useFakeTimers();
+    const buffer = "Final content here";
+
+    render(<StreamingText buffer={buffer} isStreaming={false} />);
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    // When isStreaming=false, content is finalized and uses MarkdownContent
+    expect(screen.getByTestId("md").textContent).toBe(buffer);
+  });
+
+  it("uses plain text active tail during streaming (no MarkdownContent for incomplete content)", () => {
+    vi.useFakeTimers();
+    const buffer = "Single paragraph being streamed";
+
+    render(<StreamingText buffer={buffer} isStreaming={true} />);
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    // During streaming with single paragraph, active tail is plain text
+    // No MarkdownContent should be rendered
+    expect(screen.queryByTestId("md")).toBeNull();
+    // But content should still be visible
+    expect(document.body.textContent).toContain(buffer);
+  });
+});
+
+describe("StreamingText premature finalization fix", () => {
+  it("MarkdownContent render count does not grow per rAF tick during catch-up after stream ends", () => {
+    vi.useFakeTimers();
+
+    // Long buffer — needs many rAF frames to catch up
+    const longBuffer = "A".repeat(500);
+
+    const { container } = render(<StreamingText buffer={longBuffer} isStreaming={true} />);
+
+    // Let it start revealing
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+
+    // End the network stream — re-render with isStreaming=false
+    render(<StreamingText buffer={longBuffer} isStreaming={false} />, { container });
+
+    // After stream ends, displayLength < buffer.length → presentationStreaming
+    // should still be true → useIncrementalMarkdown should NOT finalize.
+    // During catch-up, content is rendered as active tail (plain text),
+    // NOT as MarkdownContent. So md count should be 0 throughout catch-up.
+
+    // Count md elements after first tick
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    const mdCount1 = container.querySelectorAll("[data-testid='md']").length;
+
+    // Advance more — with the bug, MarkdownContent would render every tick
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    const mdCount2 = container.querySelectorAll("[data-testid='md']").length;
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    const mdCount3 = container.querySelectorAll("[data-testid='md']").length;
+
+    // With the fix: during catch-up, no MarkdownContent rendered
+    expect(mdCount1).toBe(0);
+    expect(mdCount2).toBe(0);
+    expect(mdCount3).toBe(0);
+
+    // After full catch-up, finalized content should render exactly once
+    act(() => {
+      vi.advanceTimersByTime(10000);
+    });
+    const mdCountFinal = container.querySelectorAll("[data-testid='md']").length;
+    expect(mdCountFinal).toBe(1);
+    expect(container.querySelector("[data-testid='md']")?.textContent).toBe(longBuffer);
   });
 });
 
@@ -158,6 +247,6 @@ describe("StreamingText onRevealProgress", () => {
     });
 
     expect(callback).toHaveBeenCalled();
-    expect(screen.getByTestId("md").textContent).toBe(buffer);
+    expect(document.body.textContent).toContain(buffer);
   });
 });

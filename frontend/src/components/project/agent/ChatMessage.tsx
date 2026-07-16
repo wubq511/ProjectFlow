@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
-import { motion } from "framer-motion";
-import { ChevronRight, ChevronDown, Loader2 } from "lucide-react";
+import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
+import { motion, LayoutGroup } from "framer-motion";
+import { ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentConversationMessage, AgentStreamTurn } from "@/lib/types";
 import { SLASH_COMMANDS, type SlashCommandDef } from "@/components/project/project-actions";
@@ -47,6 +47,173 @@ function getSlashCommand(message: AgentConversationMessage): SlashCommandDef | n
   return SLASH_COMMANDS.find((c) => c.command === commandName) ?? null;
 }
 
+/**
+ * Answer handoff surface — keyed by turnId so each turn gets independent
+ * local state. Uses useLayoutEffect (synchronous, before paint) to activate
+ * the gate when processAutoCollapsed arrives in the same batch as answer data.
+ * This prevents a one-frame flash where the answer is visible before the gate
+ * activates.
+ *
+ * The gate activates ONCE per shouldGate session: `lastGateRef` tracks which
+ * shouldGate value already triggered activation. This prevents the fallback
+ * timer (which sets gateActive=false) from immediately re-triggering the gate
+ * via the useLayoutEffect (which would create an infinite loop).
+ */
+function AnswerHandoff({
+  shouldGate,
+  answerContent,
+  isAnswerStreaming,
+  isLive,
+  hasActivities,
+  processExpanded,
+  onRevealProgress,
+  streamTurn,
+}: {
+  shouldGate: boolean;
+  answerContent: string;
+  isAnswerStreaming: boolean;
+  isLive: boolean;
+  hasActivities: boolean;
+  processExpanded: boolean;
+  onRevealProgress?: () => void;
+  streamTurn?: AgentStreamTurn | null;
+}) {
+  const [gateActive, setGateActive] = useState(false);
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastGateRef = useRef<boolean | null>(null);
+
+  // Synchronous gate activation: useLayoutEffect runs after DOM mutation but
+  // BEFORE the browser paints. When shouldGate transitions true (batched with
+  // answer data), this sets gateActive synchronously and triggers an immediate
+  // re-render — the browser never paints the intermediate frame where the
+  // answer was visible.
+  //
+  // lastGateRef prevents re-activation: once the gate fires for a given
+  // shouldGate=true session, it won't re-activate when the fallback timer
+  // releases the gate (because shouldGate is still true but lastGateRef matches).
+  // Intentional useLayoutEffect: synchronous gate activation before browser paint.
+  // This prevents a one-frame flash when processAutoCollapsed + answer data arrive
+  // in the same batch. setState in useLayoutEffect is the recommended pattern for
+  // derived state that must be committed before the user sees the frame.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useLayoutEffect(() => {
+    if (shouldGate && !gateActive && lastGateRef.current !== shouldGate) {
+      lastGateRef.current = shouldGate;
+      setGateActive(true);
+    } else if (!shouldGate && gateActive) {
+      lastGateRef.current = shouldGate;
+      setGateActive(false);
+    } else if (!shouldGate) {
+      // Reset tracking when shouldGate is false so a future true can re-activate
+      lastGateRef.current = shouldGate;
+    }
+  }, [shouldGate, gateActive]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // Start fallback timer when gate activates
+  useEffect(() => {
+    if (gateActive) {
+      fallbackTimerRef.current = setTimeout(() => {
+        setGateActive(false);
+      }, 250);
+    }
+    return () => {
+      if (fallbackTimerRef.current) {
+        clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
+    };
+  }, [gateActive]);
+
+  const handleCollapseExitComplete = useCallback(() => {
+    if (fallbackTimerRef.current) {
+      clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
+    setGateActive(false);
+  }, []);
+
+  const shouldRevealAnswer = !gateActive;
+
+  return (
+    <>
+      {/* Wire onCollapseExitComplete from RunActivity */}
+      {hasActivities && (
+        <CollapseExitListener
+          isExpanded={processExpanded}
+          onExitComplete={handleCollapseExitComplete}
+        />
+      )}
+
+      <motion.div
+        layout="position"
+        layoutDependency={processExpanded}
+        transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+      >
+        {isLive && streamTurn?.answerBuffer && answerContent.length > 0 && shouldRevealAnswer ? (
+          <StreamingText buffer={answerContent} isStreaming={isAnswerStreaming} onRevealProgress={onRevealProgress} />
+        ) : answerContent && shouldRevealAnswer ? (
+          <div>
+            <MarkdownContent content={answerContent} />
+          </div>
+        ) : isLive && !hasActivities && !answerContent ? (
+          <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span>正在生成回复...</span>
+          </div>
+        ) : null}
+      </motion.div>
+    </>
+  );
+}
+
+/**
+ * Invisible listener that detects when a RunActivity collapse exit animation
+ * completes. Watches the isExpanded prop for true→false transitions and fires
+ * onExitComplete after the animation duration (180ms).
+ *
+ * Also handles the "already collapsed" case: when isExpanded starts as false
+ * on mount (e.g. batched events with processExpanded=false), there is no exit
+ * animation to wait for, so onExitComplete fires immediately.
+ */
+const CollapseExitListener = React.memo(function CollapseExitListener({
+  isExpanded,
+  onExitComplete,
+}: {
+  isExpanded: boolean;
+  onExitComplete: () => void;
+}) {
+  const prevExpandedRef = useRef(isExpanded);
+  const initializedRef = useRef(false);
+
+  useEffect(() => {
+    // On first mount: if already collapsed, no exit animation — fire immediately
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      if (!isExpanded) {
+        // Use setTimeout(0) to defer past the current render cycle
+        const timer = setTimeout(onExitComplete, 0);
+        prevExpandedRef.current = isExpanded;
+        return () => clearTimeout(timer);
+      }
+      prevExpandedRef.current = isExpanded;
+      return;
+    }
+
+    // Detect true→false transition (collapse started)
+    if (prevExpandedRef.current && !isExpanded) {
+      // Match RunActivity's collapse animation duration (180ms)
+      const timer = setTimeout(onExitComplete, 180);
+      prevExpandedRef.current = isExpanded;
+      return () => clearTimeout(timer);
+    }
+
+    prevExpandedRef.current = isExpanded;
+  }, [isExpanded, onExitComplete]);
+
+  return null;
+});
+
 export const ChatMessage = React.memo(function ChatMessage({
   message,
   isLast,
@@ -66,12 +233,20 @@ export const ChatMessage = React.memo(function ChatMessage({
   const isActivelyStreaming = isLive && !["completed", "failed", "cancelled", "disconnected"].includes(streamTurn!.status);
 
   // Activities: live from turn, or persisted from structured_payload
+  // (computed early because gate logic depends on hasActivities)
   const activities: RunActivityItem[] = isLive
     ? (streamTurn!.activities || [])
     : Array.isArray(message.structured_payload?.activities)
       ? message.structured_payload.activities
       : [];
   const hasActivities = activities.length > 0;
+
+  // Gate answer reveal — delegated to AnswerHandoff (keyed by turnId) so each
+  // turn gets independent local state. The gate activates synchronously via
+  // render-phase state adjustment when processAutoCollapsed arrives, preventing
+  // the batched events from showing the answer for one frame.
+  const turnId = streamTurn?.clientTurnId ?? null;
+  const shouldGate = !!streamTurn?.processAutoCollapsed && hasActivities;
 
   // Process expand state: live from reducer, or local state for persisted
   const processExpanded = isActivelyStreaming
@@ -134,8 +309,8 @@ export const ChatMessage = React.memo(function ChatMessage({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, transform: "translate3d(0,4px,0)" }}
+      animate={{ opacity: 1, transform: "translate3d(0,0,0)" }}
       transition={{
         duration: 0.15,
         delay: Math.min(index * 0.03, 0.2),
@@ -163,8 +338,10 @@ export const ChatMessage = React.memo(function ChatMessage({
           return <p className="text-xs leading-5">{displayContent(message)}</p>;
         })()
       ) : (
-        <>
-          {/* Single RunActivity surface — unified process timeline */}
+        <LayoutGroup id={`turn-${turnId ?? message.id}`}>
+          {/* Single RunActivity surface — unified process timeline.
+              onCollapseExitComplete fires when the collapse exit animation ends,
+              enabling the phase handoff to start the answer reveal. */}
           {hasActivities && (
             <RunActivity
               activities={activities}
@@ -186,7 +363,12 @@ export const ChatMessage = React.memo(function ChatMessage({
                 <span>执行过程</span>
                 <span className="text-neutral-400">·</span>
                 <span className="text-neutral-400">{executionSteps.length} 步</span>
-                {persistedStepsOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                <ChevronDown
+                  className="h-3.5 w-3.5 shrink-0 transition-transform duration-[170ms]"
+                  style={{
+                    transform: persistedStepsOpen ? "rotate(0deg)" : "rotate(-90deg)",
+                  }}
+                />
               </CollapsibleTrigger>
               <CollapsibleContent className="pl-3 py-1 border-l border-neutral-100 dark:border-neutral-800 mt-1.5">
                 <ul className="space-y-1">
@@ -201,31 +383,27 @@ export const ChatMessage = React.memo(function ChatMessage({
             </Collapsible>
           )}
 
-          {/* Answer content: streaming or persisted. Wrapped in layout="position"
-              for smooth FLIP repositioning when the process area above collapses. */}
-          <motion.div
-            layout="position"
-            transition={{ duration: 0.15, ease: [0.23, 1, 0.32, 1] }}
-          >
-            {isLive && streamTurn!.answerBuffer && answerContent.length > 0 ? (
-              <StreamingText buffer={answerContent} isStreaming={isAnswerStreaming} onRevealProgress={onRevealProgress} />
-            ) : answerContent ? (
-              <div>
-                <MarkdownContent content={answerContent} />
-              </div>
-            ) : isLive && !hasActivities && !answerContent ? (
-              <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                <span>正在生成回复...</span>
-              </div>
-            ) : null}
-          </motion.div>
+          {/* Answer content — phase handoff via AnswerHandoff (keyed by turnId).
+              Each turn gets independent local state so the gate activates
+              synchronously when processAutoCollapsed arrives in the same batch
+              as answer data. */}
+          <AnswerHandoff
+            key={turnId ?? `persisted-${message.id}`}
+            shouldGate={shouldGate}
+            answerContent={answerContent}
+            isAnswerStreaming={isAnswerStreaming}
+            isLive={isLive}
+            hasActivities={hasActivities}
+            processExpanded={processExpanded}
+            onRevealProgress={onRevealProgress}
+            streamTurn={streamTurn}
+          />
 
           {/* Turn status label (cancelled/disconnected/failed) */}
           {turnStatusLabel && (
             <p className="mt-1.5 text-[10px] text-neutral-500 dark:text-neutral-400">{turnStatusLabel}</p>
           )}
-        </>
+        </LayoutGroup>
       )}
       {!isUser && isLast && !isLive && (
         <MessageActions

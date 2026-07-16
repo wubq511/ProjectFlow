@@ -32,6 +32,24 @@ afterEach(() => {
 
 import { StreamingProcessText } from "./StreamingProcessText";
 
+/**
+ * Get the text content of the StreamingProcessText output.
+ * During streaming with no paragraph breaks, active tail is rendered as plain text
+ * (no ProcessMarkdown/ReactMarkdown). When finalized or when stable blocks exist,
+ * ProcessMarkdown is used.
+ */
+function getRenderedText(): string {
+  // Try ProcessMarkdown first (used for stable blocks and finalized content)
+  const pm = document.querySelector("[data-testid='process-md']");
+  if (pm?.textContent) return pm.textContent;
+  // Fall back to plain text span (active tail during streaming)
+  const spans = document.querySelectorAll("span.whitespace-pre-wrap");
+  for (const span of spans) {
+    if (span.textContent) return span.textContent;
+  }
+  return "";
+}
+
 describe("StreamingProcessText scheduler behavior", () => {
   it("500-char burst: 100ms shows partial, ~2s shows significant catch-up", () => {
     vi.useFakeTimers();
@@ -43,7 +61,7 @@ describe("StreamingProcessText scheduler behavior", () => {
     act(() => {
       vi.advanceTimersByTime(100);
     });
-    const earlyText = (document.querySelector("[data-testid='process-md']")?.textContent ?? "");
+    const earlyText = getRenderedText();
     expect(earlyText.length).toBeGreaterThan(0);
     expect(earlyText.length).toBeLessThan(100); // Not all revealed in 100ms
 
@@ -51,7 +69,7 @@ describe("StreamingProcessText scheduler behavior", () => {
     act(() => {
       vi.advanceTimersByTime(2000);
     });
-    const laterText = (document.querySelector("[data-testid='process-md']")?.textContent ?? "");
+    const laterText = getRenderedText();
     expect(laterText.length).toBeGreaterThan(200); // Significant progress
   });
 
@@ -64,7 +82,7 @@ describe("StreamingProcessText scheduler behavior", () => {
     act(() => {
       vi.advanceTimersByTime(3000);
     });
-    const firstLen = (document.querySelector("[data-testid='process-md']")?.textContent ?? "").length;
+    const firstLen = getRenderedText().length;
     expect(firstLen).toBe(4);
 
     // Grow buffer — display should not regress
@@ -72,7 +90,7 @@ describe("StreamingProcessText scheduler behavior", () => {
     act(() => {
       vi.advanceTimersByTime(100); // Just one tick
     });
-    const secondLen = (document.querySelector("[data-testid='process-md']")?.textContent ?? "").length;
+    const secondLen = getRenderedText().length;
     expect(secondLen).toBeGreaterThanOrEqual(firstLen);
   });
 
@@ -87,7 +105,7 @@ describe("StreamingProcessText scheduler behavior", () => {
       vi.advanceTimersByTime(0);
     });
 
-    expect(document.querySelector("[data-testid='process-md']")?.textContent).toBe(content);
+    expect(getRenderedText()).toBe(content);
   });
 
   it("non-streaming renders full content immediately without reveal", () => {
@@ -97,7 +115,8 @@ describe("StreamingProcessText scheduler behavior", () => {
     render(<StreamingProcessText content={content} isStreaming={false} />);
 
     // Should show full content immediately — no progressive reveal
-    expect(document.querySelector("[data-testid='process-md']")?.textContent).toBe(content);
+    // When isStreaming=false, content is finalized and rendered via ProcessMarkdown
+    expect(getRenderedText()).toBe(content);
   });
 
   it("completes reveal when streaming ends and buffer remains", () => {
@@ -111,15 +130,15 @@ describe("StreamingProcessText scheduler behavior", () => {
     act(() => {
       vi.advanceTimersByTime(1000); // Reveal some
     });
-    const midText = (document.querySelector("[data-testid='process-md']")?.textContent ?? "");
-    expect(midText.length).toBeLessThan(300);
+    const midLen = getRenderedText().length;
+    expect(midLen).toBeLessThan(300);
 
     // Stop streaming — should continue until caught up
     rerender(<StreamingProcessText content={longContent} isStreaming={false} />);
     act(() => {
       vi.advanceTimersByTime(6000);
     });
-    expect(document.querySelector("[data-testid='process-md']")?.textContent).toBe(longContent);
+    expect(getRenderedText()).toBe(longContent);
   });
 });
 
@@ -168,8 +187,8 @@ describe("StreamingProcessText non-streaming (historical)", () => {
 
     render(<StreamingProcessText content={content} isStreaming={false} />);
 
-    // Should render full content immediately
-    expect(document.querySelector("[data-testid='process-md']")?.textContent).toBe(content);
+    // When isStreaming=false, content is finalized → ProcessMarkdown
+    expect(getRenderedText()).toBe(content);
   });
 
   it("does not start scheduler when isStreaming is false from mount", () => {
@@ -186,7 +205,7 @@ describe("StreamingProcessText non-streaming (historical)", () => {
     });
 
     // After 100ms, should have revealed some content
-    const text = document.querySelector("[data-testid='process-md']")?.textContent ?? "";
+    const text = getRenderedText();
     expect(text.length).toBeGreaterThan(0);
   });
 });

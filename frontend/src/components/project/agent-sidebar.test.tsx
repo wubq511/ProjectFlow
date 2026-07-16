@@ -1,7 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, act } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 // Mock window.matchMedia for prefers-reduced-motion detection in RunActivity
+// Polyfill rAF for jsdom — delegates to setTimeout so scroll coalescing works
 beforeEach(() => {
   if (typeof window !== "undefined" && !window.matchMedia) {
     Object.defineProperty(window, "matchMedia", {
@@ -13,6 +14,10 @@ beforeEach(() => {
         removeEventListener: vi.fn(),
       }),
     });
+  }
+  if (!window.requestAnimationFrame) {
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => cb(performance.now()), 16) as unknown as number;
+    window.cancelAnimationFrame = (id: number) => clearTimeout(id);
   }
 });
 
@@ -847,7 +852,7 @@ describe("AgentSidebar", () => {
       };
     }
 
-    it("scrolls to bottom when activities update and user is near bottom", () => {
+    it("scrolls to bottom when activities update and user is near bottom", async () => {
       const initialTurn = makeStreamTurn([]);
       const { rerender } = render(
         <AgentSidebar
@@ -870,14 +875,18 @@ describe("AgentSidebar", () => {
         { id: "a1", kind: "tool", label: "读取项目状态", status: "completed" },
         { id: "a2", kind: "progress", content: "正在分析签到数据" },
       ]);
-      rerender(
-        <AgentSidebar
-          state={baseProjectState}
-          conversation={conversationFixture}
-          streamTurn={updatedTurn}
-          onRunAgent={vi.fn()}
-        />,
-      );
+      await act(async () => {
+        rerender(
+          <AgentSidebar
+            state={baseProjectState}
+            conversation={conversationFixture}
+            streamTurn={updatedTurn}
+            onRunAgent={vi.fn()}
+          />,
+        );
+        // Wait for rAF coalesced scroll to fire
+        await new Promise((r) => setTimeout(r, 20));
+      });
 
       // Near bottom → auto-scroll fires
       expect(scrollEl.scrollTop).toBe(2000);
