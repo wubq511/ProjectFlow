@@ -852,12 +852,7 @@ export function AgentConversationPage({
               </motion.div>
             )}
 
-            {/* Next Step Recommendations */}
-            <AgentSuggestionRow
-              suggestions={suggestions}
-              disabled={Boolean(pendingConversation)}
-              onPick={(instruction) => void submitMessage(instruction)}
-            />
+            {/* Next Step Recommendations removed */}
           </div>
         </div>
 

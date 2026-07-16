@@ -1021,11 +1021,7 @@ export function AgentSidebar({
                       />
                     )}
 
-                    <AgentSuggestionRow
-                      suggestions={suggestions}
-                      disabled={Boolean(pendingConversation)}
-                      onPick={(instruction) => void submitMessage(instruction)}
-                    />
+                    {/* Next Step Recommendations removed */}
 
                     <div className="mt-3" data-tour="composer">
                       <ChatComposer
