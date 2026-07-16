@@ -118,7 +118,6 @@ def normalize_direction_card(value: str | dict | None) -> dict | None:
 
 def delete_project(session: Session, project_id: str) -> None:
     """删除项目及其所有关联数据（阶段、任务、资源、风险等）。"""
-    import os
     from sqlalchemy import delete as sa_delete, select
     from app.core.db_utils import require_row
     from app.models.stage import Stage
@@ -145,19 +144,13 @@ def delete_project(session: Session, project_id: str) -> None:
     ).all()
 
     # ── 2. 清理上传文件（先于 DB 删除）──
-    from app.core.config import settings
-    upload_dir = settings.resolved_upload_dir
+    from app.services.resource_service import delete_uploaded_file_if_safe
     resources = session.exec(
         select(ProjectResource).where(ProjectResource.project_id == project_id)
     ).all()
     for r in resources:
         if r.type == "file_stub" and r.file_name:
-            file_path = r.file_name
-            if os.path.isfile(file_path) and os.path.normpath(file_path).startswith(upload_dir):
-                try:
-                    os.remove(file_path)
-                except OSError:
-                    pass
+            delete_uploaded_file_if_safe(r.file_name)
 
     # ── 3. 先删叶子表（无 project_id 列，通过父表 ID 关联）──
     if cycle_ids:

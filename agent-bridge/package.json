@@ -11,7 +11,11 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "eval:canary": "tsx scripts/run-agent-canary.ts"
+    "eval:canary": "tsx scripts/run-agent-canary.ts",
+    "eval:run": "tsx src/evaluation/lab/cli.ts run",
+    "eval:list": "tsx src/evaluation/lab/cli.ts list-scenarios",
+    "eval:show": "tsx src/evaluation/lab/cli.ts show",
+    "eval:validate": "tsx src/evaluation/lab/cli.ts validate"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.80.3",

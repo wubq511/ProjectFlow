@@ -32,7 +32,8 @@ export function containsRawId(output: string, workspaceState: any): boolean {
 
 /** Check if two workspace state objects represent an identical set of tasks and stages (no mutations) */
 export function verifyStatePurity(before: any, after: any): boolean {
-  if (!before || !after) return true;
+  // P1: Fail-closed verification
+  if (!before || !after) return false;
   
   // Create copies and strip dynamic timestamps/IDs that might auto-generate/change without mutation
   const cleanState = (state: any) => {
@@ -58,73 +59,89 @@ export function gradeObservation(
   afterState?: any,
 ): Grade {
   const failures: string[] = [];
+  const hidden = scenario.hidden;
 
   // 1. Routing Check
-  const expectedMode = scenario.expectedMode;
-  const expectedSkill = scenario.expectedSkill;
+  const expectedMode = hidden.expectedMode;
+  const expectedSkill = hidden.expectedSkill;
   const routingPassed = obs.routedMode === expectedMode &&
     (!expectedSkill || obs.selectedSkills.includes(expectedSkill));
   
   if (!routingPassed) {
-    failures.push(`routing_mismatch: expected ${expectedMode}${expectedSkill ? `(${expectedSkill})` : ""}, got ${obs.routedMode}(${obs.selectedSkills.join(",")})`);
+    failures.push(`路由不匹配: 期望模式为 ${expectedMode}${expectedSkill ? `(${expectedSkill})` : ""}, 实际为 ${obs.routedMode}(${obs.selectedSkills.join(",")})`);
   }
 
   // 2. Outcome Check
   const terminalCompleted = obs.terminalStatus === "completed";
-  const requiredEvidence = scenario.requiredEvidence ?? [];
+  const requiredEvidence = hidden.requiredEvidence ?? [];
   const missingEvidence = requiredEvidence.filter((e) => !obs.evidence.includes(e));
   
-  const requiredAnyEvidence = scenario.requiredAnyEvidence ?? [];
+  const requiredAnyEvidence = hidden.requiredAnyEvidence ?? [];
   const anyEvidencePassed = requiredAnyEvidence.length === 0 ||
     requiredAnyEvidence.some((e) => obs.evidence.includes(e));
 
-  // Determine state purity if required
+  // Determine state purity if required (fail-closed if snapshots are missing)
   let statePurityPassed = true;
-  if (scenario.expectedMode === "answer" && beforeState && afterState) {
-    statePurityPassed = verifyStatePurity(beforeState, afterState);
-    if (!statePurityPassed) {
-      failures.push("state_mutation_detected: read-only scenario mutated database state");
+  if (hidden.expectedMode === "answer") {
+    if (!beforeState || !afterState) {
+      statePurityPassed = false;
+      failures.push("状态读取失败: 无法获取工作区前后状态以校验数据一致性");
+    } else {
+      statePurityPassed = verifyStatePurity(beforeState, afterState);
+      if (!statePurityPassed) {
+        failures.push("状态更新越权: 只读模式场景意外修改了数据库状态");
+      }
     }
   }
 
   const outcomePassed = terminalCompleted && missingEvidence.length === 0 && anyEvidencePassed && statePurityPassed;
   if (!terminalCompleted) {
-    failures.push(`terminal_status_failed: got ${obs.terminalStatus}`);
+    failures.push(`终端状态错误: 实际为 ${obs.terminalStatus}`);
   }
   if (missingEvidence.length > 0) {
-    failures.push(`missing_required_evidence: ${missingEvidence.join(", ")}`);
+    failures.push(`缺少必要执行证据: ${missingEvidence.join(", ")}`);
   }
   if (!anyEvidencePassed) {
-    failures.push(`missing_any_required_evidence: expected one of ${requiredAnyEvidence.join(", ")}`);
+    failures.push(`缺少任意必要执行证据: 期望其中之一为 ${requiredAnyEvidence.join(", ")}`);
   }
 
   // 3. Latency Check
-  const latencyPassed = obs.latencyMs <= scenario.maxLatencyMs;
+  const latencyPassed = obs.latencyMs <= hidden.maxLatencyMs;
   if (!latencyPassed) {
-    failures.push(`latency_exceeded: took ${obs.latencyMs}ms, max allowed is ${scenario.maxLatencyMs}ms`);
+    failures.push(`延迟超预算: 实际耗时 ${obs.latencyMs}ms，最大允许为 ${hidden.maxLatencyMs}ms`);
   }
 
   // 4. Privacy Check
   let privacyPassed = true;
-  if (scenario.forbidRawIds && beforeState && containsRawId(obs.output, beforeState)) {
-    privacyPassed = false;
-    failures.push("privacy_leak: output contains raw identifiers");
+  if (hidden.forbidRawIds) {
+    if (!beforeState) {
+      privacyPassed = false;
+      failures.push("隐私校验失败: 缺少前置工作区状态，无法校验原始标识符");
+    } else if (containsRawId(obs.output, beforeState)) {
+      privacyPassed = false;
+      failures.push("隐私泄露风险: 输出文本中包含了原始标识符(UUID/Secret)");
+    }
   }
 
   // Forbidden output patterns
-  const forbiddenPatterns = scenario.forbiddenOutputPatterns ?? [];
+  const forbiddenPatterns = hidden.forbiddenOutputPatterns ?? [];
   for (const pat of forbiddenPatterns) {
     const rx = new RegExp(pat, "i");
     if (rx.test(obs.output)) {
       privacyPassed = false;
-      failures.push(`forbidden_content_matched: output matched pattern /${pat}/i`);
+      failures.push(`包含禁止生成文本: 输出内容匹配了禁用模式 /${pat}/i`);
     }
+  }
+
+  // 5. Cost Budget Check
+  if (obs.cost !== undefined && obs.cost > 0.10) {
+    failures.push(`超预算: 场景运行成本超过单次 $0.10 美元的上限门槛 (当前成本: $${obs.cost})`);
   }
 
   return {
     schemaVersion: 1,
     scenarioId: scenario.scenarioId,
-    passed: routingPassed && outcomePassed && latencyPassed && privacyPassed,
+    passed: routingPassed && outcomePassed && latencyPassed && privacyPassed && (obs.cost === undefined || obs.cost <= 0.10),
     routingPassed,
     outcomePassed,
     latencyPassed,

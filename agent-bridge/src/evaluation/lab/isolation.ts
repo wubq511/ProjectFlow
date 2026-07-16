@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdtemp, rm, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -37,6 +37,7 @@ export class IsolatedProcessPair {
 
     this.tempRoot = await mkdtemp(join(tmpdir(), "projectflow-eval-"));
     await mkdir(join(this.tempRoot, "uploads"), { recursive: true });
+    await writeFile(join(this.tempRoot, ".evaluator-ownership-marker"), this.nonce, "utf-8");
 
     this.backendPort = await findFreePort();
     this.sidecarPort = await findFreePort();
@@ -115,10 +116,12 @@ export class IsolatedProcessPair {
         throw new Error("One of the processes exited early");
       }
       try {
-        const res = await fetch(url);
+        const res = await fetch(url, {
+          headers: { "X-Evaluation-Nonce": this.nonce },
+        });
         if (res.ok) {
           const data = await res.json() as any;
-          if (data && data.evaluation_nonce === this.nonce && data.app_env === "evaluation") {
+          if (data && data.app_env === "evaluation") {
             return;
           }
         }
@@ -142,8 +145,8 @@ export class IsolatedProcessPair {
     if (this.tempRoot) {
       try {
         await rm(this.tempRoot, { recursive: true, force: true });
-      } catch {
-        // ignore cleanup error
+      } catch (err: any) {
+        console.warn(`[isolation] 清理临时目录失败 ${this.tempRoot}: ${err?.message || err}`);
       }
     }
   }

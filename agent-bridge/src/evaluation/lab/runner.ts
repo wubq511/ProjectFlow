@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { mkdir, writeFile, readFile, readdir } from "node:fs/promises";
+import { mkdir, writeFile, readFile, readdir, rename } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { IsolatedProcessPair } from "./isolation.js";
 import { provisionObservationFixture } from "../fixture-provisioner.js";
@@ -12,6 +12,14 @@ const DEFAULT_WORKSPACE_ID = "demo-workspace-001";
 const DEFAULT_PROJECT_ID = "demo-project-001";
 const DEFAULT_VIEWER_USER_ID = "demo-user-001";
 
+const MAX_BUDGET_USD = 0.10;
+
+async function writeJsonAtomic(path: string, data: any): Promise<void> {
+  const tempPath = `${path}.tmp`;
+  await writeFile(tempPath, JSON.stringify(data, null, 2), "utf-8");
+  await rename(tempPath, path);
+}
+
 export async function runEvaluation(options: {
   projectRoot: string;
   runId: string;
@@ -21,6 +29,12 @@ export async function runEvaluation(options: {
   onProgress?: (scenarioId: string, status: "started" | "completed", result?: { observation: ScenarioObservation; grade: Grade }) => void;
 }): Promise<EvaluationArtifact> {
   const { projectRoot, runId, model, scenarios, resume, onProgress } = options;
+
+  // Validate runId to prevent path traversal escape (P1)
+  if (!/^[a-zA-Z0-9_\-]+$/.test(runId)) {
+    throw new Error(`运行 ID 格式无效: "${runId}"。仅允许字母、数字、下划线和连字符`);
+  }
+
   const artifactsDir = resolve(projectRoot, "agent-bridge/artifacts", runId);
   await mkdir(join(artifactsDir, "observations"), { recursive: true });
   await mkdir(join(artifactsDir, "grades"), { recursive: true });
@@ -29,7 +43,28 @@ export async function runEvaluation(options: {
   let manifest: RunManifest;
 
   if (resume && existsSync(manifestPath)) {
-    manifest = JSON.parse(await readFile(manifestPath, "utf-8")) as RunManifest;
+    try {
+      const manifestRaw = await readFile(manifestPath, "utf-8");
+      manifest = JSON.parse(manifestRaw) as RunManifest;
+
+      // P0: Verify resume parameters match exactly
+      if (manifest.model !== model) {
+        throw new Error(`模型配置不匹配: 缓存记录为 "${manifest.model}"，当前期望为 "${model}"`);
+      }
+      if (manifest.scenarios.length !== scenarios.length) {
+        throw new Error(`场景数量不匹配: 缓存记录为 ${manifest.scenarios.length}，当前期望为 ${scenarios.length}`);
+      }
+      for (let i = 0; i < scenarios.length; i++) {
+        const manifestScen = manifest.scenarios[i];
+        const currentScen = scenarios[i];
+        if (!manifestScen || !currentScen || manifestScen.scenarioId !== currentScen.scenarioId) {
+          throw new Error(`场景 ID 不匹配: 缓存记录为 "${manifestScen?.scenarioId}"，当前期望为 "${currentScen?.scenarioId}"`);
+        }
+      }
+    } catch (err: any) {
+      console.error(`[runner] 无法恢复评测，因为缓存验证失败: ${err?.message || err}`);
+      throw new Error(`无法恢复评测: ${err?.message || err}`);
+    }
   } else {
     manifest = {
       schemaVersion: 1,
@@ -38,7 +73,7 @@ export async function runEvaluation(options: {
       timestamp: new Date().toISOString(),
       scenarios,
     };
-    await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
+    await writeJsonAtomic(manifestPath, manifest);
   }
 
   const observations: ScenarioObservation[] = [];
@@ -48,6 +83,7 @@ export async function runEvaluation(options: {
   // Load existing observations if resuming
   const existingObsMap = new Map<string, ScenarioObservation>();
   const existingGradeMap = new Map<string, Grade>();
+  let cumulativeCost = 0;
 
   if (resume) {
     try {
@@ -56,7 +92,11 @@ export async function runEvaluation(options: {
         if (!file.endsWith(".json")) continue;
         const scenarioId = file.replace(".json", "");
         const content = await readFile(join(artifactsDir, "observations", file), "utf-8");
-        existingObsMap.set(scenarioId, JSON.parse(content));
+        const obsObj = JSON.parse(content) as ScenarioObservation;
+        existingObsMap.set(scenarioId, obsObj);
+        if (obsObj.cost) {
+          cumulativeCost += obsObj.cost;
+        }
       }
       const gradeFiles = await readdir(join(artifactsDir, "grades"));
       for (const file of gradeFiles) {
@@ -65,8 +105,10 @@ export async function runEvaluation(options: {
         const content = await readFile(join(artifactsDir, "grades", file), "utf-8");
         existingGradeMap.set(scenarioId, JSON.parse(content));
       }
-    } catch {
-      // ignore read errors
+    } catch (err: any) {
+      console.warn(`[runner] 读取已存在的结果缓存时发生警告: ${err?.message || err}`);
+      // P1: Raise error instead of silently ignoring corrupted files
+      throw new Error(`读取运行缓存失败: ${err?.message || err}`);
     }
   }
 
@@ -81,6 +123,11 @@ export async function runEvaluation(options: {
         onProgress(scenario.scenarioId, "completed", { observation: obs, grade: gr });
       }
       continue;
+    }
+
+    // P0 Budget check before running
+    if (cumulativeCost > MAX_BUDGET_USD) {
+      throw new Error(`评测已终止: 累计消耗成本 $${cumulativeCost.toFixed(4)} USD 已超出 $${MAX_BUDGET_USD} 上限门槛`);
     }
 
     if (onProgress) {
@@ -102,12 +149,7 @@ export async function runEvaluation(options: {
       };
 
       const identity = await provisionObservationFixture(provisionConfig);
-
-      // Fetch beforeWorkspaceState
-      const beforeStateRes = await fetch(`${pair.backendUrl}/api/workspaces/${DEFAULT_WORKSPACE_ID}/state`, {
-        headers: { "X-ProjectFlow-Admin-Token": pair.adminToken },
-      });
-      const beforeState = beforeStateRes.ok ? await beforeStateRes.json() : null;
+      const beforeState = identity.workspaceState;
 
       // Run SUT
       const httpRunner = createHttpPublicSeamRunner({
@@ -118,14 +160,14 @@ export async function runEvaluation(options: {
       // Map scenario contract to SUT AgentScenario shape
       const sutScenario = {
         id: scenario.scenarioId,
-        prompt: scenario.prompt,
-        expectedMode: scenario.expectedMode,
-        expectedSkill: scenario.expectedSkill,
-        requiredEvidence: scenario.requiredEvidence ?? [],
-        requiredAnyEvidence: scenario.requiredAnyEvidence ?? [],
-        forbiddenOutputPatterns: (scenario.forbiddenOutputPatterns ?? []).map((pat) => new RegExp(pat, "i")),
-        forbidRawIds: scenario.forbidRawIds,
-        maxLatencyMs: scenario.maxLatencyMs,
+        prompt: scenario.visible.prompt,
+        expectedMode: scenario.hidden.expectedMode,
+        expectedSkill: scenario.hidden.expectedSkill,
+        requiredEvidence: scenario.hidden.requiredEvidence ?? [],
+        requiredAnyEvidence: scenario.hidden.requiredAnyEvidence ?? [],
+        forbiddenOutputPatterns: (scenario.hidden.forbiddenOutputPatterns ?? []).map((pat) => new RegExp(pat, "i")),
+        forbidRawIds: scenario.hidden.forbidRawIds,
+        maxLatencyMs: scenario.hidden.maxLatencyMs,
       };
 
       const obsResult = await httpRunner(sutScenario, model);
@@ -134,7 +176,10 @@ export async function runEvaluation(options: {
       const afterStateRes = await fetch(`${pair.backendUrl}/api/workspaces/${DEFAULT_WORKSPACE_ID}/state`, {
         headers: { "X-ProjectFlow-Admin-Token": pair.adminToken },
       });
-      const afterState = afterStateRes.ok ? await afterStateRes.json() : null;
+      if (!afterStateRes.ok) {
+        throw new Error(`获取运行后工作区状态失败: HTTP ${afterStateRes.status}`);
+      }
+      const afterState = await afterStateRes.json() as Record<string, unknown>;
 
       const finalObs: ScenarioObservation = {
         schemaVersion: 1,
@@ -154,19 +199,22 @@ export async function runEvaluation(options: {
         output: obsResult.output ?? "",
       };
 
+      // Add to cumulative cost tracking
+      if (finalObs.cost) {
+        cumulativeCost += finalObs.cost;
+      }
+
       // Grade the result
       const grade = gradeObservation(scenario, finalObs, beforeState, afterState);
 
       // Save observations and grades atomically to enable resume
-      await writeFile(
+      await writeJsonAtomic(
         join(artifactsDir, "observations", `${scenario.scenarioId}.json`),
-        JSON.stringify(finalObs, null, 2),
-        "utf-8"
+        finalObs
       );
-      await writeFile(
+      await writeJsonAtomic(
         join(artifactsDir, "grades", `${scenario.scenarioId}.json`),
-        JSON.stringify(grade, null, 2),
-        "utf-8"
+        grade
       );
 
       observations.push(finalObs);
@@ -176,8 +224,8 @@ export async function runEvaluation(options: {
         onProgress(scenario.scenarioId, "completed", { observation: finalObs, grade });
       }
     } catch (err: any) {
-      console.error(`Error running scenario ${scenario.scenarioId}:`, err);
-      // Create a failed/blocked observation and grade
+      console.error(`运行场景 ${scenario.scenarioId} 发生错误:`, err);
+
       const finalObs: ScenarioObservation = {
         schemaVersion: 1,
         scenarioId: scenario.scenarioId,
@@ -189,8 +237,9 @@ export async function runEvaluation(options: {
         latencyMs: 0,
         inputTokens: 0,
         outputTokens: 0,
-        output: `Error during execution: ${err?.message || String(err)}`,
+        output: `执行期间异常: ${err?.message || String(err)}`,
       };
+
       const grade: Grade = {
         schemaVersion: 1,
         scenarioId: scenario.scenarioId,
@@ -199,21 +248,21 @@ export async function runEvaluation(options: {
         outcomePassed: false,
         latencyPassed: false,
         privacyPassed: false,
-        failures: [`Execution error: ${err?.message || String(err)}`],
+        failures: [`执行期发生未捕获异常: ${err?.message || String(err)}`],
       };
-      // Save observations and grades atomically to enable resume
-      await writeFile(
+
+      await writeJsonAtomic(
         join(artifactsDir, "observations", `${scenario.scenarioId}.json`),
-        JSON.stringify(finalObs, null, 2),
-        "utf-8"
+        finalObs
       );
-      await writeFile(
+      await writeJsonAtomic(
         join(artifactsDir, "grades", `${scenario.scenarioId}.json`),
-        JSON.stringify(grade, null, 2),
-        "utf-8"
+        grade
       );
+
       observations.push(finalObs);
       grades.push(grade);
+
       if (onProgress) {
         onProgress(scenario.scenarioId, "completed", { observation: finalObs, grade });
       }
@@ -247,7 +296,7 @@ export async function runEvaluation(options: {
   };
 
   const reportPath = join(artifactsDir, "report.json");
-  await writeFile(reportPath, JSON.stringify(artifact, null, 2), "utf-8");
+  await writeJsonAtomic(reportPath, artifact);
 
   return artifact;
 }

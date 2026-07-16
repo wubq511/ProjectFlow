@@ -1,21 +1,11 @@
-"""File upload endpoint — accepts multipart/form-data and saves to disk."""
-
 import logging
 import os
-import shutil
-import uuid
 
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
+from app.services.resource_service import save_uploaded_file
 
 logger = logging.getLogger(__name__)
-
-from app.core.config import settings
-
-def get_upload_dir() -> str:
-    d = settings.resolved_upload_dir
-    os.makedirs(d, exist_ok=True)
-    return d
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".txt", ".md", ".csv", ".xlsx", ".pptx", ".zip"}
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -30,9 +20,9 @@ class UploadResponse(BaseModel):
 
 @router.post("/uploads", response_model=UploadResponse)
 async def api_upload_file(file: UploadFile):
-    """Upload a file. Returns the server-side file ID for storage as a resource reference."""
+    """上传文件。返回服务器端文件 ID，用于作为资源引用存储。"""
     if not file.filename:
-        raise HTTPException(status_code=400, detail="文件名为空")
+        raise HTTPException(status_code=400, detail="文件名不能为空")
 
     # Validate extension against whitelist
     ext = os.path.splitext(file.filename)[1].lower()
@@ -47,19 +37,14 @@ async def api_upload_file(file: UploadFile):
     # Reset file position after size check
     await file.seek(0)
 
-    # Generate unique filename, preserve original extension
-    unique_name = f"{uuid.uuid4().hex}{ext}"
-    saved_path = os.path.join(get_upload_dir(), unique_name)
-
     try:
-        with open(saved_path, "wb") as f:
-            shutil.copyfileobj(file.file, f, length=64 * 1024)
+        file_id = save_uploaded_file(file)
     except Exception:
         logger.exception("Failed to save uploaded file")
         raise HTTPException(status_code=500, detail="保存文件失败，请稍后重试") from None
 
-    logger.info("File uploaded: %s -> %s", file.filename, unique_name)
+    logger.info("File uploaded: %s -> %s", file.filename, file_id)
     return UploadResponse(
-        file_id=unique_name,
+        file_id=file_id,
         original_name=file.filename,
     )

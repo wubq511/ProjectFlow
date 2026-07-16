@@ -27,10 +27,14 @@ describe("Evaluation Lab - Contracts & Grader", () => {
     const scenario: ScenarioContract = {
       schemaVersion: 1,
       scenarioId: "test-scen",
-      prompt: "test prompt",
-      expectedMode: "answer",
-      maxLatencyMs: 5000,
-      forbidRawIds: true,
+      visible: {
+        prompt: "test prompt",
+      },
+      hidden: {
+        expectedMode: "answer",
+        maxLatencyMs: 5000,
+        forbidRawIds: true,
+      },
     };
 
     const goodObs: ScenarioObservation = {
@@ -58,7 +62,7 @@ describe("Evaluation Lab - Contracts & Grader", () => {
     };
     const badGrade = gradeObservation(scenario, badObs, state, state);
     expect(badGrade.passed).toBe(false);
-    expect(badGrade.failures.join("")).toContain("routing_mismatch");
+    expect(badGrade.failures.join("")).toContain("路由不匹配");
   });
 });
 
@@ -82,20 +86,57 @@ describe("Evaluation Lab - IsolatedProcessPair Integration", () => {
       expect(pair.backendPort).toBeGreaterThan(0);
       expect(pair.sidecarPort).toBeGreaterThan(0);
 
-      // Verify health check response
-      const res = await fetch(`${pair.backendUrl}/api/health`);
+      // Verify health check response requires correct header
+      const res403 = await fetch(`${pair.backendUrl}/api/health`);
+      expect(res403.status).toBe(403);
+
+      const res = await fetch(`${pair.backendUrl}/api/health`, {
+        headers: { "X-Evaluation-Nonce": pair.nonce },
+      });
       expect(res.ok).toBe(true);
       const data = await res.json() as any;
-      expect(data.evaluation_nonce).toBe(pair.nonce);
       expect(data.app_env).toBe("evaluation");
       
-      const sidecarRes = await fetch(`${pair.sidecarUrl}/health`);
+      const sidecarRes = await fetch(`${pair.sidecarUrl}/health`, {
+        headers: { "X-Evaluation-Nonce": pair.nonce },
+      });
       expect(sidecarRes.ok).toBe(true);
       const sidecarData = await sidecarRes.json() as any;
-      expect(sidecarData.evaluation_nonce).toBe(pair.nonce);
       expect(sidecarData.app_env).toBe("evaluation");
     } finally {
       await pair.destroy();
     }
-  }, 25000); // 25s timeout for process spawning
+  }, 25000);
+});
+
+describe("Evaluation Lab - End-to-End runEvaluation", () => {
+  it("runs runEvaluation successfully end-to-end with smoke scenario", async () => {
+    const projectRoot = resolve(import.meta.dirname ?? process.cwd(), "../../../");
+    const runId = `test_run_${Date.now()}`;
+    const scenarios: ScenarioContract[] = [
+      {
+        schemaVersion: 1,
+        scenarioId: "answer-no-tool",
+        visible: {
+          prompt: "解释当前项目下一步为什么重要，不要修改任何内容",
+        },
+        hidden: {
+          expectedMode: "answer",
+          maxLatencyMs: 30000,
+        },
+      },
+    ];
+
+    const report = await runEvaluation({
+      projectRoot,
+      runId,
+      model: "mock:mock-model",
+      scenarios,
+      resume: false,
+    });
+
+    expect(report.summary.passedCount).toBe(1);
+    expect(report.summary.failedCount).toBe(0);
+    expect(report.grades[0].passed).toBe(true);
+  }, 25000);
 });

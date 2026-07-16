@@ -22,40 +22,56 @@ def require_demo_admin_access(
 
     if settings.app_env == "evaluation":
         import os
+
+        def is_contained_in(path: str, parent: str) -> bool:
+            abs_path = os.path.realpath(path)
+            abs_parent = os.path.realpath(parent)
+            return abs_path == abs_parent or abs_path.startswith(abs_parent + os.sep)
+
         # 1. Nonce check
         expected_nonce = os.environ.get("EVALUATION_NONCE")
         if not expected_nonce or x_evaluation_nonce != expected_nonce:
-            raise HTTPException(status_code=403, detail="Evaluation nonce mismatch")
+            raise HTTPException(status_code=403, detail="评估 Nonce 不匹配")
 
         # 2. Temp root containment check
         temp_root = os.environ.get("EVALUATION_TEMP_ROOT")
         if not temp_root:
-            raise HTTPException(status_code=403, detail="EVALUATION_TEMP_ROOT not set")
+            raise HTTPException(status_code=403, detail="未设置 EVALUATION_TEMP_ROOT 环境变量")
         temp_root_abs = os.path.realpath(temp_root)
+
+        # 3. Ownership marker check
+        marker_path = os.path.join(temp_root_abs, ".evaluator-ownership-marker")
+        if not os.path.isfile(marker_path):
+            raise HTTPException(status_code=403, detail="缺少评估所有权标记文件")
+        try:
+            with open(marker_path, "r", encoding="utf-8") as f:
+                marker_nonce = f.read().strip()
+        except OSError:
+            raise HTTPException(status_code=403, detail="读取评估所有权标记文件失败")
+        if marker_nonce != expected_nonce:
+            raise HTTPException(status_code=403, detail="评估所有权标记不匹配")
 
         # Verify database path is sqlite and resolved path is inside temp_root_abs
         db_url = settings.database_url
         if not db_url.startswith("sqlite"):
-            raise HTTPException(status_code=403, detail="Evaluation requires SQLite database")
+            raise HTTPException(status_code=403, detail="评估环境必须使用 SQLite 数据库")
         
         db_path = db_url.removeprefix("sqlite:///")
-        db_abs_path = os.path.realpath(db_path)
-        if not db_abs_path.startswith(temp_root_abs + os.sep):
-            raise HTTPException(status_code=403, detail="Database path outside temporary root")
+        if not is_contained_in(db_path, temp_root_abs):
+            raise HTTPException(status_code=403, detail="数据库路径超出评估临时根目录限制")
 
         # Verify upload directory path is inside temp_root_abs
-        upload_dir_abs = os.path.realpath(settings.resolved_upload_dir)
-        if not upload_dir_abs.startswith(temp_root_abs + os.sep):
-            raise HTTPException(status_code=403, detail="Upload directory path outside temporary root")
+        if not is_contained_in(settings.resolved_upload_dir, temp_root_abs):
+            raise HTTPException(status_code=403, detail="上传目录路径超出评估临时根目录限制")
 
     expected_token = settings.demo_admin_token.get_secret_value() if settings.demo_admin_token else None
     if not expected_token:
         raise HTTPException(
             status_code=403,
-            detail="Demo admin endpoints are disabled outside development",
+            detail="演示管理员接口在开发环境之外已禁用",
         )
     if x_projectflow_admin_token != expected_token:
-        raise HTTPException(status_code=403, detail="Demo admin token required")
+        raise HTTPException(status_code=403, detail="需要演示管理员 Token")
 
 
 def require_internal_service_access(

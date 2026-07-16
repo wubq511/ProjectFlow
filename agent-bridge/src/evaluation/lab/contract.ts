@@ -5,16 +5,20 @@
 export interface ScenarioContract {
   schemaVersion: 1;
   scenarioId: string;
-  prompt: string;
-  expectedMode: "answer" | "action";
-  expectedSkill?: string;
-  requiredEvidence?: string[];
-  requiredAnyEvidence?: string[];
-  forbiddenOutputPatterns?: string[]; // Regex patterns as strings
-  forbidRawIds?: boolean;
-  maxLatencyMs: number;
-  fixtureName?: string;
-  goalState?: Record<string, unknown>;
+  visible: {
+    prompt: string;
+  };
+  hidden: {
+    expectedMode: "answer" | "action";
+    expectedSkill?: string;
+    requiredEvidence?: string[];
+    requiredAnyEvidence?: string[];
+    forbiddenOutputPatterns?: string[]; // Regex patterns as strings
+    forbidRawIds?: boolean;
+    maxLatencyMs: number;
+    fixtureName?: string;
+    goalState?: Record<string, unknown>;
+  };
 }
 
 export interface RunManifest {
