@@ -341,6 +341,31 @@ export function AgentSidebar({
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
   const [clearedForRunId, setClearedForRunId] = useState<string | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+
+  /** Track whether the user is near the bottom of the scroll area. */
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }, []);
+
+  /** Scroll to bottom if user is near the bottom. Shared by reveal progress,
+   *  streamTurn activity updates, and conversation/message switches. */
+  const scrollToBottomIfNear = useCallback(() => {
+    if (!isNearBottomRef.current) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
+
+  /** Auto-scroll when streamTurn activity/execution updates arrive via SSE. */
+  const streamActivities = streamTurn?.activities;
+  useEffect(() => {
+    if (!streamActivities || streamActivities.length === 0) return;
+    scrollToBottomIfNear();
+  }, [streamActivities, scrollToBottomIfNear]);
 
   // Clear draft when a run starts so old text isn't accidentally sent as steering.
   // Using render-phase state adjustment to avoid setState-in-effect.
@@ -482,6 +507,12 @@ export function AgentSidebar({
 
     return entries.sort((a, b) => a.sortAt - b.sortAt);
   }, [archivedStreamTurns, messages]);
+
+  /** Scroll to bottom on new conversation or new message arrival. */
+  useEffect(() => {
+    scrollToBottomIfNear();
+  }, [timelineEntries.length, conversation?.id, scrollToBottomIfNear]);
+
   const normalizedSuggestions = normalizeSuggestions(conversationSuggestions);
   const suggestions = normalizedSuggestions.length > 0 ? normalizedSuggestions : inferStructuredSuggestions(focus);
 
@@ -812,9 +843,11 @@ export function AgentSidebar({
         )}
       </div>
 
-      <div id="agent-sidebar-content" className="flex-1 overflow-y-auto custom-scrollbar">
+      <div id="agent-sidebar-content" className="flex flex-1 min-h-0 flex-col">
         {isExpanded && (
-        <div className="transition-all duration-200 overflow-hidden p-3">
+        <>
+        <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+          <div className="transition-all duration-200 overflow-hidden p-3">
               {!hasProject && (
                 <div className="mb-4 space-y-4">
                   <div className="rounded-md border border-neutral-200 bg-white p-4 text-center dark:border-neutral-700 dark:bg-neutral-900">
@@ -932,6 +965,7 @@ export function AgentSidebar({
                           streamTurn={entry.turn}
                           onRetry={pendingConversationInstruction ? () => void submitMessage(pendingConversationInstruction) : undefined}
                           onAction={(instruction) => void submitMessage(instruction)}
+                          onRevealProgress={scrollToBottomIfNear}
                         />
                       ))}
 
@@ -974,6 +1008,7 @@ export function AgentSidebar({
                       {streamTurn?.userMessage && streamTurn.status !== "idle" && (
                         <ChatMessage
                           message={streamTurn.userMessage}
+                          onRevealProgress={scrollToBottomIfNear}
                         />
                       )}
                       {/* Fallback: pending user message when turn not yet created */}
@@ -987,6 +1022,7 @@ export function AgentSidebar({
                             structured_payload: {},
                             created_at: new Date().toISOString(),
                           }}
+                          onRevealProgress={scrollToBottomIfNear}
                         />
                       )}
 
@@ -1007,11 +1043,12 @@ export function AgentSidebar({
                           isLast={true}
                           streamTurn={streamTurn}
                           onToggleThinking={onToggleThinking}
+                          onRevealProgress={scrollToBottomIfNear}
                         />
                       )}
                     </div>
 
-                    {streamStatus && <AgentStepIndicator status={streamStatus} executionSteps={streamTurn?.executionSteps} />}
+                    {/* AgentStepIndicator removed — process timeline is now inside RunActivity in ChatMessage */}
                     {pendingConversation && !streamStatus && <AgentRunStatusCard />}
 
                     {/* ARIA completion announcement — visual:hidden, one-time per turn */}
@@ -1028,27 +1065,6 @@ export function AgentSidebar({
                         onRetry={pendingConversationInstruction ? () => void submitMessage(pendingConversationInstruction) : undefined}
                       />
                     )}
-
-                    {/* Next Step Recommendations removed */}
-
-                    <div className="mt-3" data-tour="composer">
-                      <ChatComposer
-                        value={draft}
-                        onChange={setDraft}
-                        onSubmit={(text) => void submitMessage(text)}
-                        onSlashSubmit={handleSlashSubmit}
-                        disabled={Boolean(pendingConversation)}
-                        isStreaming={Boolean(streamTurn && streamTurn.status !== "idle" && streamTurn.status !== "completed" && streamTurn.status !== "failed" && streamTurn.status !== "cancelled" && streamTurn.status !== "disconnected")}
-                        isRunning={isRunning}
-                        onSendSteering={handleSendSteering}
-                        onCancelRun={handleCancelRun}
-                        modelConfigs={modelConfigs}
-                        selectedModelId={selectedModelId}
-                        onModelChange={handleModelChange}
-                        thinkingLevel={thinkingLevel}
-                        onThinkingLevelChange={setThinkingLevel}
-                      />
-                    </div>
                   </div>
                 </div>
               )}
@@ -1075,7 +1091,31 @@ export function AgentSidebar({
                 </motion.div>
               )}
 
+          </div>
         </div>
+
+        {/* Composer: fixed at bottom, outside scroll area */}
+        {hasProject && (
+          <div className="shrink-0 border-t border-neutral-100 bg-bg-sidebar p-3 dark:border-neutral-800" data-tour="composer">
+            <ChatComposer
+              value={draft}
+              onChange={setDraft}
+              onSubmit={(text) => void submitMessage(text)}
+              onSlashSubmit={handleSlashSubmit}
+              disabled={Boolean(pendingConversation)}
+              isStreaming={Boolean(streamTurn && streamTurn.status !== "idle" && streamTurn.status !== "completed" && streamTurn.status !== "failed" && streamTurn.status !== "cancelled" && streamTurn.status !== "disconnected")}
+              isRunning={isRunning}
+              onSendSteering={handleSendSteering}
+              onCancelRun={handleCancelRun}
+              modelConfigs={modelConfigs}
+              selectedModelId={selectedModelId}
+              onModelChange={handleModelChange}
+              thinkingLevel={thinkingLevel}
+              onThinkingLevelChange={setThinkingLevel}
+            />
+          </div>
+        )}
+        </>
         )}
 
         {!isExpanded && hasProject && (

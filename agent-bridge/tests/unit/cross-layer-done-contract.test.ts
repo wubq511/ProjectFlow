@@ -13,8 +13,6 @@ describe("cross-layer done contract: sidecar payload structure", () => {
       "run-1",
       "我已经为你生成了阶段规划提案，请查看并确认。",
       new Map([["1:0", "让我分析一下项目状态..."], ["2:0", "根据项目状态，我需要生成阶段规划..."]]),
-      new Map([["3:1", "我已经为你生成了阶段规划提案，请查看并确认。"]]),
-      "fallback content",
       [],
     );
     expect(JSON.parse(JSON.stringify(payload))).toEqual(fixtureDone);
@@ -51,9 +49,7 @@ describe("cross-layer done contract: sidecar payload structure", () => {
       "run-minimal",
       "直接回答",
       new Map(),
-      new Map([["0:1", "直接回答"]]),
-      "",
-      []
+      [],
     );
     expect(payload.run_id).toBe("run-minimal");
     expect(payload.status).toBe("completed");

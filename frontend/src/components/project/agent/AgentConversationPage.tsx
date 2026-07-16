@@ -266,6 +266,7 @@ export function AgentConversationPage({
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const isNearBottomRef = useRef(true);
 
   // Load model configs from sidecar on mount
   useEffect(() => {
@@ -550,9 +551,18 @@ export function AgentConversationPage({
     const el = scrollContainerRef.current;
     if (!el) return;
     // Show button if user scrolls up by more than 150px
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
-    setShowScrollBottom(!isNearBottom);
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    isNearBottomRef.current = nearBottom;
+    setShowScrollBottom(!nearBottom);
   };
+
+  /** Auto-scroll during StreamingText RAF reveal when user is near bottom. */
+  const handleRevealProgress = useCallback(() => {
+    if (!isNearBottomRef.current) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
 
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     const el = scrollContainerRef.current;
@@ -750,6 +760,7 @@ export function AgentConversationPage({
                   streamTurn={entry.turn}
                   onRetry={pendingConversationInstruction ? () => void submitMessage(pendingConversationInstruction) : undefined}
                   onAction={(instruction) => void submitMessage(instruction)}
+                  onRevealProgress={handleRevealProgress}
                 />
               ))}
 
@@ -783,7 +794,7 @@ export function AgentConversationPage({
 
               {/* Optimistic User message */}
               {streamTurn?.userMessage && streamTurn.status !== "idle" && (
-                <ChatMessage message={streamTurn.userMessage} />
+                <ChatMessage message={streamTurn.userMessage} onRevealProgress={handleRevealProgress} />
               )}
               {pendingConversationInstruction && !streamTurn?.userMessage && (
                 <ChatMessage
@@ -795,6 +806,7 @@ export function AgentConversationPage({
                     structured_payload: {},
                     created_at: new Date().toISOString(),
                   }}
+                  onRevealProgress={handleRevealProgress}
                 />
               )}
 
@@ -817,11 +829,12 @@ export function AgentConversationPage({
                   isLast={true}
                   streamTurn={streamTurn}
                   onToggleThinking={onToggleThinking}
+                  onRevealProgress={handleRevealProgress}
                 />
               )}
             </div>
 
-            {streamStatus && <AgentStepIndicator status={streamStatus} executionSteps={streamTurn?.executionSteps} />}
+            {/* AgentStepIndicator removed — process timeline is now inside RunActivity in ChatMessage */}
             {pendingConversation && !streamStatus && <AgentRunStatusCard />}
 
             {/* ARIA Live status announcements */}

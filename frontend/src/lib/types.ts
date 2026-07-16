@@ -770,6 +770,12 @@ export type AgentStreamTurn = {
   processCompletedAt: string | null;
   processDurationMs: number;
   streamSequence: number;
+  /** Whether process_completed has triggered the one-time auto-collapse. */
+  processAutoCollapsed: boolean;
+  /** Whether the process timeline is currently expanded (user can toggle). */
+  processExpanded: boolean;
+  /** Answer content accumulated from answer_delta events. */
+  answerBuffer: string;
 };
 
 export type ArchivedAgentStreamTurn = {

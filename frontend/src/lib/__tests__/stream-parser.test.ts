@@ -80,7 +80,9 @@ describe("stream parser → reducer connectivity", () => {
       { kind: "text", phase: "delta", content_index: 1, message_seq: 3, content: "已生成提案" },
       { kind: "text", phase: "end", content_index: 1, message_seq: 3 },
     ]);
-    expect(state.status).toBe("answering");
+    // TEXT_START/TEXT_DELTA no longer transition to answering — only ANSWER_STARTED does.
+    // Status remains "executing" (from last tool) until ANSWER_STARTED.
+    expect(state.status).not.toBe("answering");
     expect(state.thinkingOpen).toBe(false);
 
     state = streamTurnReducer(state, { type: "DONE", finalContent: "已生成提案", thinkingContent: "分析中...生成规划...", executionSteps: state.executionSteps });

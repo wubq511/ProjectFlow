@@ -86,12 +86,80 @@ describe("start-run-stream production route", () => {
     const wire = response.chunks.join("");
     expect(response.statusCode).toBe(200);
     expect(response.ended).toBe(true);
-    expect(wire).toContain("event: content");
-    expect(wire).toContain('"kind":"thinking"');
-    expect(wire).toContain('"kind":"text"');
+    // Fix 2: thinking events do NOT emit content SSE (aggregated server-side only)
+    expect(wire).not.toContain('"kind":"thinking"');
+    // Text events are NOT emitted as content — they go through projector
+    expect(wire).not.toContain('"kind":"text"');
+    // Tool lifecycle events
     expect(wire).toContain('"phase":"completed","tool_call_id":"get_project_state"');
+    // Answer comes via answer_delta (from projector), not content:text
+    expect(wire).toContain("event: answer_delta");
     expect(wire).toContain("event: done");
+    // thinking_content is still in the done payload (backward compat)
+    expect(wire).toContain('"thinking_content"');
     expect(wire).not.toContain("project_id=secret");
     expect(wire).not.toContain("message_start");
+  });
+
+  it("Fix 1: text A → flush → tool.started preserves commentary as progress activity", async () => {
+    const stream = new EventStream();
+    runtimeMock.implementation = async (...args) => {
+      const state = args[0];
+      const callbacks = args[7];
+      // Emit text commentary (simulates model commentary before tool call)
+      stream.emit("agent.delta", createEvent("agent.delta", state.runId, "running", {
+        delta_type: "text_delta", content_index: 0, content: "让我看看项目状态。",
+      }));
+      // Emit text_end (flushes sanitizer tail)
+      stream.emit("agent.delta", createEvent("agent.delta", state.runId, "running", {
+        delta_type: "text_end", content_index: 0,
+      }));
+      // Emit tool.started — should flush accumulated text as progress
+      stream.emit("tool.started", createEvent("tool.started", state.runId, "running", {
+        tool_name: "get_project_state", tool_call_id: "tc-1",
+      }));
+      stream.emit("tool.completed", createEvent("tool.completed", state.runId, "running", {
+        tool_name: "get_project_state", tool_call_id: "tc-1",
+      }));
+      stream.emit("run.completed", createEvent("run.completed", state.runId, "completed", {
+        final_content: "最终回答",
+      }));
+      callbacks.onComplete?.(state);
+      return state;
+    };
+
+    const request = {
+      bodyText: JSON.stringify({
+        conversation_id: "conversation-1",
+        workspace_id: "workspace-1",
+        project_id: "project-1",
+        user_content: "分析一下",
+      }),
+    };
+    const response = new FakeResponse();
+    const context = {
+      config: {
+        defaultModelProvider: "mock", defaultModelName: "mock-model",
+        defaults: { maxSteps: 8, maxToolCalls: 6, timeoutMs: 180000 },
+        traceIncludeSensitiveData: false,
+      },
+      fastapiClient: { startRun: vi.fn().mockResolvedValue({ run_id: "run-2" }) },
+      sessionStore: new SessionStore(),
+      stream,
+      toolRegistry: {}, modelRouter: {}, modelConfigStore: {}, dotenvWriter: {}, skillLoader: {},
+      reloadDotEnv: vi.fn(),
+    };
+
+    await handleStartRunStream(request as never, response as never, {}, context as never);
+
+    const wire = response.chunks.join("");
+    // The commentary text should appear in a progress activity (via process_delta)
+    expect(wire).toContain("让我看看项目状态。");
+    // progress activity was created
+    expect(wire).toContain('"kind":"progress"');
+    // Tool activity was also created
+    expect(wire).toContain('"kind":"tool"');
+    // Answer is isolated from commentary
+    expect(wire).toContain("event: answer_delta");
   });
 });

@@ -4,16 +4,16 @@ import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AgentConversationMessage, AgentStreamTurn, ExecutionStep } from "@/lib/types";
+import type { AgentConversationMessage, AgentStreamTurn } from "@/lib/types";
 import { SLASH_COMMANDS, type SlashCommandDef } from "@/components/project/project-actions";
 import { SlashCommandChip } from "./SlashCommandChip";
 import { MarkdownContent } from "./MarkdownContent";
 import { StreamingText } from "./StreamingText";
 import { MessageActions } from "./MessageActions";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
-import { executionStepStatusIcon } from "./stream-display";
 import { RunActivity } from "./RunActivity";
-import type { RunActivityItem } from "@/lib/types";
+import { executionStepStatusIcon } from "./stream-display";
+import type { RunActivityItem, ExecutionStep } from "@/lib/types";
 
 interface ChatMessageProps {
   message: AgentConversationMessage;
@@ -24,6 +24,8 @@ interface ChatMessageProps {
   /** Live streaming turn data — when present, render from turn state instead of persisted payload */
   streamTurn?: AgentStreamTurn | null;
   index?: number;
+  /** Throttled callback fired when StreamingText reveals new text. */
+  onRevealProgress?: () => void;
 }
 
 /**
@@ -53,38 +55,15 @@ export const ChatMessage = React.memo(function ChatMessage({
   onToggleThinking,
   streamTurn,
   index = 0,
+  onRevealProgress,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
-  const [thinkingOpen, setThinkingOpen] = useState(false);
-  const [stepsOpen, setStepsOpen] = useState(false);
+  const [persistedProcessOpen, setPersistedProcessOpen] = useState(false);
+  const [persistedStepsOpen, setPersistedStepsOpen] = useState(false);
 
   // When streamTurn is present, use live data; otherwise use persisted payload
   const isLive = !!streamTurn && streamTurn.status !== "idle";
   const isActivelyStreaming = isLive && !["completed", "failed", "cancelled", "disconnected"].includes(streamTurn!.status);
-
-  // Thinking content: live from turn blocks, or persisted from structured_payload
-  const thinkingContent = isLive
-    ? Object.values(streamTurn!.blocks)
-        .filter((b) => b.kind === "thinking")
-        .sort((a, b) => a.order - b.order)
-        .map((b) => b.content)
-        .join("")
-    : typeof message.structured_payload?.thinking_content === "string"
-      ? message.structured_payload.thinking_content
-      : "";
-  const hasThinking = thinkingContent.length > 0;
-
-  // Answer content: live from turn blocks, or persisted from message.content
-  const streamedAnswerContent = isLive
-    ? Object.values(streamTurn!.blocks)
-        .filter((b) => b.kind === "text")
-        .sort((a, b) => a.order - b.order)
-        .map((b) => b.content)
-        .join("")
-    : "";
-  const answerContent = isLive
-    ? streamTurn!.finalContent ?? (streamedAnswerContent || message.content)
-    : message.content;
 
   // Activities: live from turn, or persisted from structured_payload
   const activities: RunActivityItem[] = isLive
@@ -93,6 +72,46 @@ export const ChatMessage = React.memo(function ChatMessage({
       ? message.structured_payload.activities
       : [];
   const hasActivities = activities.length > 0;
+
+  // Process expand state: live from reducer, or local state for persisted
+  const processExpanded = isActivelyStreaming
+    ? streamTurn!.processExpanded
+    : isLive
+      ? streamTurn!.processExpanded
+      : persistedProcessOpen;
+  const handleProcessToggle = isLive && onToggleThinking
+    ? onToggleThinking
+    : () => setPersistedProcessOpen(!persistedProcessOpen);
+
+  // Duration: live from turn, or persisted from run_summary
+  const durationMs = isLive
+    ? streamTurn!.processDurationMs
+    : (message.structured_payload?.run_summary as { processing_duration_ms?: number } | undefined)?.processing_duration_ms;
+
+  // Is process still streaming? Derived from processCompletedAt — not status,
+  // which may be thinking/executing during process phase and answering after.
+  const isProcessStreaming = isActivelyStreaming && streamTurn!.processCompletedAt === null;
+
+  // Answer content: live from answerBuffer (answer_delta) > finalContent,
+  // or persisted from message.content.
+  // Text blocks are NOT used as answer source during active streaming — the
+  // projector sends answer exclusively via answer_delta after process_completed.
+  // For terminal states (cancelled/failed/disconnected), text blocks serve as
+  // last-resort fallback for interrupted turns that never reached process_completed.
+  const isTerminalState = isLive && ["completed", "failed", "cancelled", "disconnected"].includes(streamTurn!.status);
+  const streamedTextFromBlocks = isTerminalState
+    ? Object.values(streamTurn!.blocks)
+        .filter((b) => b.kind === "text")
+        .sort((a, b) => a.order - b.order)
+        .map((b) => b.content)
+        .join("")
+    : "";
+  const answerContent = isLive
+    ? (streamTurn!.answerBuffer || streamTurn!.finalContent || streamedTextFromBlocks || "")
+    : message.content;
+
+  // Is answer still streaming?
+  const isAnswerStreaming = isLive && streamTurn!.status === "answering";
 
   // Execution steps: live from turn, or persisted from structured_payload
   const executionSteps: ExecutionStep[] = isLive
@@ -105,18 +124,6 @@ export const ChatMessage = React.memo(function ChatMessage({
       : [];
   const hasExecutionSteps = executionSteps.length > 0;
 
-  // Thinking open state: live from turn (controlled by reducer), or local state for persisted
-  const effectiveThinkingOpen = isActivelyStreaming ? streamTurn!.thinkingOpen : thinkingOpen;
-  const handleThinkingToggle = isActivelyStreaming && onToggleThinking ? onToggleThinking : () => setThinkingOpen(!thinkingOpen);
-
-  // Thinking section title: "正在思考" during streaming, "思考过程" after completion
-  const thinkingTitle = isLive && streamTurn!.status !== "completed" && streamTurn!.status !== "failed" && streamTurn!.status !== "cancelled"
-    ? "正在思考"
-    : "思考过程";
-
-  // Is answer still streaming?
-  const isAnswerStreaming = isLive && streamTurn!.status === "answering";
-
   // Turn status label for error/cancel/disconnect
   const turnStatusLabel = isLive
     ? streamTurn!.status === "cancelled" ? "已停止生成"
@@ -124,10 +131,6 @@ export const ChatMessage = React.memo(function ChatMessage({
       : streamTurn!.status === "failed" ? "生成失败"
       : null
     : null;
-
-  // Unique ID for ARIA association
-  const thinkingContentId = `thinking-content-${message.id}`;
-  const stepsContentId = `steps-content-${message.id}`;
 
   return (
     <motion.div
@@ -149,9 +152,6 @@ export const ChatMessage = React.memo(function ChatMessage({
         (() => {
           const slashCommand = getSlashCommand(message);
           if (slashCommand) {
-            // Show the chip + the actual typed body. When no extra text was
-            // typed the persisted content equals the default instruction; in
-            // that case render only the chip.
             const hasBody = message.content !== slashCommand.defaultInstruction && message.content.trim().length > 0;
             return (
               <div className="flex flex-wrap items-center gap-1.5 text-sm leading-5">
@@ -164,71 +164,56 @@ export const ChatMessage = React.memo(function ChatMessage({
         })()
       ) : (
         <>
-          {/* Two-stage Activity Timeline */}
-          {hasActivities ? (
+          {/* Single RunActivity surface — unified process timeline */}
+          {hasActivities && (
             <RunActivity
               activities={activities}
-              durationMs={isLive ? streamTurn!.processDurationMs : (message.structured_payload?.run_summary as any)?.processing_duration_ms}
-              isStreaming={isActivelyStreaming && streamTurn!.status === "thinking"}
+              durationMs={durationMs}
+              isStreaming={isProcessStreaming}
+              isExpanded={processExpanded}
+              onToggle={handleProcessToggle}
             />
-          ) : (
-            <>
-              {/* Collapsible thinking section */}
-              {hasThinking && (
-                <Collapsible open={effectiveThinkingOpen} onOpenChange={handleThinkingToggle} className="mb-2">
-                  <CollapsibleTrigger
-                    className="inline-flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors py-1.5 focus:outline-none"
-                    aria-expanded={effectiveThinkingOpen}
-                    aria-controls={thinkingContentId}
-                  >
-                    <span>{thinkingTitle}</span>
-                    {effectiveThinkingOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="pl-3 py-1 border-l border-neutral-100 dark:border-neutral-800 mt-1.5" id={thinkingContentId}>
-                    <p className="whitespace-pre-wrap text-[11px] leading-5 text-neutral-500 dark:text-neutral-400">{thinkingContent}</p>
-                  </CollapsibleContent>
-                </Collapsible>
-              )}
-              {/* Collapsible execution steps section */}
-              {hasExecutionSteps && (
-                <Collapsible open={stepsOpen} onOpenChange={setStepsOpen} className="mb-2">
-                  <CollapsibleTrigger
-                    className="inline-flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors py-1.5 focus:outline-none"
-                    aria-expanded={stepsOpen}
-                    aria-controls={stepsContentId}
-                  >
-                    <span>执行过程</span>
-                    <span className="text-neutral-400">·</span>
-                    <span className="text-neutral-400">{executionSteps.length} 步</span>
-                    {stepsOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="pl-3 py-1 border-l border-neutral-100 dark:border-neutral-800 mt-1.5" id={stepsContentId}>
-                    <ul className="space-y-1">
-                      {executionSteps.map((step, i) => (
-                        <li key={i} className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
-                          <span>{executionStepStatusIcon(step.status)}</span>
-                          <span>{step.label}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </CollapsibleContent>
-                </Collapsible>
-              )}
-            </>
           )}
-          {/* Answer content: streaming or persisted — NOT aria-live (announcement is separate) */}
-          {isAnswerStreaming && answerContent.length > 0 ? (
-            <StreamingText buffer={answerContent} isStreaming={true} />
+
+          {/* Legacy: execution steps section when no activities (backward compat) */}
+          {!hasActivities && hasExecutionSteps && (
+            <Collapsible open={persistedStepsOpen} onOpenChange={setPersistedStepsOpen} className="mb-2">
+              <CollapsibleTrigger
+                className="inline-flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors py-1.5 focus:outline-none"
+                aria-expanded={persistedStepsOpen}
+              >
+                <span>执行过程</span>
+                <span className="text-neutral-400">·</span>
+                <span className="text-neutral-400">{executionSteps.length} 步</span>
+                {persistedStepsOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pl-3 py-1 border-l border-neutral-100 dark:border-neutral-800 mt-1.5">
+                <ul className="space-y-1">
+                  {executionSteps.map((step, i) => (
+                    <li key={i} className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+                      <span>{executionStepStatusIcon(step.status)}</span>
+                      <span>{step.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+
+          {/* Answer content: streaming or persisted */}
+          {isLive && streamTurn!.answerBuffer && answerContent.length > 0 ? (
+            <StreamingText buffer={answerContent} isStreaming={isAnswerStreaming} onRevealProgress={onRevealProgress} />
           ) : answerContent ? (
             <div>
               <MarkdownContent content={answerContent} />
             </div>
-          ) : isLive && !hasThinking ? (
+          ) : isLive && !hasActivities && !answerContent ? (
             <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
               <Loader2 className="h-3 w-3 animate-spin" />
               <span>正在生成回复...</span>
             </div>
           ) : null}
+
           {/* Turn status label (cancelled/disconnected/failed) */}
           {turnStatusLabel && (
             <p className="mt-1.5 text-[10px] text-neutral-500 dark:text-neutral-400">{turnStatusLabel}</p>

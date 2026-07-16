@@ -65,6 +65,9 @@ export function createInitialTurn(): AgentStreamTurn {
     processCompletedAt: null,
     processDurationMs: 0,
     streamSequence: 0,
+    processAutoCollapsed: false,
+    processExpanded: true,
+    answerBuffer: "",
   };
 }
 
@@ -159,14 +162,15 @@ export function streamTurnReducer(state: AgentStreamTurn, action: StreamTurnActi
       const key = blockKey(action.messageSeq, action.contentIndex);
       const order = state.blockOrder;
       const block: StreamBlock = { kind: "text", contentIndex: action.contentIndex, messageSeq: action.messageSeq, content: "", completed: false, order };
-      // First text start → answering + auto-fold thinking (one-time, ALWAYS folds even if manually toggled)
+      // Text blocks during process phase are commentary (sidecar routes pre-tool text
+      // as progress). Only ANSWER_STARTED/ANSWER_DELTA transition to answering.
+      // First text start → auto-fold thinking (one-time, ALWAYS folds even if manually toggled)
       const isFirstText = !Object.values(state.blocks).some((b) => b.kind === "text");
       return {
         ...state,
-        status: "answering",
         blocks: { ...state.blocks, [key]: block },
         blockOrder: order + 1,
-        // One-time auto-fold on first answer start — overrides manual toggle
+        // One-time auto-fold on first text — overrides manual toggle
         thinkingOpen: isFirstText && !state.thinkingWasAutoFolded
           ? false
           : state.thinkingOpen,
@@ -182,7 +186,6 @@ export function streamTurnReducer(state: AgentStreamTurn, action: StreamTurnActi
         const isFirstText = !Object.values(state.blocks).some((b) => b.kind === "text");
         const initState: AgentStreamTurn = {
           ...state,
-          status: "answering",
           blocks: {
             ...state.blocks,
             [key]: { kind: "text", contentIndex: action.contentIndex, messageSeq: action.messageSeq, content: "", completed: false, order: state.blockOrder },
@@ -199,7 +202,6 @@ export function streamTurnReducer(state: AgentStreamTurn, action: StreamTurnActi
       if (existing.kind !== "text") return state;
       return {
         ...state,
-        status: "answering",
         blocks: {
           ...state.blocks,
           [key]: { ...existing, content: existing.content + action.content },
@@ -302,12 +304,28 @@ export function streamTurnReducer(state: AgentStreamTurn, action: StreamTurnActi
       };
 
     case "PROCESS_DELTA": {
-      const updatedActivities = state.activities.map((act) => {
-        if (act.id === action.activityId && act.kind === "progress") {
-          return { ...act, content: act.content + action.content };
-        }
-        return act;
-      });
+      const existingIdx = state.activities.findIndex(
+        (act) => act.id === action.activityId && act.kind === "progress",
+      );
+      let updatedActivities: RunActivityItem[];
+      if (existingIdx >= 0) {
+        // Append to existing progress activity
+        updatedActivities = state.activities.map((act, i) =>
+          i === existingIdx && act.kind === "progress"
+            ? { ...act, content: act.content + action.content }
+            : act,
+        );
+      } else {
+        // Create new progress activity
+        const newActivity: RunActivityItem = {
+          id: action.activityId,
+          sequence: state.activities.length + 1,
+          created_at: new Date().toISOString(),
+          kind: "progress",
+          content: action.content,
+        };
+        updatedActivities = [...state.activities, newActivity];
+      }
       return {
         ...state,
         activities: updatedActivities,
@@ -316,11 +334,13 @@ export function streamTurnReducer(state: AgentStreamTurn, action: StreamTurnActi
     }
 
     case "ACTIVITY": {
-      const exists = state.activities.some((act) => act.id === action.data.id);
-      const updatedActivities = exists
-        ? state.activities.map((act) => (act.id === action.data.id ? action.data : act))
+      const existingIdx = state.activities.findIndex((act) => act.id === action.data.id);
+      // Insert in sequence order — activities arrive in order from sidecar,
+      // so appending is correct. Only re-sort if updating an existing item.
+      const updatedActivities = existingIdx >= 0
+        ? state.activities.map((act, i) => (i === existingIdx ? action.data : act))
         : [...state.activities, action.data];
-      
+
       let updatedSteps = state.executionSteps;
       if (action.data.kind === "tool") {
         const toolAct = action.data;
@@ -341,21 +361,35 @@ export function streamTurnReducer(state: AgentStreamTurn, action: StreamTurnActi
 
       return {
         ...state,
-        activities: updatedActivities.sort((a, b) => a.sequence - b.sequence),
+        activities: updatedActivities,
         executionSteps: updatedSteps,
         streamSequence: action.streamSequence,
       };
     }
 
-    case "PROCESS_COMPLETED":
+    case "PROCESS_COMPLETED": {
+      // Idempotent: already collapsed, only update timestamps
+      if (state.processAutoCollapsed) {
+        return {
+          ...state,
+          processCompletedAt: action.completedAt,
+          processDurationMs: action.processingDurationMs,
+          streamSequence: action.streamSequence,
+        };
+      }
+      // First time: unconditionally collapse process, regardless of manual toggle.
+      // User can reopen via TOGGLE_THINKING after this point.
       return {
         ...state,
         processCompletedAt: action.completedAt,
         processDurationMs: action.processingDurationMs,
-        thinkingOpen: !state.thinkingWasManuallyToggled ? false : state.thinkingOpen,
+        thinkingOpen: false,
         thinkingWasAutoFolded: true,
+        processAutoCollapsed: true,
+        processExpanded: false,
         streamSequence: action.streamSequence,
       };
+    }
 
     case "ANSWER_STARTED":
       return {
@@ -368,6 +402,7 @@ export function streamTurnReducer(state: AgentStreamTurn, action: StreamTurnActi
       return {
         ...state,
         status: "answering",
+        answerBuffer: state.answerBuffer + action.content,
         streamSequence: action.streamSequence,
       };
 
@@ -396,6 +431,7 @@ export function streamTurnReducer(state: AgentStreamTurn, action: StreamTurnActi
       return {
         ...state,
         thinkingOpen: !state.thinkingOpen,
+        processExpanded: !state.processExpanded,
         thinkingWasManuallyToggled: true,
       };
 
@@ -530,8 +566,9 @@ export function useAgentStreamTurn() {
     .map((b) => b.content)
     .join("");
 
-  // Derived: aggregated answer content from all text blocks
-  const answerContent = Object.values(turn.blocks)
+  // Derived: answer content — prefer answerBuffer (from answer_delta events)
+  // over text blocks (from legacy content events) for accurate phase separation.
+  const answerContent = turn.answerBuffer || Object.values(turn.blocks)
     .filter((b) => b.kind === "text")
     .sort((a, b) => a.order - b.order)
     .map((b) => b.content)

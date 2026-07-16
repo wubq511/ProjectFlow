@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   AgentArtifact,
   AgentConversation,
+  AgentStreamTurn,
   ArchivedAgentStreamTurn,
   AgentSuggestion,
   ModelConfigEntry,
@@ -179,6 +180,15 @@ describe("AgentSidebar", () => {
         executionSteps: [],
         error: "已停止生成",
         finalContent: null,
+        activities: [],
+        runSummary: null,
+        processStartedAt: null,
+        processCompletedAt: null,
+        processDurationMs: 0,
+        streamSequence: 0,
+        processAutoCollapsed: false,
+        processExpanded: true,
+        answerBuffer: "",
       },
     };
 
@@ -207,6 +217,9 @@ describe("AgentSidebar", () => {
         blocks: {}, blockOrder: 0, thinkingOpen: false,
         thinkingWasAutoFolded: false, thinkingWasManuallyToggled: false,
         executionSteps: [], error: "生成失败", finalContent: null,
+        activities: [], runSummary: null, processStartedAt: null,
+        processCompletedAt: null, processDurationMs: 0, streamSequence: 0,
+        processAutoCollapsed: false, processExpanded: true, answerBuffer: "",
       },
     };
     const conversation = {
@@ -684,6 +697,54 @@ describe("AgentSidebar", () => {
     );
   });
 
+  it("renders Composer outside the scrollable message area", () => {
+    const { container } = render(
+      <AgentSidebar
+        state={baseProjectState}
+        conversation={conversationFixture}
+        onRunAgent={vi.fn()}
+        onSendMessage={vi.fn()}
+      />
+    );
+
+    // The sidebar content container should be a flex column
+    const sidebarContent = container.querySelector("#agent-sidebar-content");
+    expect(sidebarContent).toBeTruthy();
+    expect(sidebarContent!.className).toContain("flex");
+    expect(sidebarContent!.className).toContain("flex-col");
+
+    // The scroll area should have overflow-y-auto and min-h-0
+    const scrollArea = sidebarContent!.querySelector(".overflow-y-auto");
+    expect(scrollArea).toBeTruthy();
+    expect(scrollArea!.className).toContain("min-h-0");
+
+    // The Composer container should be a sibling of the scroll area, not inside it
+    const composer = screen.getByPlaceholderText(/告诉 Agent 你想推进什么/);
+    const composerContainer = composer.closest("[data-tour='composer']");
+    expect(composerContainer).toBeTruthy();
+
+    // Composer's parent should NOT be inside the scroll area
+    expect(scrollArea!.contains(composerContainer!)).toBe(false);
+    // But it should be inside the sidebar content container
+    expect(sidebarContent!.contains(composerContainer!)).toBe(true);
+  });
+
+  it("keeps Composer visible when scrolling message area", () => {
+    const { container } = render(
+      <AgentSidebar
+        state={baseProjectState}
+        conversation={conversationFixture}
+        onRunAgent={vi.fn()}
+        onSendMessage={vi.fn()}
+      />
+    );
+
+    // The Composer container should have shrink-0 to stay fixed at bottom
+    const composerContainer = container.querySelector("[data-tour='composer']");
+    expect(composerContainer).toBeTruthy();
+    expect(composerContainer!.className).toContain("shrink-0");
+  });
+
   it("dismissed proposal artifact is filtered out of visible list", () => {
     const stateWithRejectedProposal: ProjectState = {
       ...baseProjectState,
@@ -743,5 +804,106 @@ describe("AgentSidebar", () => {
     // Component filters out dismissed artifacts from visible list
     expect(screen.queryByText("调整计划草案")).toBeNull();
     expect(screen.queryByRole("button", { name: "确认应用" })).toBeNull();
+  });
+
+  describe("auto-scroll on streamTurn activity updates", () => {
+    function makeStreamTurn(activities: Array<{ id: string; kind: string; label?: string; content?: string; status?: string }>) {
+      return {
+        clientTurnId: "turn-scroll-test",
+        status: "executing" as const,
+        userMessage: null,
+        blocks: {},
+        blockOrder: 0,
+        thinkingOpen: false,
+        thinkingWasAutoFolded: false,
+        thinkingWasManuallyToggled: false,
+        executionSteps: [],
+        error: null,
+        finalContent: null,
+        activities: activities as AgentStreamTurn["activities"],
+        runSummary: null,
+        processStartedAt: null,
+        processCompletedAt: null,
+        processDurationMs: 0,
+        streamSequence: 0,
+        processAutoCollapsed: false,
+        processExpanded: true,
+        answerBuffer: "",
+      };
+    }
+
+    it("scrolls to bottom when activities update and user is near bottom", () => {
+      const initialTurn = makeStreamTurn([]);
+      const { rerender } = render(
+        <AgentSidebar
+          state={baseProjectState}
+          conversation={conversationFixture}
+          streamTurn={initialTurn}
+          onRunAgent={vi.fn()}
+        />,
+      );
+
+      // Mock scroll metrics so the scroll container has real dimensions
+      const scrollEl = document.querySelector(".overflow-y-auto") as HTMLElement;
+      expect(scrollEl).toBeTruthy();
+      vi.spyOn(scrollEl, "scrollHeight", "get").mockReturnValue(2000);
+      vi.spyOn(scrollEl, "clientHeight", "get").mockReturnValue(500);
+      // Default isNearBottomRef is true (no scroll event fired yet)
+
+      // Re-render with new activities
+      const updatedTurn = makeStreamTurn([
+        { id: "a1", kind: "tool", label: "读取项目状态", status: "completed" },
+        { id: "a2", kind: "progress", content: "正在分析签到数据" },
+      ]);
+      rerender(
+        <AgentSidebar
+          state={baseProjectState}
+          conversation={conversationFixture}
+          streamTurn={updatedTurn}
+          onRunAgent={vi.fn()}
+        />,
+      );
+
+      // Near bottom → auto-scroll fires
+      expect(scrollEl.scrollTop).toBe(2000);
+    });
+
+    it("does not force scroll when user has scrolled away from bottom", () => {
+      const initialTurn = makeStreamTurn([]);
+      const { rerender } = render(
+        <AgentSidebar
+          state={baseProjectState}
+          conversation={conversationFixture}
+          streamTurn={initialTurn}
+          onRunAgent={vi.fn()}
+        />,
+      );
+
+      const scrollEl = document.querySelector(".overflow-y-auto") as HTMLElement;
+      vi.spyOn(scrollEl, "scrollHeight", "get").mockReturnValue(2000);
+      vi.spyOn(scrollEl, "clientHeight", "get").mockReturnValue(500);
+
+      // Simulate user scrolling up — scrollTop=200 → distance=2000-200-500=1300 > 120
+      scrollEl.scrollTop = 200;
+      fireEvent.scroll(scrollEl);
+      // isNearBottomRef is now false
+
+      // Re-render with new activities
+      const updatedTurn = makeStreamTurn([
+        { id: "a1", kind: "tool", label: "读取项目状态", status: "completed" },
+        { id: "a2", kind: "progress", content: "正在分析签到数据" },
+      ]);
+      rerender(
+        <AgentSidebar
+          state={baseProjectState}
+          conversation={conversationFixture}
+          streamTurn={updatedTurn}
+          onRunAgent={vi.fn()}
+        />,
+      );
+
+      // User scrolled up → scrollTop unchanged
+      expect(scrollEl.scrollTop).toBe(200);
+    });
   });
 });

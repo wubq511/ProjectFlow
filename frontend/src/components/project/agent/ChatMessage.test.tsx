@@ -9,6 +9,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import React from "react";
 import { ChatMessage } from "./ChatMessage";
+import type { AgentStreamTurn } from "@/lib/types";
 
 // Mock framer-motion to avoid animation issues in tests
 vi.mock("framer-motion", () => ({
@@ -23,6 +24,13 @@ vi.mock("framer-motion", () => ({
 // Mock MarkdownContent
 vi.mock("./MarkdownContent", () => ({
   MarkdownContent: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div>,
+}));
+
+// Mock StreamingText to track when it's used
+vi.mock("./StreamingText", () => ({
+  StreamingText: ({ buffer, isStreaming }: { buffer: string; isStreaming?: boolean }) => (
+    <div data-testid="streaming-text" data-streaming={String(isStreaming)}>{buffer}</div>
+  ),
 }));
 
 // Mock MessageActions
@@ -61,31 +69,15 @@ describe("ChatMessage output-channel fix", () => {
     });
   });
 
-  describe("thinking_content fold", () => {
-    it("shows thinking fold when thinking_content exists", () => {
+  describe("thinking_content not visible (compat only)", () => {
+    it("thinking_content is NOT rendered even when present (spec #10)", () => {
       const message = makeAssistantMessage({
         structured_payload: { thinking_content: "让我分析一下项目状态..." },
       });
       render(<ChatMessage message={message} />);
-      expect(screen.getByText("思考过程")).toBeTruthy();
-    });
-
-    it("thinking fold is collapsed by default", () => {
-      const message = makeAssistantMessage({
-        structured_payload: { thinking_content: "让我分析一下项目状态..." },
-      });
-      render(<ChatMessage message={message} />);
-      // Content not visible when collapsed
+      // thinking_content is persisted for compat but NOT visible
+      expect(screen.queryByText("思考过程")).toBeNull();
       expect(screen.queryByText("让我分析一下项目状态...")).toBeNull();
-    });
-
-    it("thinking fold expands on click", () => {
-      const message = makeAssistantMessage({
-        structured_payload: { thinking_content: "让我分析一下项目状态..." },
-      });
-      render(<ChatMessage message={message} />);
-      fireEvent.click(screen.getByText("思考过程"));
-      expect(screen.getByText("让我分析一下项目状态...")).toBeTruthy();
     });
 
     it("no thinking fold when thinking_content is empty", () => {
@@ -96,12 +88,6 @@ describe("ChatMessage output-channel fix", () => {
 
     it("no thinking fold when thinking_content is missing", () => {
       const message = makeAssistantMessage({ structured_payload: {} });
-      render(<ChatMessage message={message} />);
-      expect(screen.queryByText("思考过程")).toBeNull();
-    });
-
-    it("no thinking fold when thinking_content is non-string", () => {
-      const message = makeAssistantMessage({ structured_payload: { thinking_content: 123 } });
       render(<ChatMessage message={message} />);
       expect(screen.queryByText("思考过程")).toBeNull();
     });
@@ -160,7 +146,7 @@ describe("ChatMessage output-channel fix", () => {
   });
 
   describe("both folds together", () => {
-    it("shows both thinking and execution folds when both exist", () => {
+    it("execution fold renders; thinking_content is NOT visible (compat only)", () => {
       const message = makeAssistantMessage({
         content: "最终回答",
         structured_payload: {
@@ -169,9 +155,10 @@ describe("ChatMessage output-channel fix", () => {
         },
       });
       render(<ChatMessage message={message} />);
-      expect(screen.getByText("思考过程")).toBeTruthy();
+      // thinking_content is NOT visible (spec #10)
+      expect(screen.queryByText("思考过程")).toBeNull();
+      // Execution steps still render
       expect(screen.getByText("执行过程")).toBeTruthy();
-      // Final answer also visible
       expect(screen.getByText("最终回答")).toBeTruthy();
     });
   });
@@ -193,7 +180,7 @@ describe("ChatMessage output-channel fix", () => {
   });
 
   describe("persisted folds render after reload", () => {
-    it("thinking_content and execution_steps from structured_payload survive reload", () => {
+    it("execution_steps from structured_payload survive reload; thinking_content is NOT visible (compat only)", () => {
       const steps = [
         { tool_name: "get_project_state", status: "completed", label: "调用get_project_state" },
         { tool_name: "generate_plan_proposal", status: "completed", label: "调用generate_plan_proposal" },
@@ -209,12 +196,13 @@ describe("ChatMessage output-channel fix", () => {
         },
       });
       render(<ChatMessage message={message} />);
-      expect(screen.getByText("思考过程")).toBeTruthy();
+      // thinking_content is persisted for compat but NOT rendered (spec #10)
+      expect(screen.queryByText("思考过程")).toBeNull();
+      expect(screen.queryByText("让我先查看项目状态...")).toBeNull();
+      // Execution steps still render
       expect(screen.getByText("3 步")).toBeTruthy();
       fireEvent.click(screen.getByText("执行过程"));
       expect(screen.getByText("调用get_project_state")).toBeTruthy();
-      fireEvent.click(screen.getByText("思考过程"));
-      expect(screen.getByText("让我先查看项目状态...")).toBeTruthy();
     });
   });
 
@@ -275,6 +263,80 @@ describe("ChatMessage output-channel fix", () => {
       };
       render(<ChatMessage message={message} />);
       expect(screen.getByText("普通消息")).toBeTruthy();
+    });
+  });
+
+  describe("Fix 6: StreamingText preservation for completed turns", () => {
+    function makeStreamTurn(overrides: Partial<AgentStreamTurn>): AgentStreamTurn {
+      return {
+        clientTurnId: "turn-1",
+        status: "completed",
+        userMessage: null,
+        blocks: {},
+        blockOrder: 0,
+        thinkingOpen: false,
+        thinkingWasAutoFolded: false,
+        thinkingWasManuallyToggled: false,
+        executionSteps: [],
+        error: null,
+        finalContent: null,
+        activities: [],
+        runSummary: null,
+        processStartedAt: null,
+        processCompletedAt: null,
+        processDurationMs: 0,
+        streamSequence: 0,
+        processAutoCollapsed: false,
+        processExpanded: true,
+        answerBuffer: "",
+        ...overrides,
+      };
+    }
+
+    it("uses StreamingText when streamTurn has answerBuffer, even with status=completed", () => {
+      const message = makeAssistantMessage({ content: "最终回答" });
+      const streamTurn = makeStreamTurn({
+        status: "completed",
+        answerBuffer: "这是渐进显示的回答内容",
+        finalContent: "这是渐进显示的回答内容",
+      });
+      render(<ChatMessage message={message} streamTurn={streamTurn} isLast={false} />);
+      // Should use StreamingText, not MarkdownContent
+      expect(screen.getByTestId("streaming-text")).toBeTruthy();
+      expect(screen.getByTestId("streaming-text").textContent).toBe("这是渐进显示的回答内容");
+      // isStreaming should be false for completed status
+      expect(screen.getByTestId("streaming-text").getAttribute("data-streaming")).toBe("false");
+    });
+
+    it("uses StreamingText with isStreaming=true when status is answering", () => {
+      const message = makeAssistantMessage({ content: "" });
+      const streamTurn = makeStreamTurn({
+        status: "answering",
+        answerBuffer: "正在流式输出",
+      });
+      render(<ChatMessage message={message} streamTurn={streamTurn} isLast={false} />);
+      expect(screen.getByTestId("streaming-text")).toBeTruthy();
+      expect(screen.getByTestId("streaming-text").getAttribute("data-streaming")).toBe("true");
+    });
+
+    it("uses MarkdownContent for persisted messages (no streamTurn)", () => {
+      const message = makeAssistantMessage({ content: "已保存的回答" });
+      render(<ChatMessage message={message} />);
+      expect(screen.getByTestId("markdown")).toBeTruthy();
+      expect(screen.getByTestId("markdown").textContent).toBe("已保存的回答");
+      expect(screen.queryByTestId("streaming-text")).toBeNull();
+    });
+
+    it("uses MarkdownContent when streamTurn has empty answerBuffer", () => {
+      const message = makeAssistantMessage({ content: "最终回答" });
+      const streamTurn = makeStreamTurn({
+        status: "completed",
+        answerBuffer: "",
+        finalContent: "最终回答",
+      });
+      render(<ChatMessage message={message} streamTurn={streamTurn} isLast={false} />);
+      // Empty answerBuffer → falls through to MarkdownContent
+      expect(screen.getByTestId("markdown")).toBeTruthy();
     });
   });
 });
