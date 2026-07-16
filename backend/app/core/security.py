@@ -29,12 +29,12 @@ def require_demo_admin_access(
             return abs_path == abs_parent or abs_path.startswith(abs_parent + os.sep)
 
         # 1. Nonce check
-        expected_nonce = os.environ.get("EVALUATION_NONCE")
+        expected_nonce = settings.evaluation_nonce.get_secret_value() if settings.evaluation_nonce else None
         if not expected_nonce or x_evaluation_nonce != expected_nonce:
             raise HTTPException(status_code=403, detail="评估 Nonce 不匹配")
 
         # 2. Temp root containment check
-        temp_root = os.environ.get("EVALUATION_TEMP_ROOT")
+        temp_root = settings.evaluation_temp_root
         if not temp_root:
             raise HTTPException(status_code=403, detail="未设置 EVALUATION_TEMP_ROOT 环境变量")
         temp_root_abs = os.path.realpath(temp_root)
@@ -55,7 +55,7 @@ def require_demo_admin_access(
         db_url = settings.database_url
         if not db_url.startswith("sqlite"):
             raise HTTPException(status_code=403, detail="评估环境必须使用 SQLite 数据库")
-        
+
         db_path = db_url.removeprefix("sqlite:///")
         if not is_contained_in(db_path, temp_root_abs):
             raise HTTPException(status_code=403, detail="数据库路径超出评估临时根目录限制")

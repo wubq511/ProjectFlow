@@ -76,9 +76,15 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
     const [provider, ...nameParts] = model.split(":");
     if (!provider || nameParts.length === 0) throw new Error(`Invalid model ref: ${model}`);
     const started = Date.now();
+    const controller = new AbortController();
+    const timeoutTimer = setTimeout(() => {
+      controller.abort();
+    }, scenario.maxLatencyMs || 30000);
+
     const response = await fetchFn(`${baseUrl}/runs/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         conversation_id: identity.conversationId,
         workspace_id: identity.workspaceId,
@@ -89,8 +95,85 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
         runtime_config: { model: { provider, name: nameParts.join(":") }, max_steps: 10, max_tool_calls: 20 },
       }),
     });
-    if (!response.ok) throw new Error(`Public seam returned HTTP ${response.status}`);
-    const events = parseSse(await response.text());
+    if (!response.ok) {
+      clearTimeout(timeoutTimer);
+      throw new Error(`Public seam returned HTTP ${response.status}`);
+    }
+
+    const events: Array<{ event: string; data: Record<string, unknown> }> = [];
+    let readSuccess = false;
+    const isEvaluation = typeof process !== "undefined" && process.env.APP_ENV === "evaluation";
+
+    if (isEvaluation && response.body && typeof response.body.getReader === "function") {
+      try {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+        let toolCount = 0;
+
+        while (true) {
+          const { done: streamDone, value } = await reader.read();
+          if (streamDone) break;
+          if (typeof value === "string") {
+            buffer += value;
+          } else if (value instanceof Uint8Array) {
+            buffer += decoder.decode(value, { stream: true });
+          } else if (value) {
+            buffer += decoder.decode(value as any, { stream: true });
+          }
+
+          let parts = buffer.split(/\n\n+/);
+          buffer = parts.pop() ?? "";
+
+          for (const block of parts) {
+            const blockEvents = parseSse(block);
+            for (const item of blockEvents) {
+              events.push(item);
+              if (item.event === "tool") {
+                toolCount++;
+                if (toolCount > 20) {
+                  controller.abort();
+                  throw new Error("工具调用次数超出沙箱硬上限限制");
+                }
+              }
+              if (item.event === "done") {
+                const metrics = item.data.metrics as Record<string, any> ?? {};
+                const totalCost = metrics.total_cost ?? 0;
+                if (totalCost > 0.10) {
+                  controller.abort();
+                  throw new Error("场景运行成本已超过预算上限 $0.10 USD");
+                }
+              }
+            }
+          }
+
+          // Active elapsed time check
+          if (Date.now() - started > (scenario.maxLatencyMs || 30000)) {
+            controller.abort();
+            throw new Error(`场景执行时间超出最大允许延迟 (${scenario.maxLatencyMs}ms)`);
+          }
+        }
+        reader.releaseLock();
+        readSuccess = true;
+      } catch (err: any) {
+        if (err.message && (err.message.includes("上限") || err.message.includes("延迟"))) {
+          throw err;
+        }
+        // Fallback silently to text parsing for mock/compatibility environments
+      } finally {
+        clearTimeout(timeoutTimer);
+      }
+    }
+
+    if (!readSuccess) {
+      try {
+        const text = await response.text();
+        events.push(...parseSse(text));
+      } finally {
+        clearTimeout(timeoutTimer);
+      }
+    }
+
     const status = events.find((item) => item.event === "status" && item.data.run_id);
     const done = [...events].reverse().find((item) => item.event === "done");
     const error = [...events].reverse().find((item) => item.event === "error");

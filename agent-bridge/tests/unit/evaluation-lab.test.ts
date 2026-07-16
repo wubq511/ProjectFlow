@@ -96,7 +96,7 @@ describe("Evaluation Lab - IsolatedProcessPair Integration", () => {
       expect(res.ok).toBe(true);
       const data = await res.json() as any;
       expect(data.app_env).toBe("evaluation");
-      
+
       const sidecarRes = await fetch(`${pair.sidecarUrl}/health`, {
         headers: { "X-Evaluation-Nonce": pair.nonce },
       });

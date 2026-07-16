@@ -18,6 +18,11 @@ export interface ScenarioContract {
     maxLatencyMs: number;
     fixtureName?: string;
     goalState?: Record<string, unknown>;
+    tokenBudget?: {
+      maxInputTokens?: number;
+      maxOutputTokens?: number;
+    };
+    maxRequestCount?: number;
   };
 }
 
@@ -28,9 +33,8 @@ export interface RunManifest {
   timestamp: string;
   scenarios: ScenarioContract[];
   gitCommit?: string;
-  repetitionPolicy?: {
-    repeats: number;
-  };
+  gitDirtyFingerprint?: string;
+  sha256Hash?: string;
 }
 
 export interface ScenarioObservation {
@@ -47,8 +51,14 @@ export interface ScenarioObservation {
   reasoningTokens?: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
-  cost?: number;
+  cost?: number; // legacy fallback
+  sutCost: number;
+  evaluatorModelCost: number;
+  codingAgentCost: number;
+  costSource: "reported" | "estimated" | "unknown";
   output: string;
+  requestCount?: number;
+  sha256Hash?: string;
 }
 
 export interface Grade {
@@ -60,6 +70,7 @@ export interface Grade {
   latencyPassed: boolean;
   privacyPassed: boolean;
   failures: string[];
+  sha256Hash?: string;
 }
 
 export interface EvaluationArtifact {
@@ -67,6 +78,7 @@ export interface EvaluationArtifact {
   runId: string;
   model: string;
   gitCommit?: string;
+  gitDirtyFingerprint?: string;
   startedAt: string;
   completedAt: string;
   observations: ScenarioObservation[];
@@ -75,6 +87,14 @@ export interface EvaluationArtifact {
     passedCount: number;
     failedCount: number;
     passRate: number;
-    totalCost?: number;
+    totalSutCost: number;
+    totalEvaluatorModelCost: number;
+    totalCodingAgentCost: number;
   };
+  provenance?: {
+    host: string;
+    platform: string;
+    user: string;
+  };
+  sha256Hash?: string;
 }

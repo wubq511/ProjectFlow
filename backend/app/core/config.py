@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     internal_service_token: SecretStr | None = None
     sidecar_base_url: str = "http://localhost:4000"
     upload_dir: str = ""
+    evaluation_nonce: SecretStr | None = None
+    evaluation_temp_root: str | None = None
 
     @property
     def resolved_upload_dir(self) -> str:

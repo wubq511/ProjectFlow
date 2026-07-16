@@ -275,9 +275,12 @@ DOTENV_PATH=                  # sidecar .env 文件路径（API key 写入目标
 DEEPSEEK_API_KEY=xxx          # DeepSeek provider API key
 XIAOMI_API_KEY=xxx            # Xiaomi provider API key
 XIAOMI_TOKEN_PLAN_CN_API_KEY=xxx  # Xiaomi 国内 Token 计费 API key
+UPLOAD_DIR=                   # 自定义上传文件根路径，默认存储在 data/uploads/
+EVALUATION_NONCE=             # 评测临时会话校验 nonce，用于防护演示环境接口
+EVALUATION_TEMP_ROOT=         # 评测临时沙盒根目录
 ```
 
-API key 和 internal service token 必须放 `.env`，不能提交 Git。前端不能直接调用 LLM API 或 internal endpoints。`LLM_PROVIDER` 默认 `mock`，真实 LLM 用 `openai` 或 `openai-compatible`。`LLM_TIMEOUT_SECONDS` 默认 `30.0`（诊断用），`LLM_AGENT_TIMEOUT_SECONDS` 默认 `120.0`（Agent 生成用）。`INTERNAL_SERVICE_TOKEN` 用于 `/internal/agent-tools/*` 和 `/internal/agent-runs/*`；sidecar 需发送同值 Bearer token。`NEXT_PUBLIC_API_BASE_URL` 是前端可选变量，不配置时默认 `http://localhost:8000/api`。
+API key 和 internal service token 必须放 `.env`，不能提交 Git。前端不能直接调用 LLM API 或 internal endpoints。`LLM_PROVIDER` 默认 `mock`，真实 LLM 用 `openai` 或 `openai-compatible`。`LLM_TIMEOUT_SECONDS` 默认 `30.0`（诊断用），`LLM_AGENT_TIMEOUT_SECONDS` 默认 `120.0`（Agent 生成用）。`INTERNAL_SERVICE_TOKEN` 用于 `/internal/agent-tools/*` 和 `/internal/agent-runs/*`；sidecar 需发送同值 Bearer token。`NEXT_PUBLIC_API_BASE_URL` 是前端可选变量，不配置时默认 `http://localhost:8000/api`。此外，`UPLOAD_DIR`、`EVALUATION_NONCE` 及 `EVALUATION_TEMP_ROOT` 用于本地评测系统隔离保障：当 `APP_ENV=evaluation` 时，系统将强校验调用方 Nonce 凭据并对沙盒目录进行路径收敛校验。
 
 ## Git Ignore
 

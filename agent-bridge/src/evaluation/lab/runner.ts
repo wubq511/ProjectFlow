@@ -1,23 +1,56 @@
 import { join, resolve } from "node:path";
-import { mkdir, writeFile, readFile, readdir, rename } from "node:fs/promises";
+import { mkdir, writeFile, readFile, readdir, rename, cp } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { hostname, platform, userInfo } from "node:os";
 import { IsolatedProcessPair } from "./isolation.js";
 import { provisionObservationFixture } from "../fixture-provisioner.js";
 import { createHttpPublicSeamRunner } from "../http-public-seam-runner.js";
 import { gradeObservation } from "./grader.js";
 import type { ScenarioContract, RunManifest, ScenarioObservation, Grade, EvaluationArtifact } from "./contract.js";
 
-// Standard defaults for ProjectFlow demo workspace/project/viewer
 const DEFAULT_WORKSPACE_ID = "demo-workspace-001";
 const DEFAULT_PROJECT_ID = "demo-project-001";
 const DEFAULT_VIEWER_USER_ID = "demo-user-001";
 
 const MAX_BUDGET_USD = 0.10;
 
-async function writeJsonAtomic(path: string, data: any): Promise<void> {
+export class InfrastructureError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InfrastructureError";
+  }
+}
+
+function computeSha256(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function getGitCommit(): string {
+  try {
+    return execSync("git rev-parse HEAD", { encoding: "utf-8" }).trim();
+  } catch {
+    return "unknown";
+  }
+}
+
+function getGitDirtyFingerprint(): string {
+  try {
+    const status = execSync("git status --porcelain", { encoding: "utf-8" }).trim();
+    if (!status) return "clean";
+    return computeSha256(status);
+  } catch {
+    return "unknown";
+  }
+}
+
+async function writeJsonAtomic(path: string, data: any): Promise<string> {
+  const content = JSON.stringify(data, null, 2);
   const tempPath = `${path}.tmp`;
-  await writeFile(tempPath, JSON.stringify(data, null, 2), "utf-8");
+  await writeFile(tempPath, content, "utf-8");
   await rename(tempPath, path);
+  return computeSha256(content);
 }
 
 export async function runEvaluation(options: {
@@ -30,125 +63,166 @@ export async function runEvaluation(options: {
 }): Promise<EvaluationArtifact> {
   const { projectRoot, runId, model, scenarios, resume, onProgress } = options;
 
-  // Validate runId to prevent path traversal escape (P1)
   if (!/^[a-zA-Z0-9_\-]+$/.test(runId)) {
     throw new Error(`运行 ID 格式无效: "${runId}"。仅允许字母、数字、下划线和连字符`);
   }
 
   const artifactsDir = resolve(projectRoot, "agent-bridge/artifacts", runId);
-  await mkdir(join(artifactsDir, "observations"), { recursive: true });
-  await mkdir(join(artifactsDir, "grades"), { recursive: true });
-
   const manifestPath = join(artifactsDir, "manifest.json");
-  let manifest: RunManifest;
+  const checksumsPath = join(artifactsDir, "checksums.json");
+
+  // Load existing checksums and files for verification on resume
+  const existingObsMap = new Map<string, ScenarioObservation>();
+  const existingGradeMap = new Map<string, Grade>();
+  let cumulativeCost = 0;
+  let checksums: Record<string, string> = {};
 
   if (resume && existsSync(manifestPath)) {
     try {
-      const manifestRaw = await readFile(manifestPath, "utf-8");
-      manifest = JSON.parse(manifestRaw) as RunManifest;
+      if (!existsSync(checksumsPath)) {
+        throw new Error("缺少防篡改校验清单 (checksums.json)");
+      }
+      checksums = JSON.parse(await readFile(checksumsPath, "utf-8"));
 
-      // P0: Verify resume parameters match exactly
-      if (manifest.model !== model) {
-        throw new Error(`模型配置不匹配: 缓存记录为 "${manifest.model}"，当前期望为 "${model}"`);
+      // Verify manifest hash
+      const manifestRaw = await readFile(manifestPath, "utf-8");
+      if (computeSha256(manifestRaw) !== checksums["manifest.json"]) {
+        throw new Error("清单文件 (manifest.json) 哈希校验失败，已被外部篡改");
       }
-      if (manifest.scenarios.length !== scenarios.length) {
-        throw new Error(`场景数量不匹配: 缓存记录为 ${manifest.scenarios.length}，当前期望为 ${scenarios.length}`);
+
+      const manifestObj = JSON.parse(manifestRaw) as RunManifest;
+      if (manifestObj.model !== model) {
+        throw new Error(`模型配置不匹配: 缓存为 "${manifestObj.model}"，当前为 "${model}"`);
       }
+      if (manifestObj.scenarios.length !== scenarios.length) {
+        throw new Error(`场景数量不匹配: 缓存为 ${manifestObj.scenarios.length}，当前为 ${scenarios.length}`);
+      }
+
+      // Verify scenario contract details deep equality
       for (let i = 0; i < scenarios.length; i++) {
-        const manifestScen = manifest.scenarios[i];
-        const currentScen = scenarios[i];
-        if (!manifestScen || !currentScen || manifestScen.scenarioId !== currentScen.scenarioId) {
-          throw new Error(`场景 ID 不匹配: 缓存记录为 "${manifestScen?.scenarioId}"，当前期望为 "${currentScen?.scenarioId}"`);
+        const mScen = manifestObj.scenarios[i];
+        const cScen = scenarios[i];
+        if (JSON.stringify(mScen) !== JSON.stringify(cScen)) {
+          throw new Error(`场景契约发生变更，拒绝恢复评测: 场景 "${cScen?.scenarioId}" 配置不匹配`);
         }
       }
+
+      // Verify observations and grades
+      const obsFiles = await readdir(join(artifactsDir, "observations"));
+      for (const file of obsFiles) {
+        if (!file.endsWith(".json")) continue;
+        const scenarioId = file.replace(".json", "");
+        const relativeObsPath = `observations/${file}`;
+        const obsRaw = await readFile(join(artifactsDir, "observations", file), "utf-8");
+        if (computeSha256(obsRaw) !== checksums[relativeObsPath]) {
+          throw new Error(`场景观察结果 "${relativeObsPath}" 校验和不匹配，存在篡改风险`);
+        }
+        const obsObj = JSON.parse(obsRaw) as ScenarioObservation;
+        existingObsMap.set(scenarioId, obsObj);
+        cumulativeCost += obsObj.sutCost + obsObj.evaluatorModelCost + obsObj.codingAgentCost;
+      }
+
+      const gradeFiles = await readdir(join(artifactsDir, "grades"));
+      for (const file of gradeFiles) {
+        if (!file.endsWith(".json")) continue;
+        const scenarioId = file.replace(".json", "");
+        const relativeGradePath = `grades/${file}`;
+        const gradeRaw = await readFile(join(artifactsDir, "grades", file), "utf-8");
+        if (computeSha256(gradeRaw) !== checksums[relativeGradePath]) {
+          throw new Error(`评测报告 "${relativeGradePath}" 校验和不匹配，存在篡改风险`);
+        }
+        existingGradeMap.set(scenarioId, JSON.parse(gradeRaw));
+      }
     } catch (err: any) {
-      console.error(`[runner] 无法恢复评测，因为缓存验证失败: ${err?.message || err}`);
-      throw new Error(`无法恢复评测: ${err?.message || err}`);
+      console.error(`[runner] 恢复评测失败，因为防篡改链校验失败: ${err?.message || err}`);
+      throw new Error(`防篡改校验失败: ${err?.message || err}`);
     }
-  } else {
-    manifest = {
-      schemaVersion: 1,
-      runId,
-      model,
-      timestamp: new Date().toISOString(),
-      scenarios,
-    };
-    await writeJsonAtomic(manifestPath, manifest);
   }
+
+  // Pre-staging: We spawn isolated environments and write artifacts directly to the evaluator-owned temp sandbox root
+  const pair = new IsolatedProcessPair();
+  try {
+    await pair.start(projectRoot);
+  } catch (err: any) {
+    throw new InfrastructureError(`沙箱初始化失败: 无法启动孤立进程对 ${err.message}`);
+  }
+
+  const stagingDir = join(pair.tempRoot, "artifacts");
+  const stagingObsDir = join(stagingDir, "observations");
+  const stagingGradesDir = join(stagingDir, "grades");
+
+  await mkdir(stagingObsDir, { recursive: true });
+  await mkdir(stagingGradesDir, { recursive: true });
+
+  const stagedManifestPath = join(stagingDir, "manifest.json");
+  const gitCommit = getGitCommit();
+  const gitDirtyFingerprint = getGitDirtyFingerprint();
+
+  let manifest: RunManifest = {
+    schemaVersion: 1,
+    runId,
+    model,
+    timestamp: new Date().toISOString(),
+    scenarios,
+    gitCommit,
+    gitDirtyFingerprint,
+  };
+  const manifestHash = await writeJsonAtomic(stagedManifestPath, manifest);
+  checksums["manifest.json"] = manifestHash;
 
   const observations: ScenarioObservation[] = [];
   const grades: Grade[] = [];
   const startedAt = new Date().toISOString();
 
-  // Load existing observations if resuming
-  const existingObsMap = new Map<string, ScenarioObservation>();
-  const existingGradeMap = new Map<string, Grade>();
-  let cumulativeCost = 0;
-
+  // Seed existing items to staging if resuming
   if (resume) {
-    try {
-      const obsFiles = await readdir(join(artifactsDir, "observations"));
-      for (const file of obsFiles) {
-        if (!file.endsWith(".json")) continue;
-        const scenarioId = file.replace(".json", "");
-        const content = await readFile(join(artifactsDir, "observations", file), "utf-8");
-        const obsObj = JSON.parse(content) as ScenarioObservation;
-        existingObsMap.set(scenarioId, obsObj);
-        if (obsObj.cost) {
-          cumulativeCost += obsObj.cost;
-        }
-      }
-      const gradeFiles = await readdir(join(artifactsDir, "grades"));
-      for (const file of gradeFiles) {
-        if (!file.endsWith(".json")) continue;
-        const scenarioId = file.replace(".json", "");
-        const content = await readFile(join(artifactsDir, "grades", file), "utf-8");
-        existingGradeMap.set(scenarioId, JSON.parse(content));
-      }
-    } catch (err: any) {
-      console.warn(`[runner] 读取已存在的结果缓存时发生警告: ${err?.message || err}`);
-      // P1: Raise error instead of silently ignoring corrupted files
-      throw new Error(`读取运行缓存失败: ${err?.message || err}`);
+    for (const [id, obs] of existingObsMap.entries()) {
+      observations.push(obs);
+      await writeJsonAtomic(join(stagingObsDir, `${id}.json`), obs);
+    }
+    for (const [id, gr] of existingGradeMap.entries()) {
+      grades.push(gr);
+      await writeJsonAtomic(join(stagingGradesDir, `${id}.json`), gr);
     }
   }
 
   for (const scenario of scenarios) {
     if (existingObsMap.has(scenario.scenarioId) && existingGradeMap.has(scenario.scenarioId)) {
-      // Skip completed scenario
       const obs = existingObsMap.get(scenario.scenarioId)!;
       const gr = existingGradeMap.get(scenario.scenarioId)!;
-      observations.push(obs);
-      grades.push(gr);
       if (onProgress) {
         onProgress(scenario.scenarioId, "completed", { observation: obs, grade: gr });
       }
       continue;
     }
 
-    // P0 Budget check before running
+    // P0 Cost Ceiling Assertion before launching scenario
     if (cumulativeCost > MAX_BUDGET_USD) {
-      throw new Error(`评测已终止: 累计消耗成本 $${cumulativeCost.toFixed(4)} USD 已超出 $${MAX_BUDGET_USD} 上限门槛`);
+      await pair.destroy();
+      throw new Error(`超出累计费用上限: 当前消耗为 $${cumulativeCost.toFixed(4)}，已超出硬上限 $${MAX_BUDGET_USD}`);
     }
 
     if (onProgress) {
       onProgress(scenario.scenarioId, "started");
     }
 
-    const pair = new IsolatedProcessPair();
     try {
-      await pair.start(projectRoot);
+      // Seeding database fixture inside sandbox
+      let identity;
+      try {
+        const provisionConfig = {
+          backendBaseUrl: pair.backendUrl,
+          workspaceId: DEFAULT_WORKSPACE_ID,
+          projectId: DEFAULT_PROJECT_ID,
+          viewerUserId: DEFAULT_VIEWER_USER_ID,
+          adminToken: pair.adminToken,
+          evaluationNonce: pair.nonce,
+        };
+        identity = await provisionObservationFixture(provisionConfig);
+      } catch (err: any) {
+        throw new InfrastructureError(`工作区种子数据导入失败: ${err.message}`);
+      }
 
-      // Provision observation fixture using admin token and evaluation nonce
-      const provisionConfig = {
-        backendBaseUrl: pair.backendUrl,
-        workspaceId: DEFAULT_WORKSPACE_ID,
-        projectId: DEFAULT_PROJECT_ID,
-        viewerUserId: DEFAULT_VIEWER_USER_ID,
-        adminToken: pair.adminToken,
-        evaluationNonce: pair.nonce,
-      };
-
-      const identity = await provisionObservationFixture(provisionConfig);
       const beforeState = identity.workspaceState;
 
       // Run SUT
@@ -157,7 +231,6 @@ export async function runEvaluation(options: {
         identity,
       });
 
-      // Map scenario contract to SUT AgentScenario shape
       const sutScenario = {
         id: scenario.scenarioId,
         prompt: scenario.visible.prompt,
@@ -173,13 +246,34 @@ export async function runEvaluation(options: {
       const obsResult = await httpRunner(sutScenario, model);
 
       // Fetch afterWorkspaceState
-      const afterStateRes = await fetch(`${pair.backendUrl}/api/workspaces/${DEFAULT_WORKSPACE_ID}/state`, {
-        headers: { "X-ProjectFlow-Admin-Token": pair.adminToken },
-      });
-      if (!afterStateRes.ok) {
-        throw new Error(`获取运行后工作区状态失败: HTTP ${afterStateRes.status}`);
+      let afterState: Record<string, unknown>;
+      try {
+        const afterStateRes = await fetch(`${pair.backendUrl}/api/workspaces/${DEFAULT_WORKSPACE_ID}/state`, {
+          headers: { "X-ProjectFlow-Admin-Token": pair.adminToken },
+        });
+        if (!afterStateRes.ok) {
+          throw new InfrastructureError(`获取运行后工作区状态失败: HTTP ${afterStateRes.status}`);
+        }
+        afterState = await afterStateRes.json() as Record<string, unknown>;
+      } catch (err: any) {
+        if (err instanceof InfrastructureError) throw err;
+        throw new InfrastructureError(`获取运行后工作区状态网络异常: ${err.message}`);
       }
-      const afterState = await afterStateRes.json() as Record<string, unknown>;
+
+      // Cost attribution and source segment classification
+      const isMock = model.startsWith("mock:");
+      const sutCost = obsResult.cost ?? 0;
+      let costSource: "reported" | "estimated" | "unknown" = "reported";
+
+      // P0 Unknown cost fail-closed verification
+      if (!isMock) {
+        if (obsResult.cost === undefined) {
+          costSource = "unknown";
+          throw new Error(`付费模型 "${model}" 未能返回费用指标，出于安全性限制触发 fail-closed 中断评估`);
+        } else {
+          costSource = "reported";
+        }
+      }
 
       const finalObs: ScenarioObservation = {
         schemaVersion: 1,
@@ -195,27 +289,30 @@ export async function runEvaluation(options: {
         reasoningTokens: obsResult.reasoningTokens,
         cacheReadTokens: obsResult.cacheReadTokens,
         cacheWriteTokens: obsResult.cacheWriteTokens,
-        cost: obsResult.cost,
+        sutCost,
+        evaluatorModelCost: 0, // no evaluator LLM calls in Slice 0
+        codingAgentCost: 0,    // doesn't include coding agent execution budget
+        costSource,
         output: obsResult.output ?? "",
       };
 
-      // Add to cumulative cost tracking
-      if (finalObs.cost) {
-        cumulativeCost += finalObs.cost;
-      }
+      cumulativeCost += sutCost;
 
-      // Grade the result
+      // Grade observations
       const grade = gradeObservation(scenario, finalObs, beforeState, afterState);
 
-      // Save observations and grades atomically to enable resume
-      await writeJsonAtomic(
-        join(artifactsDir, "observations", `${scenario.scenarioId}.json`),
-        finalObs
-      );
-      await writeJsonAtomic(
-        join(artifactsDir, "grades", `${scenario.scenarioId}.json`),
-        grade
-      );
+      // Write atomically to evaluator sandboxed temp root staging area
+      const relativeObsPath = `observations/${scenario.scenarioId}.json`;
+      const relativeGradePath = `grades/${scenario.scenarioId}.json`;
+
+      const obsHash = await writeJsonAtomic(join(stagingObsDir, `${scenario.scenarioId}.json`), finalObs);
+      const gradeHash = await writeJsonAtomic(join(stagingGradesDir, `${scenario.scenarioId}.json`), grade);
+
+      checksums[relativeObsPath] = obsHash;
+      checksums[relativeGradePath] = gradeHash;
+
+      // Update checksums in sandbox staging
+      await writeJsonAtomic(join(stagingDir, "checksums.json"), checksums);
 
       observations.push(finalObs);
       grades.push(grade);
@@ -224,7 +321,13 @@ export async function runEvaluation(options: {
         onProgress(scenario.scenarioId, "completed", { observation: finalObs, grade });
       }
     } catch (err: any) {
-      console.error(`运行场景 ${scenario.scenarioId} 发生错误:`, err);
+      // If it's a critical infrastructure error, do not record SUT regression, propagate immediately!
+      if (err instanceof InfrastructureError) {
+        await pair.destroy();
+        throw err;
+      }
+
+      console.error(`运行场景 ${scenario.scenarioId} 发生异常:`, err);
 
       const finalObs: ScenarioObservation = {
         schemaVersion: 1,
@@ -237,7 +340,11 @@ export async function runEvaluation(options: {
         latencyMs: 0,
         inputTokens: 0,
         outputTokens: 0,
-        output: `执行期间异常: ${err?.message || String(err)}`,
+        sutCost: 0,
+        evaluatorModelCost: 0,
+        codingAgentCost: 0,
+        costSource: "reported",
+        output: `执行阶段异常: ${err?.message || String(err)}`,
       };
 
       const grade: Grade = {
@@ -248,17 +355,19 @@ export async function runEvaluation(options: {
         outcomePassed: false,
         latencyPassed: false,
         privacyPassed: false,
-        failures: [`执行期发生未捕获异常: ${err?.message || String(err)}`],
+        failures: [`执行期发生异常: ${err?.message || String(err)}`],
       };
 
-      await writeJsonAtomic(
-        join(artifactsDir, "observations", `${scenario.scenarioId}.json`),
-        finalObs
-      );
-      await writeJsonAtomic(
-        join(artifactsDir, "grades", `${scenario.scenarioId}.json`),
-        grade
-      );
+      const relativeObsPath = `observations/${scenario.scenarioId}.json`;
+      const relativeGradePath = `grades/${scenario.scenarioId}.json`;
+
+      const obsHash = await writeJsonAtomic(join(stagingObsDir, `${scenario.scenarioId}.json`), finalObs);
+      const gradeHash = await writeJsonAtomic(join(stagingGradesDir, `${scenario.scenarioId}.json`), grade);
+
+      checksums[relativeObsPath] = obsHash;
+      checksums[relativeGradePath] = gradeHash;
+
+      await writeJsonAtomic(join(stagingDir, "checksums.json"), checksums);
 
       observations.push(finalObs);
       grades.push(grade);
@@ -266,23 +375,29 @@ export async function runEvaluation(options: {
       if (onProgress) {
         onProgress(scenario.scenarioId, "completed", { observation: finalObs, grade });
       }
-    } finally {
-      await pair.destroy();
     }
+  }
+
+  // P0 Hard final SUT budget limit assertion on completed run
+  if (cumulativeCost > MAX_BUDGET_USD) {
+    await pair.destroy();
+    throw new Error(`评测超出硬上限上限: 累计SUT消耗为 $${cumulativeCost.toFixed(4)}，已超出 $${MAX_BUDGET_USD}`);
   }
 
   const completedAt = new Date().toISOString();
   const passedCount = grades.filter((g) => g.passed).length;
   const failedCount = grades.length - passedCount;
-  const totalCost = observations
-    .map((o) => o.cost)
-    .filter((c): c is number => typeof c === "number")
-    .reduce((sum, c) => sum + c, 0);
+
+  const totalSutCost = observations.reduce((sum, o) => sum + o.sutCost, 0);
+  const totalEvaluatorModelCost = observations.reduce((sum, o) => sum + o.evaluatorModelCost, 0);
+  const totalCodingAgentCost = observations.reduce((sum, o) => sum + o.codingAgentCost, 0);
 
   const artifact: EvaluationArtifact = {
     schemaVersion: 1,
     runId,
     model,
+    gitCommit,
+    gitDirtyFingerprint,
     startedAt,
     completedAt,
     observations,
@@ -291,12 +406,31 @@ export async function runEvaluation(options: {
       passedCount,
       failedCount,
       passRate: grades.length > 0 ? passedCount / grades.length : 0,
-      totalCost: totalCost > 0 ? totalCost : undefined,
+      totalSutCost,
+      totalEvaluatorModelCost,
+      totalCodingAgentCost,
+    },
+    provenance: {
+      host: hostname(),
+      platform: platform(),
+      user: userInfo().username,
     },
   };
 
-  const reportPath = join(artifactsDir, "report.json");
-  await writeJsonAtomic(reportPath, artifact);
+  const reportPath = join(stagingDir, "report.json");
+  const reportHash = await writeJsonAtomic(reportPath, artifact);
+  checksums["report.json"] = reportHash;
+
+  // Update final staged checksums
+  await writeJsonAtomic(join(stagingDir, "checksums.json"), checksums);
+  artifact.sha256Hash = reportHash;
+
+  // Pre-staging validation complete. Now sync staged artifacts to the final workspace directory atomically
+  await mkdir(artifactsDir, { recursive: true });
+  await cp(stagingDir, artifactsDir, { recursive: true });
+
+  // Destroy sandboxed processes
+  await pair.destroy();
 
   return artifact;
 }

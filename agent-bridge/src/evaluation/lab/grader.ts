@@ -34,7 +34,7 @@ export function containsRawId(output: string, workspaceState: any): boolean {
 export function verifyStatePurity(before: any, after: any): boolean {
   // P1: Fail-closed verification
   if (!before || !after) return false;
-  
+
   // Create copies and strip dynamic timestamps/IDs that might auto-generate/change without mutation
   const cleanState = (state: any) => {
     const copy = JSON.parse(JSON.stringify(state));
@@ -66,7 +66,7 @@ export function gradeObservation(
   const expectedSkill = hidden.expectedSkill;
   const routingPassed = obs.routedMode === expectedMode &&
     (!expectedSkill || obs.selectedSkills.includes(expectedSkill));
-  
+
   if (!routingPassed) {
     failures.push(`路由不匹配: 期望模式为 ${expectedMode}${expectedSkill ? `(${expectedSkill})` : ""}, 实际为 ${obs.routedMode}(${obs.selectedSkills.join(",")})`);
   }
@@ -75,7 +75,7 @@ export function gradeObservation(
   const terminalCompleted = obs.terminalStatus === "completed";
   const requiredEvidence = hidden.requiredEvidence ?? [];
   const missingEvidence = requiredEvidence.filter((e) => !obs.evidence.includes(e));
-  
+
   const requiredAnyEvidence = hidden.requiredAnyEvidence ?? [];
   const anyEvidencePassed = requiredAnyEvidence.length === 0 ||
     requiredAnyEvidence.some((e) => obs.evidence.includes(e));

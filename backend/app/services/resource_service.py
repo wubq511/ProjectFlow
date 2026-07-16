@@ -1,7 +1,10 @@
+import logging
 from sqlmodel import Session, select
 
 from app.models.resource import ProjectResource
 from app.schemas.resource import ResourceCreate
+
+logger = logging.getLogger(__name__)
 
 
 def create_resource(session: Session, data: ResourceCreate) -> ProjectResource:
@@ -32,11 +35,20 @@ def delete_uploaded_file_if_safe(file_path: str) -> None:
     import os
     from app.core.config import settings
     upload_dir = settings.resolved_upload_dir
-    if os.path.isfile(file_path) and is_safe_path(file_path, upload_dir):
+    # Resolve relative basename to absolute path inside upload_dir
+    if not os.path.isabs(file_path):
+        file_path = os.path.join(upload_dir, file_path)
+
+    if not is_safe_path(file_path, upload_dir):
+        logger.error("Path traversal attempt detected during deletion: %s outside %s", file_path, upload_dir)
+        raise PermissionError(f"安全审计拦截: 目标路径 {file_path} 超出合法目录限制 {upload_dir}")
+
+    if os.path.isfile(file_path):
         try:
             os.remove(file_path)
-        except OSError:
-            pass
+        except OSError as e:
+            logger.error("Failed to delete physical file %s: %s", file_path, str(e))
+            raise IOError(f"物理删除失败: {file_path} - {e}") from e
 
 
 def save_uploaded_file(file) -> str:

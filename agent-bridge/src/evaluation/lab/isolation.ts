@@ -134,20 +134,63 @@ export class IsolatedProcessPair {
   }
 
   async destroy(): Promise<void> {
-    if (this.backendProcess) {
-      this.backendProcess.kill("SIGKILL");
-      this.backendProcess = null;
+    const backend = this.backendProcess;
+    const sidecar = this.sidecarProcess;
+    this.backendProcess = null;
+    this.sidecarProcess = null;
+
+    if (backend) {
+      backend.kill("SIGKILL");
     }
-    if (this.sidecarProcess) {
-      this.sidecarProcess.kill("SIGKILL");
-      this.sidecarProcess = null;
+    if (sidecar) {
+      sidecar.kill("SIGKILL");
     }
+
+    try {
+      await Promise.all([
+        waitProcessExit(backend),
+        waitProcessExit(sidecar),
+      ]);
+    } catch (err: any) {
+      console.error(`[isolation] 进程关闭异常或超时: ${err?.message || err}`);
+      throw new Error(`清理沙箱实例进程失败: ${err?.message || err}`);
+    }
+
     if (this.tempRoot) {
       try {
         await rm(this.tempRoot, { recursive: true, force: true });
       } catch (err: any) {
-        console.warn(`[isolation] 清理临时目录失败 ${this.tempRoot}: ${err?.message || err}`);
+        console.error(`[isolation] 清理临时沙箱根目录失败 ${this.tempRoot}: ${err?.message || err}`);
+        throw new Error(`沙箱目录物理删除失败: ${err?.message || err}`);
       }
     }
   }
+}
+
+function waitProcessExit(proc: ChildProcess | null, timeoutMs = 5000): Promise<void> {
+  if (!proc || proc.exitCode !== null || proc.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve, reject) => {
+    let timer: NodeJS.Timeout;
+    const cleanup = () => {
+      clearTimeout(timer);
+      proc.off("exit", onExit);
+      proc.off("error", onError);
+    };
+    const onExit = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (err: any) => {
+      cleanup();
+      reject(err);
+    };
+    proc.on("exit", onExit);
+    proc.on("error", onError);
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("等待进程退出超时"));
+    }, timeoutMs);
+  });
 }
