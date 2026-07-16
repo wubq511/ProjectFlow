@@ -10,8 +10,12 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-UPLOAD_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "uploads"))
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+from app.core.config import settings
+
+def get_upload_dir() -> str:
+    d = settings.resolved_upload_dir
+    os.makedirs(d, exist_ok=True)
+    return d
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".txt", ".md", ".csv", ".xlsx", ".pptx", ".zip"}
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -45,7 +49,7 @@ async def api_upload_file(file: UploadFile):
 
     # Generate unique filename, preserve original extension
     unique_name = f"{uuid.uuid4().hex}{ext}"
-    saved_path = os.path.join(UPLOAD_DIR, unique_name)
+    saved_path = os.path.join(get_upload_dir(), unique_name)
 
     try:
         with open(saved_path, "wb") as f:

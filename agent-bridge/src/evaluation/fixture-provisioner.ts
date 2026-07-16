@@ -22,6 +22,7 @@ export interface FixtureProvisionerConfig {
   viewerUserId: string;
   adminToken?: string;
   fetchFn?: typeof fetch;
+  evaluationNonce?: string;
 }
 
 interface SeedDemoResponse {
@@ -88,6 +89,9 @@ export async function provisionObservationFixture(
   const headers: Record<string, string> = config.adminToken
     ? { "X-ProjectFlow-Admin-Token": config.adminToken }
     : {};
+  if (config.evaluationNonce) {
+    headers["X-Evaluation-Nonce"] = config.evaluationNonce;
+  }
 
   // Step 1: Seed demo state.
   try {

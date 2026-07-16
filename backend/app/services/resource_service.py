@@ -27,13 +27,11 @@ def delete_resource(session: Session, resource_id: str) -> None:
 
     # 如果是上传的文件引用，同步删除磁盘上的文件
     if resource.type == "file_stub" and resource.file_name:
-        # resource_service.py → app/services/ → ../../ = backend/
-        UPLOAD_DIR = os.path.normpath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "data", "uploads")
-        )
+        from app.core.config import settings
+        upload_dir = settings.resolved_upload_dir
         file_path = resource.file_name
         # 只删除 uploads 目录内的文件，防止误删其他路径
-        if os.path.isfile(file_path) and os.path.normpath(file_path).startswith(UPLOAD_DIR):
+        if os.path.isfile(file_path) and os.path.normpath(file_path).startswith(upload_dir):
             try:
                 os.remove(file_path)
             except OSError:

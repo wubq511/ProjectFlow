@@ -349,7 +349,13 @@ export async function handleStartRunStream(
     switch (eventType) {
       case "run.started":
       case "agent.started":
-        writeSSE(res, "status", { phase: "planning", message: "正在理解你的需求..." });
+        writeSSE(res, "status", {
+          phase: "planning",
+          message: "正在理解你的需求...",
+          run_id: runState.runId,
+          request_mode: outcomeContract.effectCeiling === "none" ? "answer" : "action",
+          selected_skills: allSkillContexts.map((s) => s.name),
+        });
         break;
 
       case "agent.delta": {

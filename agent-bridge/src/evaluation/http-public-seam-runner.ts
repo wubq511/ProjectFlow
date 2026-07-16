@@ -120,6 +120,7 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
       cacheWriteTokens: typeof metrics.cache_write_tokens === "number" ? metrics.cache_write_tokens : undefined,
       cost: typeof metrics.total_cost === "number" ? metrics.total_cost : undefined,
       outputPolicyPassed,
+      output: finalContent,
     };
   };
 }

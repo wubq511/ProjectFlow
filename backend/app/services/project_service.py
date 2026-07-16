@@ -145,16 +145,15 @@ def delete_project(session: Session, project_id: str) -> None:
     ).all()
 
     # ── 2. 清理上传文件（先于 DB 删除）──
-    UPLOAD_DIR = os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "data", "uploads")
-    )
+    from app.core.config import settings
+    upload_dir = settings.resolved_upload_dir
     resources = session.exec(
         select(ProjectResource).where(ProjectResource.project_id == project_id)
     ).all()
     for r in resources:
         if r.type == "file_stub" and r.file_name:
             file_path = r.file_name
-            if os.path.isfile(file_path) and os.path.normpath(file_path).startswith(UPLOAD_DIR):
+            if os.path.isfile(file_path) and os.path.normpath(file_path).startswith(upload_dir):
                 try:
                     os.remove(file_path)
                 except OSError:

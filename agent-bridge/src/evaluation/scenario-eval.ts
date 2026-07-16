@@ -26,6 +26,7 @@ export interface ScenarioObservation {
   cacheWriteTokens?: number;
   cost?: number;
   outputPolicyPassed?: boolean;
+  output?: string;
 }
 
 export interface ScenarioResult {

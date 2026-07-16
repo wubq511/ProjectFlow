@@ -17,5 +17,7 @@ export async function handleHealth(
     service: "agent-bridge",
     version: "0.1.0",
     uptime_s: Math.floor(process.uptime()),
+    app_env: process.env.APP_ENV,
+    evaluation_nonce: process.env.EVALUATION_NONCE,
   });
 }

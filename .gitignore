@@ -40,6 +40,7 @@ agent-bridge/scripts/*
 .playwright-cli/
 backend/tmp-logs/
 backend/artifacts/
+agent-bridge/artifacts/
 backend/ab_sidecar_pilot_*.md
 vendor_imports/tools/
 vendor_imports/research/**/repos/

@@ -11,10 +11,42 @@ def require_demo_admin_access(
         str | None,
         Header(alias="X-ProjectFlow-Admin-Token"),
     ] = None,
+    x_evaluation_nonce: Annotated[
+        str | None,
+        Header(alias="X-Evaluation-Nonce"),
+    ] = None,
 ) -> None:
     """Protect destructive demo endpoints outside the local development loop."""
     if settings.app_env == "development":
         return
+
+    if settings.app_env == "evaluation":
+        import os
+        # 1. Nonce check
+        expected_nonce = os.environ.get("EVALUATION_NONCE")
+        if not expected_nonce or x_evaluation_nonce != expected_nonce:
+            raise HTTPException(status_code=403, detail="Evaluation nonce mismatch")
+
+        # 2. Temp root containment check
+        temp_root = os.environ.get("EVALUATION_TEMP_ROOT")
+        if not temp_root:
+            raise HTTPException(status_code=403, detail="EVALUATION_TEMP_ROOT not set")
+        temp_root_abs = os.path.realpath(temp_root)
+
+        # Verify database path is sqlite and resolved path is inside temp_root_abs
+        db_url = settings.database_url
+        if not db_url.startswith("sqlite"):
+            raise HTTPException(status_code=403, detail="Evaluation requires SQLite database")
+        
+        db_path = db_url.removeprefix("sqlite:///")
+        db_abs_path = os.path.realpath(db_path)
+        if not db_abs_path.startswith(temp_root_abs + os.sep):
+            raise HTTPException(status_code=403, detail="Database path outside temporary root")
+
+        # Verify upload directory path is inside temp_root_abs
+        upload_dir_abs = os.path.realpath(settings.resolved_upload_dir)
+        if not upload_dir_abs.startswith(temp_root_abs + os.sep):
+            raise HTTPException(status_code=403, detail="Upload directory path outside temporary root")
 
     expected_token = settings.demo_admin_token.get_secret_value() if settings.demo_admin_token else None
     if not expected_token:

@@ -14,6 +14,16 @@ class Settings(BaseSettings):
     demo_admin_token: SecretStr | None = None
     internal_service_token: SecretStr | None = None
     sidecar_base_url: str = "http://localhost:4000"
+    upload_dir: str = ""
+
+    @property
+    def resolved_upload_dir(self) -> str:
+        import os
+        if self.upload_dir:
+            return os.path.abspath(self.upload_dir)
+        return os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "data", "uploads")
+        )
 
     # ── T41 Per-Tool Feature Flags ──────────────────────────────────
     # Disable a flag to immediately stop the corresponding tool endpoint
