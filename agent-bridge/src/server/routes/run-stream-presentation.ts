@@ -178,9 +178,18 @@ export interface StreamProjector {
   getPhase(): ProjectorPhase;
   /** Current stream sequence number (for metrics/debugging). */
   getStreamSequence(): number;
-  /** Get pending visible text (for final_content fallback). */
+  /**
+   * Get the unprojected tail of pending visible text (text accumulated but not
+   * yet emitted via process_delta). NOT the full model-text fallback.
+   */
   getPendingText(): string;
-  /** Drain pending text and flush sanitizer tail. Returns accumulated text. */
+  /**
+   * Drain and return the full cumulative model text for this run. This includes
+   * all text ever passed to accumulateText plus any sanitizer tail flushed via
+   * the optional callback. Serves as reliable fallback when the runtime omits
+   * final_content. Also projects the sanitizer tail into the current progress
+   * activity (if open) before returning.
+   */
   drainPendingText(sanitizerFlush?: () => string): string;
   /** Get process completion summary for run_summary enrichment. */
   getProcessSummary(): { process_completed_at: string | null; processing_duration_ms: number };
@@ -199,8 +208,12 @@ export function createStreamProjector(
   const activities: ProjectorActivity[] = [];
   let currentProgressId: string | null = null;
   let pendingVisibleText = "";
+  /** Full cumulative model text — tracks ALL text ever passed to accumulateText,
+   *  used as reliable fallback when final_content is missing. */
+  let fallbackText = "";
   let phase: ProjectorPhase = "initial";
   let lastToolCategory: string | null = null;
+  let accumulateOpenedProgress = false;
   let hasSentProcessCompleted = false;
   let hasSentAnswerStarted = false;
   let processCompletedAt: string | null = null;
@@ -318,9 +331,19 @@ export function createStreamProjector(
   }
 
   function accumulateText(safeText: string): void {
-    if (safeText) {
-      pendingVisibleText += safeText;
-    }
+    if (!safeText) return;
+    pendingVisibleText += safeText;
+    // Emit process_delta immediately so commentary appears incrementally
+    appendOrCreateProgress(safeText);
+    // Track that accumulateText opened/updated a progress block.
+    // handleToolStarted uses this to suppress category transition when
+    // model commentary already exists.
+    accumulateOpenedProgress = true;
+    // Accumulate into fallback BEFORE clearing pending — every model text
+    // chunk is captured exactly once for final_content fallback.
+    fallbackText += safeText;
+    // Clear pending — text is now in the progress activity.
+    pendingVisibleText = "";
   }
 
   function handleToolStarted(toolName: string, toolCallId: string): void {
@@ -335,9 +358,11 @@ export function createStreamProjector(
     }
 
     // 2. Category transition progress (only if no commentary was flushed
-    //    and category actually changed)
+    //    AND accumulateText didn't already open a progress block with
+    //    model commentary — model text takes priority over deterministic transitions)
+    const hasCommentary = flushedCommentary || accumulateOpenedProgress;
     if (
-      !flushedCommentary &&
+      !hasCommentary &&
       lastToolCategory &&
       category &&
       category !== lastToolCategory
@@ -351,6 +376,7 @@ export function createStreamProjector(
 
     // 3. Close current progress block
     currentProgressId = null;
+    accumulateOpenedProgress = false;
 
     // 4. Insert tool activity
     const label = formatToolStartLabel(toolName);
@@ -519,9 +545,14 @@ export function createStreamProjector(
       const tail = sanitizerFlush();
       if (tail) pendingVisibleText += tail;
     }
-    const text = pendingVisibleText;
-    pendingVisibleText = "";
-    return text;
+    // Project any remaining unprojected tail (sanitizer flush) into the
+    // current progress activity so it appears in the timeline.
+    if (pendingVisibleText) {
+      appendOrCreateProgress(pendingVisibleText);
+      fallbackText += pendingVisibleText;
+      pendingVisibleText = "";
+    }
+    return fallbackText;
   }
 
   function getProcessSummary() {

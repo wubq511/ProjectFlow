@@ -1,5 +1,20 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+
+// Mock window.matchMedia for prefers-reduced-motion detection in RunActivity
+beforeEach(() => {
+  if (typeof window !== "undefined" && !window.matchMedia) {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: (query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }),
+    });
+  }
+});
 
 import type {
   AgentArtifact,

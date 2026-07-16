@@ -172,6 +172,7 @@ export const ChatMessage = React.memo(function ChatMessage({
               isStreaming={isProcessStreaming}
               isExpanded={processExpanded}
               onToggle={handleProcessToggle}
+              processStartedAt={isLive ? streamTurn!.processStartedAt : undefined}
             />
           )}
 
@@ -200,19 +201,25 @@ export const ChatMessage = React.memo(function ChatMessage({
             </Collapsible>
           )}
 
-          {/* Answer content: streaming or persisted */}
-          {isLive && streamTurn!.answerBuffer && answerContent.length > 0 ? (
-            <StreamingText buffer={answerContent} isStreaming={isAnswerStreaming} onRevealProgress={onRevealProgress} />
-          ) : answerContent ? (
-            <div>
-              <MarkdownContent content={answerContent} />
-            </div>
-          ) : isLive && !hasActivities && !answerContent ? (
-            <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              <span>正在生成回复...</span>
-            </div>
-          ) : null}
+          {/* Answer content: streaming or persisted. Wrapped in layout="position"
+              for smooth FLIP repositioning when the process area above collapses. */}
+          <motion.div
+            layout="position"
+            transition={{ duration: 0.15, ease: [0.23, 1, 0.32, 1] }}
+          >
+            {isLive && streamTurn!.answerBuffer && answerContent.length > 0 ? (
+              <StreamingText buffer={answerContent} isStreaming={isAnswerStreaming} onRevealProgress={onRevealProgress} />
+            ) : answerContent ? (
+              <div>
+                <MarkdownContent content={answerContent} />
+              </div>
+            ) : isLive && !hasActivities && !answerContent ? (
+              <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>正在生成回复...</span>
+              </div>
+            ) : null}
+          </motion.div>
 
           {/* Turn status label (cancelled/disconnected/failed) */}
           {turnStatusLabel && (

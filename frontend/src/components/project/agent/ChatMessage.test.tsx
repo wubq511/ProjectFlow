@@ -5,17 +5,34 @@
  * Fix: thinking_content and execution_steps from structured_payload are shown
  * in collapsed folds. Raw tool JSON is never visible.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import React from "react";
+
+// Mock window.matchMedia for RunActivity's prefers-reduced-motion detection
+beforeEach(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }),
+  });
+});
 import { ChatMessage } from "./ChatMessage";
 import type { AgentStreamTurn } from "@/lib/types";
 
-// Mock framer-motion to avoid animation issues in tests
+// Mock framer-motion — strip motion-specific props, expose layout as data attribute
 vi.mock("framer-motion", () => ({
   motion: {
     div: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => {
-      return <div {...props}>{children}</div>;
+      const { initial, animate, exit, variants, transition, layout, ...domProps } = props;
+      const extraProps: Record<string, unknown> = {};
+      if (layout !== undefined) extraProps["data-layout"] = String(layout);
+      if (transition !== undefined) extraProps["data-motion-transition"] = JSON.stringify(transition);
+      return <div {...domProps} {...extraProps}>{children}</div>;
     },
   },
   AnimatePresence: ({ children }: React.PropsWithChildren) => <>{children}</>,
@@ -36,6 +53,18 @@ vi.mock("./StreamingText", () => ({
 // Mock MessageActions
 vi.mock("./MessageActions", () => ({
   MessageActions: () => <div data-testid="message-actions" />,
+}));
+
+// Mock ProcessMarkdown (used by RunActivity for progress content)
+vi.mock("./ProcessMarkdown", () => ({
+  ProcessMarkdown: ({ content }: { content: string }) => <span data-testid="process-md">{content}</span>,
+}));
+
+// Mock StreamingProcessText (used by RunActivity for live progress)
+vi.mock("./StreamingProcessText", () => ({
+  StreamingProcessText: ({ content, isStreaming }: { content: string; isStreaming?: boolean }) => (
+    <span data-testid="streaming-process-text" data-streaming={String(isStreaming)}>{content}</span>
+  ),
 }));
 
 function makeAssistantMessage(overrides: Record<string, unknown> = {}) {
@@ -337,6 +366,130 @@ describe("ChatMessage output-channel fix", () => {
       render(<ChatMessage message={message} streamTurn={streamTurn} isLast={false} />);
       // Empty answerBuffer → falls through to MarkdownContent
       expect(screen.getByTestId("markdown")).toBeTruthy();
+    });
+  });
+
+  describe("collapse animation compliance", () => {
+    it("collapseVariants do not use height or maxHeight", async () => {
+      // Import the actual variants from RunActivity to verify no height/maxHeight
+      const { collapseVariants } = await import("./RunActivity");
+
+      // Check expanded variant
+      expect(collapseVariants.expanded).not.toHaveProperty("height");
+      expect(collapseVariants.expanded).not.toHaveProperty("maxHeight");
+
+      // Check collapsed variant
+      expect(collapseVariants.collapsed).not.toHaveProperty("height");
+      expect(collapseVariants.collapsed).not.toHaveProperty("maxHeight");
+
+      // Verify opacity and clipPath are present
+      expect(collapseVariants.expanded).toHaveProperty("opacity", 1);
+      expect(collapseVariants.expanded).toHaveProperty("clipPath");
+      expect(collapseVariants.collapsed).toHaveProperty("opacity", 0);
+      expect(collapseVariants.collapsed).toHaveProperty("clipPath");
+    });
+  });
+
+  describe("answer surface layout-position", () => {
+    function makeStreamTurn(overrides: Partial<AgentStreamTurn>): AgentStreamTurn {
+      return {
+        clientTurnId: "turn-layout",
+        status: "completed",
+        userMessage: null,
+        blocks: {},
+        blockOrder: 0,
+        thinkingOpen: false,
+        thinkingWasAutoFolded: false,
+        thinkingWasManuallyToggled: false,
+        executionSteps: [],
+        error: null,
+        finalContent: null,
+        activities: [],
+        runSummary: null,
+        processStartedAt: null,
+        processCompletedAt: null,
+        processDurationMs: 0,
+        streamSequence: 0,
+        processAutoCollapsed: false,
+        processExpanded: true,
+        answerBuffer: "",
+        ...overrides,
+      };
+    }
+
+    it("answer surface is wrapped in motion.div with layout='position'", () => {
+      const message = makeAssistantMessage({ content: "回答内容" });
+      render(<ChatMessage message={message} />);
+
+      // The answer surface wrapper should have data-layout="position"
+      const layoutDiv = document.querySelector("[data-layout='position']");
+      expect(layoutDiv).toBeTruthy();
+      // The answer content should be inside the layout wrapper
+      expect(layoutDiv!.textContent).toContain("回答内容");
+    });
+
+    it("answer surface layout transition uses ease-out with duration ≤ 0.2s", () => {
+      const message = makeAssistantMessage({ content: "回答内容" });
+      render(<ChatMessage message={message} />);
+
+      const layoutDiv = document.querySelector("[data-layout='position']");
+      expect(layoutDiv).toBeTruthy();
+
+      const transitionStr = layoutDiv!.getAttribute("data-motion-transition");
+      expect(transitionStr).toBeTruthy();
+      const transition = JSON.parse(transitionStr!);
+      expect(transition.duration).toBeLessThanOrEqual(0.2);
+      // ease-out curve: last element should be 1 (end at rest)
+      expect(transition.ease[transition.ease.length - 1]).toBe(1);
+    });
+
+    it("answer surface layout-position works for streaming turns", () => {
+      const message = makeAssistantMessage({ content: "" });
+      const streamTurn = makeStreamTurn({
+        status: "answering",
+        answerBuffer: "正在流式输出",
+      });
+      render(<ChatMessage message={message} streamTurn={streamTurn} isLast={false} />);
+
+      const layoutDiv = document.querySelector("[data-layout='position']");
+      expect(layoutDiv).toBeTruthy();
+      expect(layoutDiv!.textContent).toContain("正在流式输出");
+    });
+  });
+
+  describe("processStartedAt propagation", () => {
+    it("passes processStartedAt to RunActivity for live turns", () => {
+      const message = makeAssistantMessage({ content: "" });
+      const processStartedAt = "2026-07-16T10:00:00Z";
+      const streamTurn: AgentStreamTurn = {
+        clientTurnId: "turn-started",
+        status: "executing",
+        userMessage: null,
+        blocks: {},
+        blockOrder: 0,
+        thinkingOpen: false,
+        thinkingWasAutoFolded: false,
+        thinkingWasManuallyToggled: false,
+        executionSteps: [],
+        error: null,
+        finalContent: null,
+        activities: [
+          { id: "p1", sequence: 1, created_at: "2026-07-16T10:00:00Z", kind: "progress", content: "处理中" },
+        ],
+        runSummary: null,
+        processStartedAt,
+        processCompletedAt: null,
+        processDurationMs: 0,
+        streamSequence: 0,
+        processAutoCollapsed: false,
+        processExpanded: true,
+        answerBuffer: "",
+      };
+
+      render(<ChatMessage message={message} streamTurn={streamTurn} isLast={false} />);
+
+      // processStartedAt is consumed by RunActivity → LiveElapsed
+      expect(screen.getByText(/\d+s/)).toBeTruthy();
     });
   });
 });

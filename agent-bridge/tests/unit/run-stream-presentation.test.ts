@@ -409,45 +409,134 @@ describe("projector: edge cases (test 20)", () => {
     expect(answerContent(events)).toBe("直接回答内容");
   });
 
-  it("final_content missing fallback: uses pendingVisibleText", () => {
+  it("final_content missing: accumulateText already emitted as process_delta, answer empty", () => {
     const { projector, events } = createTestProjector();
 
     projector.emitProcessStarted();
     projector.emitInitialProgress();
 
-    // Model produces text but no final_content
+    // Model produces text — emitted immediately as process_delta
     projector.accumulateText("这是模型的最后输出。");
 
-    // Simulate: drainPendingText would be called by stream route
-    // Here we test the projector's getPendingText
-    expect(projector.getPendingText()).toBe("这是模型的最后输出。");
+    // After accumulateText, pending is cleared (text already in progress activity)
+    expect(projector.getPendingText()).toBe("");
 
     // emitAnswerBoundaryAndContent with empty final_content
     projector.emitAnswerBoundaryAndContent("");
 
-    // Answer should be empty (the stream route would use getPendingText as fallback)
+    // Answer is empty — text was process commentary, not answer content
     expect(answerContent(events)).toBe("");
   });
 
-  it("drainPendingText flushes accumulated text", () => {
+  it("drainPendingText returns full concat after accumulateText (fallback)", () => {
     const { projector } = createTestProjector();
 
     projector.accumulateText("部分文本");
     projector.accumulateText("更多文本");
 
+    // drainPendingText returns full cumulative text as fallback,
+    // even though each chunk was already projected via process_delta.
     const drained = projector.drainPendingText();
     expect(drained).toBe("部分文本更多文本");
     expect(projector.getPendingText()).toBe("");
   });
 
-  it("drainPendingText with sanitizer flush", () => {
+  it("drainPendingText with sanitizer flush returns accumulated + tail", () => {
     const { projector } = createTestProjector();
 
+    // accumulateText emits and clears pending
     projector.accumulateText("已累积");
 
+    // Sanitizer flush adds a tail that wasn't emitted via accumulateText
     const drained = projector.drainPendingText(() => "尾部文本");
+    // Returns accumulated text + sanitizer tail as fallback
     expect(drained).toBe("已累积尾部文本");
     expect(projector.getPendingText()).toBe("");
+  });
+
+  it("drain returns full concat across tool boundaries, process_delta exactly-once", () => {
+    const { projector, events } = createTestProjector();
+
+    projector.emitProcessStarted();
+    projector.emitInitialProgress();
+
+    // Text A before tool
+    projector.accumulateText("第一段文本。");
+    const deltasBeforeTool = processDeltaEvents(events).length;
+
+    // Tool interrupts
+    projector.handleToolStarted("get_project_state", "tc-1");
+    projector.handleToolCompleted("tc-1", "get_project_state");
+
+    // Text B after tool
+    projector.accumulateText("第二段文本。");
+
+    // drain returns full concat of A + B
+    const drained = projector.drainPendingText();
+    expect(drained).toBe("第一段文本。第二段文本。");
+
+    // process_delta count: initial(1) + A(1) + B(1) = 3, no duplicates
+    const allDeltas = processDeltaEvents(events);
+    expect(allDeltas).toHaveLength(3);
+    // A was emitted before tool, B after — both exactly once
+    expect(allDeltas[1].data.content).toBe("第一段文本。");
+    expect(allDeltas[2].data.content).toBe("第二段文本。");
+  });
+
+  it("sanitizer tail enters progress activity and fallback exactly once", () => {
+    const { projector, events } = createTestProjector();
+
+    projector.emitProcessStarted();
+    projector.emitInitialProgress();
+
+    projector.accumulateText("前文。");
+
+    // drainPendingText with sanitizer tail — tail should be projected AND in fallback
+    const drained = projector.drainPendingText(() => "尾部");
+
+    // Fallback includes accumulated + tail
+    expect(drained).toBe("前文。尾部");
+
+    // Tail was projected as process_delta into the current progress activity
+    const deltas = processDeltaEvents(events);
+    const tailDeltas = deltas.filter(
+      (d) => (d.data as Record<string, unknown>).content === "尾部",
+    );
+    expect(tailDeltas).toHaveLength(1);
+
+    // Tail appears in the progress activity's content
+    const progressItems = projector.getActivities().filter((a) => a.kind === "progress");
+    const lastProgress = progressItems[progressItems.length - 1];
+    expect(lastProgress.content).toContain("尾部");
+
+    // Second drain returns same fallback (idempotent, no new tail)
+    const drained2 = projector.drainPendingText();
+    expect(drained2).toBe(drained);
+  });
+
+  it("emitAnswerBoundaryAndContent uses drainPendingText fallback when final_content missing", () => {
+    const { projector, events } = createTestProjector();
+
+    projector.emitProcessStarted();
+    projector.emitInitialProgress();
+
+    // Model produces commentary text (no final_content from runtime)
+    projector.accumulateText("分析结果：项目进展良好。");
+    projector.accumulateText("建议继续推进。");
+
+    // Simulate finalizeRun: drain gets fallback, emitAnswer uses it
+    const fallback = projector.drainPendingText(() => "补充尾部。");
+    expect(fallback).toBe("分析结果：项目进展良好。建议继续推进。补充尾部。");
+
+    projector.emitAnswerBoundaryAndContent(fallback);
+
+    // answer_delta concatenation equals the full fallback
+    const answer = answerContent(events);
+    expect(answer).toBe("分析结果：项目进展良好。建议继续推进。补充尾部。");
+
+    // process_completed and answer_started both emitted
+    expect(events.filter((e) => e.event === "process_completed")).toHaveLength(1);
+    expect(events.filter((e) => e.event === "answer_started")).toHaveLength(1);
   });
 
   it("emitAnswerBoundaryAndContent is idempotent for process_completed", () => {
@@ -498,6 +587,93 @@ describe("projector: edge cases (test 20)", () => {
     for (let i = 1; i < seqs.length; i++) {
       expect(seqs[i]).toBeGreaterThan(seqs[i - 1]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Incremental process_delta: text arrives before tool.started
+// ---------------------------------------------------------------------------
+
+describe("projector: incremental process_delta (requirement 2)", () => {
+  it("accumulateText emits process_delta immediately, before handleToolStarted", () => {
+    const { projector, events } = createTestProjector();
+
+    projector.emitProcessStarted();
+    projector.emitInitialProgress();
+
+    // Model commentary — should emit process_delta immediately
+    projector.accumulateText("让我先看看项目状态。");
+
+    // At this point, process_delta for the commentary should already be emitted
+    const deltasBeforeTool = processDeltaEvents(events);
+    // initial progress delta + commentary delta = 2
+    expect(deltasBeforeTool.length).toBeGreaterThanOrEqual(2);
+    expect(deltasBeforeTool[deltasBeforeTool.length - 1].data.content).toBe("让我先看看项目状态。");
+
+    // Tool started — should NOT duplicate the commentary
+    projector.handleToolStarted("get_project_state", "tc-1");
+    projector.handleToolCompleted("tc-1", "get_project_state");
+
+    // process_delta for commentary appeared BEFORE tool activity
+    const toolActivityIdx = events.findIndex(
+      (e) => e.event === "activity" && (e.data.data as Record<string, unknown>)?.kind === "tool",
+    );
+    const commentaryDeltaIdx = events.findIndex(
+      (e) => e.event === "process_delta" && (e.data as Record<string, unknown>).content === "让我先看看项目状态。",
+    );
+    expect(commentaryDeltaIdx).toBeLessThan(toolActivityIdx);
+  });
+
+  it("concatenation of progress process_delta content exactly equals input text", () => {
+    const { projector, events } = createTestProjector();
+
+    projector.emitProcessStarted();
+    projector.emitInitialProgress();
+
+    const text1 = "第一段评论。";
+    const text2 = "第二段评论。";
+    projector.accumulateText(text1);
+    projector.accumulateText(text2);
+
+    // Get all process_delta events after the initial progress
+    const deltas = processDeltaEvents(events);
+    // First delta is initial progress, rest are commentary
+    const commentaryDeltas = deltas.slice(1);
+    const concatContent = commentaryDeltas
+      .map((d) => (d.data as Record<string, unknown>).content as string)
+      .join("");
+    expect(concatContent).toBe(text1 + text2);
+
+    // Tool flushes remaining — no additional process_delta for already-emitted text
+    projector.handleToolStarted("get_project_state", "tc-1");
+    const deltasAfterTool = processDeltaEvents(events);
+    // No new commentary delta should have been emitted (text was already sent)
+    expect(deltasAfterTool.length).toBe(deltas.length);
+  });
+
+  it("multiple text chunks before tool: all appear as incremental process_delta", () => {
+    const { projector, events } = createTestProjector();
+
+    projector.emitProcessStarted();
+    projector.emitInitialProgress();
+
+    // Simulate multiple small text deltas (as model produces them)
+    projector.accumulateText("我");
+    projector.accumulateText("先");
+    projector.accumulateText("看看");
+    projector.accumulateText("项目状态。");
+
+    // Should have created/updated progress activity for each chunk
+    const commentaryDeltas = processDeltaEvents(events).slice(1); // skip initial
+    expect(commentaryDeltas).toHaveLength(4);
+    expect(commentaryDeltas.map((d) => (d.data as Record<string, unknown>).content)).toEqual([
+      "我", "先", "看看", "项目状态。",
+    ]);
+
+    // Activities: initial progress + commentary progress (one block, appended)
+    const progressActivities = projector.getActivities().filter((a) => a.kind === "progress");
+    expect(progressActivities).toHaveLength(2);
+    expect(progressActivities[1].content).toBe("我先看看项目状态。");
   });
 });
 

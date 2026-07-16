@@ -1,16 +1,11 @@
 "use client";
 
-import {
-  ChevronDown,
-  ChevronRight,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  Wrench,
-  BookOpen,
-  Shield,
-} from "lucide-react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
+import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Shield, BookOpen } from "lucide-react";
+import { motion, AnimatePresence, type Variants } from "framer-motion";
 import type { RunActivityItem } from "@/lib/types";
+import { ProcessMarkdown } from "./ProcessMarkdown";
+import { StreamingProcessText } from "./StreamingProcessText";
 
 interface RunActivityProps {
   activities: RunActivityItem[];
@@ -21,6 +16,8 @@ interface RunActivityProps {
   isExpanded?: boolean;
   /** Callback when user toggles expand/collapse. */
   onToggle?: () => void;
+  /** Timestamp when processing started (ISO string). Used for live elapsed. */
+  processStartedAt?: string | null;
 }
 
 /**
@@ -42,10 +39,59 @@ function formatDuration(ms?: number | null): string {
 }
 
 /**
+ * Live elapsed display — ticks every second while active.
+ * Isolated component to avoid re-rendering the entire RunActivity tree.
+ */
+const LiveElapsed = React.memo(function LiveElapsed({ startedAt, className }: { startedAt: string; className?: string }) {
+  const startMs = new Date(startedAt).getTime();
+  const [elapsed, setElapsed] = useState(() => Math.floor((Date.now() - startMs) / 1000));
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startMs) / 1000));
+    }, 1000);
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [startMs]);
+
+  return <span className={className}>{elapsed}s</span>;
+});
+
+/**
+ * Live tool elapsed — shows ticking seconds for a running tool.
+ * Uses the tool's started_at timestamp.
+ */
+const ToolLiveElapsed = React.memo(function ToolLiveElapsed({ startedAt }: { startedAt: string }) {
+  const startMs = new Date(startedAt).getTime();
+  const [elapsed, setElapsed] = useState(() => Math.floor((Date.now() - startMs) / 1000));
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startMs) / 1000));
+    }, 1000);
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [startMs]);
+
+  if (elapsed < 1) return null;
+  return (
+    <span className="ml-auto shrink-0 text-[10px] text-neutral-400 dark:text-neutral-500 tabular-nums">
+      {elapsed}s
+    </span>
+  );
+});
+
+/**
  * Get the status icon for an activity item.
  * Uses Lucide linear icons — no emoji.
- * Progress items: only show spinner for the LAST progress item when actively
- * streaming (isStreaming). Historical progress items have no icon.
+ * Running items: single Loader2 spinner (no wrench + tiny spinner dual noise).
+ * Progress items: only show spinner for the LAST progress item when actively streaming.
  */
 function ActivityStatusIcon({ item, isStreaming, isCurrentProgress }: { item: RunActivityItem; isStreaming?: boolean; isCurrentProgress?: boolean }) {
   if (item.kind === "progress") {
@@ -54,6 +100,11 @@ function ActivityStatusIcon({ item, isStreaming, isCurrentProgress }: { item: Ru
   }
 
   const status = "status" in item ? item.status : undefined;
+
+  // Skill loaded/completed → BookOpen (semantic knowledge icon, not checkmark)
+  if (item.kind === "skill" && (status === "loaded" || status === "completed")) {
+    return <BookOpen className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" />;
+  }
 
   switch (status) {
     case "running":
@@ -72,36 +123,47 @@ function ActivityStatusIcon({ item, isStreaming, isCurrentProgress }: { item: Ru
 }
 
 /**
- * Get the kind icon for an activity item.
- */
-function ActivityKindIcon({ kind }: { kind: RunActivityItem["kind"] }) {
-  switch (kind) {
-    case "skill":
-      return <BookOpen className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" />;
-    case "tool":
-      return <Wrench className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" />;
-    default:
-      return null;
-  }
-}
-
-/**
  * Check if the activity at index `i` is the last progress item AND
- * no tool/activity follows it. A tool after the last progress takes
- * over spinner responsibility, so the old progress should not spin.
+ * no tool/activity follows it.
  */
 function isLastProgress(activities: RunActivityItem[], i: number): boolean {
-  // Quick check: if any non-progress item exists after index i, this
-  // progress is not the trailing one.
   for (let j = i + 1; j < activities.length; j++) {
     if (activities[j].kind !== "progress") return false;
   }
-  // Also verify it's actually a progress item and the last one
   for (let j = activities.length - 1; j >= 0; j--) {
     if (activities[j].kind === "progress") return j === i;
   }
   return false;
 }
+
+/**
+ * Animation variants for the collapse/expand container.
+ * Uses opacity + clipPath only (no height/maxHeight per spec).
+ * clip-path is a compositor property — no layout reflow during the exit.
+ *
+ * Height change is handled by AnimatePresence mode="wait": after the exit
+ * animation completes, the element unmounts → wrapper height drops to 0 →
+ * Framer Motion layout system detects the position change on the answer
+ * surface and animates it via layout="position".
+ */
+export const collapseVariants: Variants = {
+  expanded: {
+    opacity: 1,
+    clipPath: "inset(0 0 0 0)",
+    transition: {
+      duration: 0.15,
+      ease: [0.23, 1, 0.32, 1],
+    },
+  },
+  collapsed: {
+    opacity: 0,
+    clipPath: "inset(0 0 100% 0)",
+    transition: {
+      duration: 0.12,
+      ease: [0.23, 1, 0.32, 1],
+    },
+  },
+};
 
 export function RunActivity({
   activities,
@@ -109,10 +171,26 @@ export function RunActivity({
   isStreaming = false,
   isExpanded = true,
   onToggle,
+  processStartedAt,
 }: RunActivityProps) {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
+
   if (activities.length === 0) return null;
 
   const formattedDuration = formatDuration(durationMs);
+
+  // Header label: show live elapsed while streaming, frozen duration after completion
   const summaryLabel = isStreaming
     ? "正在处理"
     : formattedDuration
@@ -120,6 +198,9 @@ export function RunActivity({
       : "已处理";
 
   const contentId = `run-activity-content-${activities[0]?.id ?? "empty"}`;
+
+  // Use faster auto-collapse variants, slower manual toggle
+  const variants = prefersReducedMotion ? undefined : collapseVariants;
 
   return (
     <div className="my-2">
@@ -132,65 +213,114 @@ export function RunActivity({
         aria-controls={contentId}
       >
         {isExpanded ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform duration-200" />
         ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-200" />
         )}
         <span>{summaryLabel}</span>
+        {isStreaming && processStartedAt && (
+          <LiveElapsed startedAt={processStartedAt} className="text-neutral-400 dark:text-neutral-500 tabular-nums" />
+        )}
       </button>
 
-      {/* Activities List — normal document flow, no independent scroll */}
-      {isExpanded && (
-        <div id={contentId} className="pl-4 pt-1 space-y-1 border-l border-neutral-100 dark:border-neutral-800 mt-1">
-          {activities.map((item, i) => (
-            <ActivityRow
-              key={item.id}
-              item={item}
-              isStreaming={isStreaming}
-              isCurrentProgress={item.kind === "progress" && isLastProgress(activities, i)}
-            />
-          ))}
-        </div>
-      )}
+      {/* Activities List — animated collapse/expand.
+          mode="wait" lets the exit complete → element unmounts → wrapper height
+          drops to 0 → downstream layout="position" surfaces animate the shift. */}
+      <AnimatePresence initial={false} mode="wait">
+        {isExpanded && (
+          <motion.div
+            key="activity-content"
+            id={contentId}
+            layout
+            variants={variants}
+            initial="collapsed"
+            animate="expanded"
+            exit="collapsed"
+            className="overflow-hidden"
+          >
+            <div className="pl-4 pt-1 space-y-1 border-l border-neutral-100 dark:border-neutral-800 mt-1">
+              {activities.map((item, i) => (
+                <ActivityRow
+                  key={item.id}
+                  item={item}
+                  isStreaming={isStreaming}
+                  isCurrentProgress={item.kind === "progress" && isLastProgress(activities, i)}
+                  prefersReducedMotion={prefersReducedMotion}
+                />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-function ActivityRow({ item, isStreaming, isCurrentProgress }: { item: RunActivityItem; isStreaming?: boolean; isCurrentProgress?: boolean }) {
+const ActivityRow = React.memo(function ActivityRow({
+  item,
+  isStreaming,
+  isCurrentProgress,
+  prefersReducedMotion,
+}: {
+  item: RunActivityItem;
+  isStreaming?: boolean;
+  isCurrentProgress?: boolean;
+  prefersReducedMotion?: boolean;
+}) {
   const label = getActivityLabel(item);
   const duration = "duration_ms" in item ? (item as { duration_ms?: number }).duration_ms : undefined;
   const formattedDuration = formatDuration(duration);
+  const startedAt = "started_at" in item ? (item as { started_at?: string }).started_at : undefined;
 
-  // Progress items: normal text style, with spinner only for the last progress when streaming
+  // Progress items: render as Markdown, with spinner only for the last progress when streaming
   if (item.kind === "progress") {
+    // Live last progress: use StreamingProcessText (scheduler-driven reveal)
+    // Historical/non-streaming: render full content immediately via ProcessMarkdown
+    const isLiveProgress = isStreaming && isCurrentProgress;
+
     return (
-      <div className="flex items-start gap-1.5 py-0.5">
-        {isStreaming && isCurrentProgress && (
+      <motion.div
+        initial={prefersReducedMotion ? false : { opacity: 0, y: 2 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.12, ease: "easeOut" }}
+        className="flex items-start gap-1.5 py-0.5"
+      >
+        {isLiveProgress && (
           <Loader2 className="h-3 w-3 animate-spin text-neutral-400 mt-0.5 shrink-0" />
         )}
-        <p className="text-[13px] leading-relaxed text-neutral-600 dark:text-neutral-400">
-          {label}
-        </p>
-      </div>
+        {isLiveProgress ? (
+          <StreamingProcessText content={label} isStreaming={true} className="min-w-0 flex-1" />
+        ) : (
+          <ProcessMarkdown content={label} className="min-w-0 flex-1" />
+        )}
+      </motion.div>
     );
   }
 
-  // Skill/Tool items: smaller, muted, with kind icon
+  // Skill/Tool items: single spinner (no wrench + tiny spinner), elapsed while running
+  const isRunning = "status" in item && (item.status === "running" || item.status === "loading");
+
   return (
-    <div className="flex items-center gap-2 py-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-      <ActivityKindIcon kind={item.kind} />
+    <motion.div
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 2 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.12, ease: "easeOut" }}
+      className="flex items-center gap-2 py-0.5 text-xs text-neutral-500 dark:text-neutral-400"
+    >
       <span className="shrink-0">
         <ActivityStatusIcon item={item} isStreaming={isStreaming} isCurrentProgress={isCurrentProgress} />
       </span>
       <span className="truncate">{label}</span>
-      {formattedDuration && (
-        <span className="ml-auto shrink-0 text-[10px] text-neutral-400 dark:text-neutral-500">
+      {isRunning && startedAt && isStreaming ? (
+        <ToolLiveElapsed startedAt={startedAt} />
+      ) : formattedDuration ? (
+        <span className="ml-auto shrink-0 text-[10px] text-neutral-400 dark:text-neutral-500 tabular-nums">
           {formattedDuration}
         </span>
-      )}
-    </div>
+      ) : null}
+    </motion.div>
   );
-}
+});
 
 function getActivityLabel(item: RunActivityItem): string {
   switch (item.kind) {
