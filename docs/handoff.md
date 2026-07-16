@@ -1,8 +1,22 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-15.
+Status: current as of 2026-07-16.
 
 ## Latest Architecture Handoff
+
+### 2026-07-16 — Agent 历史会话文案统一与空状态 UI 抛光
+
+对 Agent 交互会话的历史 Sheet 与空状态体验进行了细节打磨：
+
+**修改内容：**
+- **文案一致性统一**：将全屏会话面板（`AgentConversationPage.tsx`）中的抽屉标题由“会话历史”变更为“历史会话”，使之与侧栏 Tooltip、Aria-label 统一。
+- **空状态体验升级**：在侧栏（`agent-sidebar.tsx`）和主面板（`AgentConversationPage.tsx`）的空会话列表中，用精致卡片取代了原先平铺的简易“暂无历史会话”文字，加入了 `MessageSquare` 图标及背景边框，并在本地草稿状态（`isDraft`）下增加了对新用户的友好说明（“发送首条消息后，将自动保存至历史会话”）。
+
+**Key files:**
+- `frontend/src/components/project/agent/AgentConversationPage.tsx`
+- `frontend/src/components/project/agent-sidebar.tsx`
+
+**Verification:** 前端 190 个单元测试通过，编译与类型检查正常。
 
 ### 2026-07-15 — Debounced View Navigation to Eliminate RSC Flight Cancellation Noise
 

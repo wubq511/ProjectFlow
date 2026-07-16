@@ -749,9 +749,17 @@ export function AgentSidebar({
                     </div>
                   )}
                   {!isLoadingHistory && !historyError && conversationSummaries.length === 0 && (
-                    <p className="py-8 text-center text-xs text-neutral-500">
-                      {isDraft ? "当前为新对话（未保存）" : "暂无历史会话"}
-                    </p>
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <div className="rounded-full bg-neutral-50 p-3 dark:bg-neutral-900/50 mb-3 border border-neutral-100/50 dark:border-neutral-800/50">
+                        <MessageSquare className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
+                      </div>
+                      <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+                        {isDraft ? "当前为新对话草稿" : "暂无历史会话"}
+                      </p>
+                      <p className="text-[11px] text-neutral-400 dark:text-neutral-500 mt-1.5 max-w-[200px] leading-relaxed">
+                        {isDraft ? "发送首条消息后，将自动保存至历史会话" : "与 Agent 开启对话，持续推进您的项目吧"}
+                      </p>
+                    </div>
                   )}
                   {!isLoadingHistory && !historyError && conversationSummaries.length > 0 && (
                     <ul className="space-y-1" role="listbox" aria-label="会话列表">

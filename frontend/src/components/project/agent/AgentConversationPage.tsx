@@ -617,7 +617,7 @@ export function AgentConversationPage({
             </SheetTrigger>
             <SheetContent side="right" className="w-[320px] sm:w-[380px] p-6 bg-white dark:bg-neutral-950 flex flex-col h-full border-l border-neutral-100 dark:border-neutral-800 shadow-xl">
               <SheetHeader className="mb-4">
-                <SheetTitle className="text-sm font-bold text-neutral-800 dark:text-neutral-200">会话历史</SheetTitle>
+                <SheetTitle className="text-sm font-bold text-neutral-800 dark:text-neutral-200">历史会话</SheetTitle>
               </SheetHeader>
               <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2">
                 {isLoadingHistory ? (
@@ -630,7 +630,17 @@ export function AgentConversationPage({
                     <Button variant="link" size="sm" onClick={onRetryHistory} className="text-coral underline mt-1">重试</Button>
                   </div>
                 ) : conversationSummaries.length === 0 ? (
-                  <div className="py-8 text-center text-xs text-neutral-400">暂无历史会话</div>
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <div className="rounded-full bg-neutral-50 p-3 dark:bg-neutral-900/50 mb-3 border border-neutral-100/50 dark:border-neutral-800/50">
+                      <MessageSquare className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
+                    </div>
+                    <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+                      {isDraft ? "当前为新对话草稿" : "暂无历史会话"}
+                    </p>
+                    <p className="text-[11px] text-neutral-400 dark:text-neutral-500 mt-1.5 max-w-[200px] leading-relaxed">
+                      {isDraft ? "发送首条消息后，将自动保存至历史会话" : "与 Agent 开启对话，持续推进您的项目吧"}
+                    </p>
+                  </div>
                 ) : (
                   <div className="space-y-1">
                     {conversationSummaries.map((summary) => {
