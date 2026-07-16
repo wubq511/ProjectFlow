@@ -674,7 +674,7 @@ export function AgentConversationPage({
           onScroll={handleScroll}
           className="h-full overflow-y-auto px-6 py-6 custom-scrollbar"
         >
-          <div className="mx-auto max-w-3xl space-y-6 pb-28">
+          <div className="mx-auto max-w-3xl space-y-6 pb-48">
             {/* Suggestions/Context Panel if empty */}
             {timelineEntries.length === 0 && !pendingConversationInstruction && (
               <div className="my-8 space-y-6">
@@ -874,9 +874,9 @@ export function AgentConversationPage({
           </Button>
         )}
 
-        {/* Fixed Bottom Composer Container */}
-        <div className="absolute bottom-0 left-0 right-0 border-t border-neutral-100 bg-white/80 p-4 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-950/80">
-          <div className="mx-auto max-w-3xl" data-tour="composer">
+        {/* Floating Bottom Composer Container */}
+        <div className="absolute bottom-0 left-0 right-0 p-6 pt-12 bg-gradient-to-t from-white via-white/95 to-transparent dark:from-neutral-950 dark:via-neutral-950/95 pointer-events-none">
+          <div className="mx-auto max-w-3xl pointer-events-auto" data-tour="composer">
             <ChatComposer
               value={draft}
               onChange={setDraft}

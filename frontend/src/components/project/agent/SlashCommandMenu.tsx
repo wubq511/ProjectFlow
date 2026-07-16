@@ -92,7 +92,7 @@ export function SlashCommandMenu({
             }`}
           >
             <Icon className="h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" />
-            <div className="flex min-w-0 flex-1 items-baseline gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
               <span className="shrink-0 text-[13px] font-medium text-neutral-900 dark:text-neutral-100">
                 {cmd.label}
               </span>

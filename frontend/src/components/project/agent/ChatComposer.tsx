@@ -291,7 +291,7 @@ export function ChatComposer({
           anchorRect={anchorRect}
         />
       )}
-      <div className="rounded-md border border-neutral-200 bg-white p-2.5 transition-all duration-200 focus-within:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900">
+      <div className="rounded-[20px] border border-neutral-100 bg-white p-3.5 shadow-lg transition-all duration-200 focus-within:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-950 dark:focus-within:border-neutral-700">
         <div className="flex items-start gap-2">
           {leadingCommand && (
             <div className="shrink-0">
@@ -324,7 +324,7 @@ export function ChatComposer({
           <div className="flex items-center gap-1.5">
             {modelConfigs && selectedModelId !== undefined && onModelChange && (
               <Select value={selectedModelId ?? ""} onValueChange={(v) => { if (v) onModelChange?.(v); }}>
-                <SelectTrigger size="sm" className="h-7 w-auto min-w-28 text-[11px]" aria-label="选择模型">
+                <SelectTrigger size="sm" className="h-7 w-auto min-w-28 text-[11px] rounded-full px-3" aria-label="选择模型">
                   <SelectValue placeholder="选择模型" />
                 </SelectTrigger>
                 <SelectContent>
@@ -341,7 +341,7 @@ export function ChatComposer({
                 value={thinkingLevel ?? "auto"}
                 onValueChange={(v) => onThinkingLevelChange(v === "auto" ? null : (v as ThinkingLevel))}
               >
-                <SelectTrigger size="sm" className="h-7 w-auto text-[11px]" aria-label="思考深度">
+                <SelectTrigger size="sm" className="h-7 w-auto text-[11px] rounded-full px-3" aria-label="思考深度">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -368,7 +368,7 @@ export function ChatComposer({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-9 gap-1.5 border-coral/30 px-3 text-xs text-coral hover:bg-coral/10"
+                className="h-9 gap-1.5 border-coral/30 px-4 text-xs text-coral hover:bg-coral/10 rounded-full"
                 onClick={onCancelRun}
                 disabled={!onCancelRun}
                 aria-label="停止运行"
@@ -380,7 +380,7 @@ export function ChatComposer({
               <Button
                 type="submit"
                 size="sm"
-                className="h-9 gap-1.5 bg-moss px-3 text-xs text-white shadow-sm shadow-moss/20 hover:bg-moss/90 active:shadow-none"
+                className="h-9 gap-1.5 bg-moss px-4 text-xs text-white shadow-sm shadow-moss/20 hover:bg-moss/90 active:shadow-none rounded-full"
                 disabled={!value.trim() || (disabled && !isRunning)}
               >
                 {disabled && !isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
