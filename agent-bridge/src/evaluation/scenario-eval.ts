@@ -8,6 +8,10 @@ export interface AgentScenario {
   forbiddenOutputPatterns?: RegExp[];
   forbidRawIds?: boolean;
   maxLatencyMs: number;
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  maxRequestCount?: number;
+  maxSutCostUsd?: number;
 }
 
 export interface ScenarioObservation {
@@ -25,6 +29,8 @@ export interface ScenarioObservation {
   /** Provider-reported cache write tokens. Absent when provider did not supply. */
   cacheWriteTokens?: number;
   cost?: number;
+  /** Number of model requests observed by the public SSE seam. */
+  requestCount?: number;
   outputPolicyPassed?: boolean;
   output?: string;
 }

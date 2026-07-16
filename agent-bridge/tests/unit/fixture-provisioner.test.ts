@@ -89,7 +89,7 @@ describe("fixture-provisioner", () => {
 
     await expect(
       provisionObservationFixture({ ...baseConfig, fetchFn }),
-    ).rejects.toThrow("seed_demo HTTP 500");
+    ).rejects.toThrow("重置并生成评测夹具失败: HTTP 500");
   });
 
   it("throws redacted error on workspace state fetch failure", async () => {
@@ -100,7 +100,7 @@ describe("fixture-provisioner", () => {
 
     await expect(
       provisionObservationFixture({ ...baseConfig, fetchFn }),
-    ).rejects.toThrow("fetch_workspace_state HTTP 404");
+    ).rejects.toThrow("读取评测工作区状态失败: HTTP 404");
   });
 
   it("throws redacted error on conversation creation failure", async () => {
@@ -112,7 +112,7 @@ describe("fixture-provisioner", () => {
 
     await expect(
       provisionObservationFixture({ ...baseConfig, fetchFn }),
-    ).rejects.toThrow("create_conversation HTTP 403");
+    ).rejects.toThrow("创建评测会话失败: HTTP 403");
   });
 
   it("throws redacted error when conversation response lacks id", async () => {
@@ -124,7 +124,7 @@ describe("fixture-provisioner", () => {
 
     await expect(
       provisionObservationFixture({ ...baseConfig, fetchFn }),
-    ).rejects.toThrow("create_conversation HTTP 200 but missing id");
+    ).rejects.toThrow("创建评测会话失败: HTTP 200 但响应缺少会话 ID");
   });
 
   it("normalizes trailing slashes in backend base URL", async () => {
@@ -152,8 +152,8 @@ describe("fixture-provisioner", () => {
       expect(message).not.toContain("should-not-appear");
       expect(message).not.toContain("u-123");
       expect(message).not.toContain("internal");
-      // Only contains operation name + HTTP status.
-      expect(message).toBe("seed_demo HTTP 500");
+      // Only contains the localized operation name + HTTP status.
+      expect(message).toBe("重置并生成评测夹具失败: HTTP 500");
     }
   });
 });

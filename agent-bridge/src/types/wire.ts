@@ -72,6 +72,13 @@ export interface WireRunStartRequest {
     timeout_ms?: number;
     trace_include_sensitive_data?: boolean;
     thinking_level?: WireThinkingLevel;
+    /** Evaluator-only hard ceilings. Rejected unless APP_ENV=evaluation and instance headers match. */
+    evaluation_budget?: {
+      max_input_tokens: number;
+      max_output_tokens: number;
+      max_request_count: number;
+      max_cost_usd: number;
+    };
   };
 }
 

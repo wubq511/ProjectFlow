@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "npm@11.12.1",
+  "engines": {
+    "node": "24.15.0",
+    "npm": "11.12.1"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch --ignore \".env\" --ignore \"debug-payloads/**\" --ignore \"model-configs.json\" src/index.ts",
@@ -13,8 +18,10 @@
     "lint": "tsc --noEmit",
     "eval:canary": "tsx scripts/run-agent-canary.ts",
     "eval:run": "tsx src/evaluation/lab/cli.ts run",
-    "eval:list": "tsx src/evaluation/lab/cli.ts list-scenarios",
+    "eval:list": "tsx src/evaluation/lab/cli.ts list",
     "eval:show": "tsx src/evaluation/lab/cli.ts show",
+    "eval:status": "tsx src/evaluation/lab/cli.ts status",
+    "eval:verify": "tsx src/evaluation/lab/cli.ts verify",
     "eval:validate": "tsx src/evaluation/lab/cli.ts validate"
   },
   "dependencies": {

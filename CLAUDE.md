@@ -14,6 +14,8 @@ T43 Agent Harness V2 P0 已于 2026-07-12 实现：共享 request preparation、
 
 T44 Agent 效率与模型配置完整性、T45 私人多会话历史已于 2026-07-13 实现。T44 包含当前输入 exact-once、recent history 去重、cache/reasoning/cost telemetry、唯一默认模型、requested/resolved model 真实归因、普通对话模型与 thinking level 透传、Prompt Kernel 2.0/Context receipt，以及统一 Skill V2 effect ceiling 在工具暴露和调用前拦截；成员存在自然语言约束时，AssignmentProposal 在事务内必须提供 `constraint_respected` 检查证据，但该门禁只验证证据完整性，不做语义合规判断。T45 将项目单例会话改为 creator-owned private conversation 集合，旧会话迁移为 team history；所有 list/create/read/message/stream 路径验证 viewer，消息使用 `(created_at,id)` 游标分页，GET 不创建数据，team conversation 只注入 team-visible ProjectMemory；前端支持新对话、本地草稿、历史 Sheet、URL `conversation` 选择 and 流式期间切换锁。T44 重复生产 canary 已通过冻结的 routing/outcome/privacy/latency gates；Pi 的 `input` 是未缓存输入，正确命中率为 `cacheRead / (input + cacheRead + cacheWrite)`，Flash/Pro 最终证据分别为 93.01%/93.51%。2026-07-15 实现工作区 UI/UX 深度打磨与体验重构：全面清理 nested cards 嵌套卡片、加深 text-tertiary 辅助文字以达 4.5:1 WCAG AA 对比度、消除中文标题无意义的大写样式、重构 AI 气泡对话框及引入 Framer Motion 侧栏滑动切换动效，大幅拉满画面精致度，可用性评分达成 34.5 分（优秀级）。2026-07-16 统一历史会话文案并优化其卡片式 Empty State 精致度。当前验收基线：825 backend passed / 4 skipped，1142 agent-bridge passed（58 files），190 frontend passed（19 files），三端 lint/typecheck/build 通过。后续先读 `docs/T44/agent-efficiency-model-config-spec.md`、`docs/T44/post-t44-production-canary-2026-07-13.md`、`docs/T45/agent-conversation-history-spec.md`。
 
+T46 Evaluation Lab Slice 0（Issue #94）已实现 evaluator-owned backend/sidecar 隔离、T43 public HTTP/SSE smoke、零 Token JSON validation、实例身份与路径 containment、分账预算、可恢复 immutable checkpoint、SHA-256 result graph、机器可读 CLI 和 repository-local Agent Skill。Slice 0 只允许 `mock:mock-model`；付费模型在没有冻结价格表和调用前最坏成本预估时 fail-closed。后续评测工作先读 `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Spec.md` 与 `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice0_Handoff.md`，不得跳过 Slice 0 trust boundary 直接扩展 Dashboard 或语义 Judge。
+
 > 需要详细MVP功能边界、产品信息时读取 [`docs/PRD-ProjectFlow-MVP.md`](docs/PRD-ProjectFlow-MVP.md) 和[`.claude/prds/projectflow-mvp-usable-ready.md`](.claude/prds/projectflow-mvp-usable-ready.md)
 
 ## Architecture
@@ -277,10 +279,11 @@ XIAOMI_API_KEY=xxx            # Xiaomi provider API key
 XIAOMI_TOKEN_PLAN_CN_API_KEY=xxx  # Xiaomi 国内 Token 计费 API key
 UPLOAD_DIR=                   # 自定义上传文件根路径，默认存储在 data/uploads/
 EVALUATION_NONCE=             # 评测临时会话校验 nonce，用于防护演示环境接口
+EVALUATION_INSTANCE_ID=       # 评测进程对实例身份；必须与 health/header/所有权标记一致
 EVALUATION_TEMP_ROOT=         # 评测临时沙盒根目录
 ```
 
-API key 和 internal service token 必须放 `.env`，不能提交 Git。前端不能直接调用 LLM API 或 internal endpoints。`LLM_PROVIDER` 默认 `mock`，真实 LLM 用 `openai` 或 `openai-compatible`。`LLM_TIMEOUT_SECONDS` 默认 `30.0`（诊断用），`LLM_AGENT_TIMEOUT_SECONDS` 默认 `120.0`（Agent 生成用）。`INTERNAL_SERVICE_TOKEN` 用于 `/internal/agent-tools/*` 和 `/internal/agent-runs/*`；sidecar 需发送同值 Bearer token。`NEXT_PUBLIC_API_BASE_URL` 是前端可选变量，不配置时默认 `http://localhost:8000/api`。此外，`UPLOAD_DIR`、`EVALUATION_NONCE` 及 `EVALUATION_TEMP_ROOT` 用于本地评测系统隔离保障：当 `APP_ENV=evaluation` 时，系统将强校验调用方 Nonce 凭据并对沙盒目录进行路径收敛校验。
+API key 和 internal service token 必须放 `.env`，不能提交 Git。前端不能直接调用 LLM API 或 internal endpoints。`LLM_PROVIDER` 默认 `mock`，真实 LLM 用 `openai` 或 `openai-compatible`。`LLM_TIMEOUT_SECONDS` 默认 `30.0`（诊断用），`LLM_AGENT_TIMEOUT_SECONDS` 默认 `120.0`（Agent 生成用）。`INTERNAL_SERVICE_TOKEN` 用于 `/internal/agent-tools/*` 和 `/internal/agent-runs/*`；sidecar 需发送同值 Bearer token。`NEXT_PUBLIC_API_BASE_URL` 是前端可选变量，不配置时默认 `http://localhost:8000/api`。此外，`UPLOAD_DIR`、`EVALUATION_NONCE`、`EVALUATION_INSTANCE_ID` 及 `EVALUATION_TEMP_ROOT` 用于本地评测系统隔离保障：当 `APP_ENV=evaluation` 时，系统将强校验调用方 Nonce、实例身份和沙盒路径归属。
 
 ## Git Ignore
 

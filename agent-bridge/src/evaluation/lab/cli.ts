@@ -1,346 +1,253 @@
 #!/usr/bin/env node
-import { resolve, join, dirname } from "node:path";
-import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { execSync } from "node:child_process";
-import { runEvaluation, InfrastructureError } from "./runner.js";
-import type { ScenarioContract } from "./contract.js";
+import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { EvaluationArtifactStore } from "./artifact-store.js";
+import { EVALUATION_SCHEMA_VERSION } from "./contract.js";
+import {
+  EvaluationInfrastructureError,
+  EvaluationValidationError,
+} from "./errors.js";
+import { SLICE_0_PRESETS } from "./presets.js";
+import { runEvaluation } from "./runner.js";
+import { validateEvaluationConfig } from "./validation.js";
 
-const SMOKE_SCENARIOS: ScenarioContract[] = [
-  {
-    schemaVersion: 1,
-    scenarioId: "answer-no-tool",
-    visible: {
-      prompt: "解释当前项目下一步为什么重要，不要修改任何内容",
+const EXIT = {
+  passed: 0,
+  regression: 1,
+  infrastructure: 2,
+  validation: 3,
+  partialBudget: 4,
+} as const;
+
+function findProjectRoot(): string {
+  let current = resolve(import.meta.dirname ?? process.cwd());
+  while (!existsSync(resolve(current, "CLAUDE.md"))) {
+    const parent = dirname(current);
+    if (parent === current) {
+      throw new EvaluationValidationError("无法定位 ProjectFlow 仓库根目录");
+    }
+    current = parent;
+  }
+  return current;
+}
+
+function output(value: unknown): void {
+  process.stdout.write(`${JSON.stringify(value)}\n`);
+}
+
+function usage(): void {
+  output({
+    schemaVersion: EVALUATION_SCHEMA_VERSION,
+    commands: {
+      list: "scripts/eval-lab list",
+      validate: "scripts/eval-lab validate [--preset smoke] [--model mock:mock-model]",
+      run: "scripts/eval-lab run [--preset smoke] [--scenario ID] [--model mock:mock-model] [--run-id ID] [--resume] [--json]",
+      status: "scripts/eval-lab status <run-id>",
+      show: "scripts/eval-lab show <run-id>",
+      verify: "scripts/eval-lab verify <run-id>",
     },
-    hidden: {
-      expectedMode: "answer",
-      maxLatencyMs: 30000,
-    },
-  }
-];
-
-const PRESETS: Record<string, ScenarioContract[]> = {
-  smoke: SMOKE_SCENARIOS,
-  demo: SMOKE_SCENARIOS,
-};
-
-function printUsage() {
-  console.log("用法:");
-  console.log("  scripts/npm --prefix agent-bridge run eval:list                      (列出所有评测场景)");
-  console.log("  scripts/npm --prefix agent-bridge run eval:validate                  (校验评测配置与工具链)");
-  console.log("  scripts/npm --prefix agent-bridge run eval:run -- [参数]              (运行评测套件)");
-  console.log("  scripts/npm --prefix agent-bridge run eval:show -- <运行ID>           (展示运行的 JSON 报告)");
-  console.log("  scripts/npm --prefix agent-bridge run eval:run -- status <运行ID>     (查询运行状态)");
-  console.log("\n参数:");
-  console.log("  --preset <smoke|demo>      (评测预设，默认为 smoke)");
-  console.log("  --scenario <ID>            (指定只运行某一个场景 ID)");
-  console.log("  --model <模型ID>            (指定运行模型，默认为 mock:mock-model)");
-  console.log("  --run-id <ID>              (自定义运行 ID，默认为自动生成的格式)");
-  console.log("  --resume                   (如果中断，恢复之前的进度运行)");
-  console.log("  --json                     (以机器可读的 JSON 格式流式输出执行进度)");
+    exitCodes: EXIT,
+  });
 }
 
-function validateScenarioStructure(scenario: any): string[] {
-  const errors: string[] = [];
-  if (!scenario.scenarioId || typeof scenario.scenarioId !== "string") {
-    errors.push("场景缺少合法的 scenarioId");
-  } else if (!/^[a-zA-Z0-9_\-]+$/.test(scenario.scenarioId)) {
-    errors.push(`场景 ID "${scenario.scenarioId}" 格式错误: 仅允许字母、数字、下划线及横线，不能包含路径穿透字符`);
-  }
-  if (!scenario.visible || typeof scenario.visible.prompt !== "string" || !scenario.visible.prompt.trim()) {
-    errors.push("场景 visible.prompt 不能为空");
-  }
-  if (!scenario.hidden) {
-    errors.push("场景缺少 hidden 参数块");
-  } else {
-    const hidden = scenario.hidden;
-    if (hidden.expectedMode !== "answer" && hidden.expectedMode !== "action") {
-      errors.push(`场景 hidden.expectedMode 无效: "${hidden.expectedMode}"，仅允许 "answer" 或 "action"`);
+interface CommonArgs {
+  preset: string;
+  model: string;
+  scenarioId?: string;
+  runId?: string;
+  resume: boolean;
+  json: boolean;
+}
+
+function parseArgs(args: string[], allowRunOnly: boolean): CommonArgs {
+  const parsed: CommonArgs = {
+    preset: "smoke",
+    model: "mock:mock-model",
+    resume: false,
+    json: false,
+  };
+  const requireValue = (index: number, flag: string): string => {
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) {
+      throw new EvaluationValidationError(`参数 ${flag} 缺少值`);
     }
-    if (typeof hidden.maxLatencyMs !== "number" || hidden.maxLatencyMs <= 0) {
-      errors.push(`场景 hidden.maxLatencyMs 必须为正整数: "${hidden.maxLatencyMs}"`);
-    }
-    if (hidden.maxLatencyMs > 180000) {
-      errors.push(`场景最大延迟 ${hidden.maxLatencyMs}ms 超出 SUT 评估的安全极限 180000ms`);
+    return value;
+  };
+  for (let index = 0; index < args.length; index += 1) {
+    const flag = args[index]!;
+    if (flag === "--preset") {
+      parsed.preset = requireValue(index, flag);
+      index += 1;
+    } else if (flag === "--model") {
+      parsed.model = requireValue(index, flag);
+      index += 1;
+    } else if (allowRunOnly && flag === "--scenario") {
+      parsed.scenarioId = requireValue(index, flag);
+      index += 1;
+    } else if (allowRunOnly && flag === "--run-id") {
+      parsed.runId = requireValue(index, flag);
+      index += 1;
+    } else if (allowRunOnly && flag === "--resume") {
+      parsed.resume = true;
+    } else if (allowRunOnly && flag === "--json") {
+      parsed.json = true;
+    } else {
+      throw new EvaluationValidationError(`未知参数: ${flag}`);
     }
   }
-  return errors;
+  if (!SLICE_0_PRESETS[parsed.preset]) {
+    throw new EvaluationValidationError(`未知 preset: ${parsed.preset}`);
+  }
+  return parsed;
 }
 
-async function checkToolchains(projectRoot: string): Promise<string[]> {
-  const errors: string[] = [];
-  try {
-    execSync("node --version", { encoding: "utf-8" });
-  } catch {
-    errors.push("Node.js 运行环境不可用，请确保 node 可执行文件在 PATH 中");
+function selectScenarios(parsed: CommonArgs) {
+  const preset = SLICE_0_PRESETS[parsed.preset]!;
+  if (!parsed.scenarioId) return preset.scenarios;
+  const selected = preset.scenarios.filter((scenario) => scenario.scenarioId === parsed.scenarioId);
+  if (selected.length === 0) {
+    throw new EvaluationValidationError(`preset ${parsed.preset} 中不存在场景 ${parsed.scenarioId}`);
   }
-  try {
-    const pythonCmd = platform() === "win32" ? "python" : ".venv/bin/python";
-    execSync(`${join(projectRoot, "backend", pythonCmd)} --version`, { encoding: "utf-8" });
-  } catch {
-    errors.push("Python 虚拟环境不可用，请确保 backend/.venv 已正确创建并安装依赖");
-  }
-  return errors;
+  return selected;
 }
 
-function platform(): string {
-  return process.platform;
+async function verifiedStore(projectRoot: string, runId: string): Promise<EvaluationArtifactStore> {
+  if (!/^[a-zA-Z0-9_-]+$/.test(runId)) {
+    throw new EvaluationValidationError("运行 ID 格式无效");
+  }
+  return new EvaluationArtifactStore(projectRoot, runId, tmpdir());
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  if (args.length === 0) {
-    printUsage();
-    process.exit(3);
+async function main(): Promise<void> {
+  const [command, ...args] = process.argv.slice(2);
+  if (!command) {
+    usage();
+    process.exit(EXIT.validation);
   }
+  const projectRoot = findProjectRoot();
 
-  const command = args[0];
-  let projectRoot = resolve(import.meta.dirname ?? process.cwd());
-  while (projectRoot && !existsSync(join(projectRoot, "CLAUDE.md"))) {
-    const parent = dirname(projectRoot);
-    if (parent === projectRoot) break;
-    projectRoot = parent;
-  }
-
-  if (command === "list-scenarios") {
-    console.log(JSON.stringify(SMOKE_SCENARIOS, null, 2));
-    process.exit(0);
+  if (command === "list") {
+    output({
+      schemaVersion: EVALUATION_SCHEMA_VERSION,
+      presets: Object.entries(SLICE_0_PRESETS).map(([name, preset]) => ({
+        name,
+        budget: preset.budget,
+        scenarios: preset.scenarios.map((scenario) => ({
+          scenarioId: scenario.scenarioId,
+          prompt: scenario.visible.prompt,
+          source: "T43_RELEASE_SCENARIOS",
+        })),
+      })),
+    });
+    return;
   }
 
   if (command === "validate") {
-    console.log("正在执行零 Token 场景结构性校验...");
-    let allValid = true;
+    const parsed = parseArgs(args, false);
+    const preset = SLICE_0_PRESETS[parsed.preset]!;
+    const result = await validateEvaluationConfig({
+      projectRoot,
+      model: parsed.model,
+      scenarios: preset.scenarios,
+      budget: preset.budget,
+    });
+    output({ event: "validation_result", ...result, exitCode: result.valid ? EXIT.passed : EXIT.validation });
+    process.exit(result.valid ? EXIT.passed : EXIT.validation);
+  }
 
-    // 1. Check Scenario Config Structures
-    for (const scenario of SMOKE_SCENARIOS) {
-      const errs = validateScenarioStructure(scenario);
-      if (errs.length > 0) {
-        console.error(`❌ 场景 "${scenario.scenarioId}" 结构校验失败:`);
-        errs.forEach((e) => console.error(`  - ${e}`));
-        allValid = false;
-      } else {
-        console.log(`  - 场景 "${scenario.scenarioId}" [契约结构有效]`);
-      }
+  if (command === "status" || command === "show" || command === "verify") {
+    if (args.length !== 1) {
+      throw new EvaluationValidationError(`${command} 需要且只接受一个 run-id`);
     }
-
-    // 2. Check model configs json
-    const modelConfigsPath = join(projectRoot, "model-configs.json");
-    if (!existsSync(modelConfigsPath)) {
-      console.error("❌ 缺少模型配置文件 model-configs.json");
-      allValid = false;
-    } else {
-      try {
-        const configs = JSON.parse(await readFile(modelConfigsPath, "utf-8"));
-        if (!configs || typeof configs !== "object") {
-          console.error("❌ model-configs.json 必须是 JSON 对象格式");
-          allValid = false;
-        } else {
-          console.log("  - 模型配置注册表 [结构合法]");
+    const store = await verifiedStore(projectRoot, args[0]!);
+    if (command === "status") {
+      const status = await store.readStatus();
+      let integrityVerified = false;
+      if (["completed", "regression", "partial_budget"].includes(status.status)) {
+        const artifact = await store.readVerifiedArtifact();
+        if (artifact.status !== status.status) {
+          throw new EvaluationInfrastructureError("status.json 与 immutable report 状态不一致");
         }
-      } catch (err: any) {
-        console.error(`❌ 读取 model-configs.json 异常: ${err.message}`);
-        allValid = false;
+        integrityVerified = true;
       }
+      output({ event: "status", ...status, integrityVerified });
+      return;
     }
-
-    // 3. Verify System Toolchain Binaries
-    const toolchainErrors = await checkToolchains(projectRoot);
-    if (toolchainErrors.length > 0) {
-      console.error("❌ 基础设施工具链校验失败:");
-      toolchainErrors.forEach((e) => console.error(`  - ${e}`));
-      allValid = false;
-    } else {
-      console.log("  - 基础设施工具链 (Node/Python) [准备就绪]");
-    }
-
-    if (allValid) {
-      console.log("🟢 零 Token 校验完成: 配置文件格式正确，运行工具链完整。");
-      process.exit(0);
-    } else {
-      console.error("🔴 配置文件或工具链验证失败，拒绝执行评测。");
-      process.exit(3); // Configuration error exit code
-    }
-  }
-
-  if (command === "status") {
-    const runId = args[1];
-    if (!runId) {
-      console.error("错误: 缺少运行 ID 参数。用法: eval:run status <运行ID>");
-      process.exit(3);
-    }
-    if (!/^[a-zA-Z0-9_\-]+$/.test(runId)) {
-      console.error("错误: 运行 ID 格式无效");
-      process.exit(3);
-    }
-
-    const runDir = join(projectRoot, "agent-bridge/artifacts", runId);
-    if (!existsSync(runDir)) {
-      console.log(JSON.stringify({ runId, status: "unknown", message: "找不到该运行记录" }));
-      process.exit(0);
-    }
-
-    const hasReport = existsSync(join(runDir, "report.json"));
-    const hasManifest = existsSync(join(runDir, "manifest.json"));
-    let completedCount = 0;
-    try {
-      if (existsSync(join(runDir, "observations"))) {
-        completedCount = (await readdir(join(runDir, "observations"))).filter((f) => f.endsWith(".json")).length;
-      }
-    } catch {}
-
-    const runStatus = hasReport ? "completed" : hasManifest ? "interrupted" : "running";
-    console.log(JSON.stringify({
-      runId,
-      status: runStatus,
-      completedScenarios: completedCount,
-      reportExists: hasReport,
-      manifestExists: hasManifest,
-    }, null, 2));
-    process.exit(0);
-  }
-
-  if (command === "show") {
-    const runId = args[1];
-    if (!runId) {
-      console.error("错误: 缺少运行 ID 参数。用法: scripts/npm --prefix agent-bridge run eval:show -- <运行ID>");
-      process.exit(3);
-    }
-    if (!/^[a-zA-Z0-9_\-]+$/.test(runId)) {
-      console.error("错误: 运行 ID 格式无效，仅允许字母、数字、下划线和连字符");
-      process.exit(3);
-    }
-    const reportPath = join(projectRoot, "agent-bridge/artifacts", runId, "report.json");
-    if (!existsSync(reportPath)) {
-      console.error(`错误: 未找到运行 ID "${runId}" 的评测报告。`);
-      process.exit(2);
-    }
-    const content = await readFile(reportPath, "utf-8");
-    console.log(content);
-    process.exit(0);
-  }
-
-  if (command === "run") {
-    let preset = "smoke";
-    let scenarioId: string | null = null;
-    let model = "mock:mock-model";
-    let runId = `run_${Date.now()}`;
-    let resume = false;
-    let jsonMode = false;
-
-    for (let i = 1; i < args.length; i++) {
-      if (args[i] === "--preset") {
-        const val = args[i + 1];
-        if (!val || !PRESETS[val]) {
-          console.error(`错误: 未知的预设类型 "${val}"，仅支持: ${Object.keys(PRESETS).join(", ")}`);
-          process.exit(3);
-        }
-        preset = val;
-        i++;
-      } else if (args[i] === "--scenario") {
-        scenarioId = args[i + 1] ?? null;
-        i++;
-      } else if (args[i] === "--model") {
-        model = args[i + 1] ?? "mock:mock-model";
-        i++;
-      } else if (args[i] === "--run-id") {
-        runId = args[i + 1] ?? `run_${Date.now()}`;
-        i++;
-      } else if (args[i] === "--resume") {
-        resume = true;
-      } else if (args[i] === "--json") {
-        jsonMode = true;
-      }
-    }
-
-    if (!/^[a-zA-Z0-9_\-]+$/.test(runId)) {
-      console.error("错误: 运行 ID 格式无效，仅允许字母、数字、下划线和连字符");
-      process.exit(3);
-    }
-
-    const presetScenarios = PRESETS[preset] ?? SMOKE_SCENARIOS;
-    let targetScenarios = presetScenarios;
-    if (scenarioId) {
-      targetScenarios = presetScenarios.filter((s) => s.scenarioId === scenarioId);
-      if (targetScenarios.length === 0) {
-        console.error(JSON.stringify({ error: "配置错误", message: `在预设 "${preset}" 中找不到场景 ID "${scenarioId}"` }));
-        process.exit(3);
-      }
-    }
-
-    try {
-      if (!jsonMode) {
-        console.log(`正在启动评测套件 [运行ID: ${runId}, 模型: ${model}, 预设: ${preset}]...`);
-      } else {
-        console.log(JSON.stringify({ event: "run_start", runId, model, preset }));
-      }
-
-      const artifact = await runEvaluation({
-        projectRoot,
-        runId,
-        model,
-        scenarios: targetScenarios,
-        resume,
-        onProgress: (scenId, status, res) => {
-          if (jsonMode) {
-            console.log(JSON.stringify({ event: "progress", scenarioId: scenId, status, passed: res?.grade.passed }));
-          } else {
-            if (status === "started") {
-              console.log(`[进度] 场景 "${scenId}" 开始执行...`);
-            } else {
-              const passed = res?.grade.passed ? "成功 (SUCCESS)" : "失败 (FAIL)";
-              console.log(`[进度] 场景 "${scenId}" 执行结束 [结果: ${passed}]`);
-              if (res?.grade.failures && res.grade.failures.length > 0) {
-                console.log(`  - 失败原因:`);
-                res.grade.failures.forEach((f) => console.log(`    * ${f}`));
-              }
-            }
-          }
-        },
+    const artifact = await store.readVerifiedArtifact();
+    if (command === "verify") {
+      output({
+        event: "integrity_verified",
+        runId: artifact.runId,
+        status: artifact.status,
+        integrityRootSha256: artifact.integrityRootSha256,
+        artifactPaths: artifact.artifactPaths,
       });
-
-      if (jsonMode) {
-        console.log(JSON.stringify({ event: "run_complete", summary: artifact.summary }));
-      } else {
-        console.log("\n=================== 评测完成总结 ===================");
-        console.log(`  运行 ID:     ${artifact.runId}`);
-        console.log(`  评测模型:     ${artifact.model}`);
-        console.log(`  场景总量:     ${artifact.observations.length}`);
-        console.log(`  通过数量:     ${artifact.summary.passedCount}`);
-        console.log(`  失败数量:     ${artifact.summary.failedCount}`);
-        console.log(`  场景通过率:   ${(artifact.summary.passRate * 100).toFixed(2)}%`);
-        console.log(`  生成报告路径: agent-bridge/artifacts/${runId}/report.json`);
-        console.log("===================================================\n");
-      }
-
-      if (artifact.summary.passRate < 1.0) {
-        process.exit(1); // SUT regression exit code
-      }
-      process.exit(0);
-    } catch (err: any) {
-      if (err instanceof InfrastructureError) {
-        if (jsonMode) {
-          console.log(JSON.stringify({ event: "infrastructure_error", error: err.message }));
-        } else {
-          console.error(`🔴 基础设施异常中断: ${err.message}`);
-        }
-        process.exit(2); // Infrastructure exit code
-      } else {
-        if (jsonMode) {
-          console.log(JSON.stringify({ event: "error", error: err?.message || String(err) }));
-        } else {
-          console.error(`🔴 评测套件运行遇到致命异常: ${err?.message || String(err)}`);
-        }
-        process.exit(2); // General setup/infra error is exit code 2
-      }
+    } else {
+      output(artifact);
     }
+    return;
   }
 
-  printUsage();
-  process.exit(3);
+  if (command !== "run") {
+    throw new EvaluationValidationError(`未知命令: ${command}`);
+  }
+
+  const parsed = parseArgs(args, true);
+  const preset = SLICE_0_PRESETS[parsed.preset]!;
+  const scenarios = selectScenarios(parsed);
+  const validation = await validateEvaluationConfig({
+    projectRoot,
+    model: parsed.model,
+    scenarios,
+    budget: preset.budget,
+  });
+  if (!validation.valid) {
+    output({ event: "validation_result", ...validation, exitCode: EXIT.validation });
+    process.exit(EXIT.validation);
+  }
+  const runId = parsed.runId ?? `run_${Date.now()}`;
+  output({ event: "run_started", runId, preset: parsed.preset, model: parsed.model });
+  const artifact = await runEvaluation({
+    projectRoot,
+    runId,
+    preset: parsed.preset,
+    model: parsed.model,
+    scenarios,
+    budget: preset.budget,
+    resume: parsed.resume,
+    onProgress: (scenarioId, status, result) => output({
+      event: "scenario_progress",
+      runId,
+      scenarioId,
+      status,
+      ...(result ? { passed: result.grade.passed } : {}),
+    }),
+  });
+  const exitCode = artifact.status === "partial_budget"
+    ? EXIT.partialBudget
+    : artifact.status === "regression" ? EXIT.regression : EXIT.passed;
+  output({
+    event: "run_completed",
+    runId,
+    status: artifact.status,
+    exitCode,
+    summary: artifact.summary,
+    integrityRootSha256: artifact.integrityRootSha256,
+    artifactPaths: artifact.artifactPaths,
+  });
+  process.exit(exitCode);
 }
 
-main().catch((err) => {
-  console.error("未捕获的 CLI 致命异常:", err);
-  process.exit(2);
+main().catch((error) => {
+  const validationError = error instanceof EvaluationValidationError;
+  const infrastructureError = error instanceof EvaluationInfrastructureError;
+  const exitCode = validationError ? EXIT.validation : EXIT.infrastructure;
+  output({
+    event: validationError ? "validation_error" : "infrastructure_error",
+    exitCode,
+    error: error instanceof Error ? error.message : String(error),
+    classified: validationError || infrastructureError,
+  });
+  process.exit(exitCode);
 });

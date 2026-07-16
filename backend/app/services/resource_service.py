@@ -30,14 +30,22 @@ def is_safe_path(file_path: str, base_dir: str) -> bool:
     return abs_path == abs_base or abs_path.startswith(abs_base + os.sep)
 
 
-def delete_uploaded_file_if_safe(file_path: str) -> None:
-    """Safely delete a physical file only if it is contained within settings.resolved_upload_dir."""
+def delete_uploaded_file_if_safe(file_name: str) -> None:
+    """Delete an upload basename without accepting arbitrary path semantics."""
     import os
     from app.core.config import settings
     upload_dir = settings.resolved_upload_dir
-    # Resolve relative basename to absolute path inside upload_dir
-    if not os.path.isabs(file_path):
-        file_path = os.path.join(upload_dir, file_path)
+    if (
+        not file_name
+        or file_name in {".", ".."}
+        or os.path.isabs(file_name)
+        or os.path.basename(file_name) != file_name
+        or os.sep in file_name
+        or (os.altsep and os.altsep in file_name)
+    ):
+        raise PermissionError("安全审计拦截: 上传文件名必须是不含路径的 basename")
+
+    file_path = os.path.join(upload_dir, file_name)
 
     if not is_safe_path(file_path, upload_dir):
         logger.error("Path traversal attempt detected during deletion: %s outside %s", file_path, upload_dir)

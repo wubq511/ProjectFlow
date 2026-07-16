@@ -27,7 +27,7 @@
  *   is missing.
  */
 
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 import { createRunState } from "@/types/run-state.js";
 import { executeRun } from "@/runtime/pi-runtime.js";
 import type { MemoryContext } from "@/runtime/context-builder.js";
@@ -35,8 +35,10 @@ import { prepareRunRequest } from "@/runtime/request-preparation.js";
 import { createOutputSanitizer } from "@/runtime/output-sanitizer.js";
 import type { StreamEventType } from "@/events/stream.js";
 import type { RuntimeEvent } from "@/types/runtime-event.js";
+import type { WireRunStartRequest } from "@/types/wire.js";
 import type { RunContext } from "./utils.js";
 import { sendJson } from "./utils.js";
+import { isEvaluationRequestAuthorized } from "../evaluation-auth.js";
 import {
   createStreamProjector,
   formatToolStartLabel,
@@ -77,7 +79,7 @@ export function buildDonePayload(
   finalAnswer: string,
   thinkingBlocks: Map<string, string>,
   executionSteps: Array<{ tool_name: string; tool_call_id?: string; status: string; label: string }>,
-  metrics?: { latency_ms: number; input_tokens: number; output_tokens: number; reasoning_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number; total_cost?: number },
+  metrics?: { latency_ms: number; input_tokens: number; output_tokens: number; model_request_count: number; reasoning_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number; total_cost?: number },
 ): Record<string, unknown> {
   const thinkingContent = Array.from(thinkingBlocks.entries())
     .sort(([a], [b]) => compareCompositeKeys(a, b))
@@ -99,6 +101,66 @@ export function buildDonePayload(
  * Prefer formatToolStartLabel / formatToolCompleteLabel for new code.
  */
 export { toolLabel };
+
+export interface EvaluatorBudget {
+  maxInputTokens: number;
+  maxOutputTokens: number;
+  maxRequestCount: number;
+  maxCostUsd: number;
+}
+
+export function readEvaluatorBudget(
+  headers: IncomingHttpHeaders,
+  raw: NonNullable<WireRunStartRequest["runtime_config"]>["evaluation_budget"],
+  env: NodeJS.ProcessEnv = process.env,
+): { budget?: EvaluatorBudget; error?: { status: number; message: string } } {
+  if (!raw) return {};
+  if (
+    !isEvaluationRequestAuthorized(headers, env)
+  ) {
+    return { error: { status: 403, message: "evaluator 预算控制凭据无效" } };
+  }
+  const values = [
+    raw.max_input_tokens,
+    raw.max_output_tokens,
+    raw.max_request_count,
+    raw.max_cost_usd,
+  ];
+  if (values.some((value) => typeof value !== "number" || !Number.isFinite(value) || value <= 0)) {
+    return { error: { status: 400, message: "evaluator 预算字段必须为正数" } };
+  }
+  if (!Number.isInteger(raw.max_input_tokens) || !Number.isInteger(raw.max_output_tokens) || !Number.isInteger(raw.max_request_count)) {
+    return { error: { status: 400, message: "evaluator Token 与请求上限必须为整数" } };
+  }
+  return {
+    budget: {
+      maxInputTokens: raw.max_input_tokens,
+      maxOutputTokens: raw.max_output_tokens,
+      maxRequestCount: raw.max_request_count,
+      maxCostUsd: raw.max_cost_usd,
+    },
+  };
+}
+
+export function findEvaluatorBudgetFailure(
+  budget: EvaluatorBudget | undefined,
+  usage: { inputTokens: number; outputTokens: number; requestCount: number; cost?: number },
+): string | undefined {
+  if (!budget) return undefined;
+  if (usage.inputTokens > budget.maxInputTokens) {
+    return `输入 Token ${usage.inputTokens} 超过上限 ${budget.maxInputTokens}`;
+  }
+  if (usage.outputTokens > budget.maxOutputTokens) {
+    return `输出 Token ${usage.outputTokens} 超过上限 ${budget.maxOutputTokens}`;
+  }
+  if (usage.requestCount > budget.maxRequestCount) {
+    return `模型请求次数 ${usage.requestCount} 超过上限 ${budget.maxRequestCount}`;
+  }
+  if (usage.cost !== undefined && usage.cost > budget.maxCostUsd) {
+    return `SUT 成本 $${usage.cost} 超过上限 $${budget.maxCostUsd}`;
+  }
+  return undefined;
+}
 
 export async function handleStartRunStream(
   req: IncomingMessage,
@@ -144,6 +206,15 @@ export async function handleStartRunStream(
 
   // status === "ready"
   const { wireRequest, skillContext, allSkillContexts, outcomeContract } = prepared;
+  const evaluatorBudgetResult = readEvaluatorBudget(req.headers, wireRequest.runtime_config?.evaluation_budget);
+  if (evaluatorBudgetResult.error) {
+    sendJson(res, evaluatorBudgetResult.error.status, {
+      error: evaluatorBudgetResult.error.status === 403 ? "unauthorized" : "validation_error",
+      message: evaluatorBudgetResult.error.message,
+    });
+    return;
+  }
+  const evaluatorBudget = evaluatorBudgetResult.budget;
 
   // Step 1: Create run record in FastAPI
   const modelName = wireRequest.runtime_config?.model
@@ -273,6 +344,7 @@ export async function handleStartRunStream(
   let cacheReadTokens = 0;
   let cacheWriteTokens = 0;
   let totalCost = 0;
+  let modelRequestCount = 0;
   let observedReasoning = false;
   let observedCacheRead = false;
   let observedCacheWrite = false;
@@ -282,12 +354,13 @@ export async function handleStartRunStream(
       latency_ms: Math.max(0, Date.now() - streamStartedAt),
       input_tokens: inputTokens,
       output_tokens: outputTokens,
+      model_request_count: modelRequestCount,
     };
     if (observedReasoning) metrics.reasoning_tokens = reasoningTokens;
     if (observedCacheRead) metrics.cache_read_tokens = cacheReadTokens;
     if (observedCacheWrite) metrics.cache_write_tokens = cacheWriteTokens;
     if (observedCost) metrics.total_cost = totalCost;
-    return metrics as { latency_ms: number; input_tokens: number; output_tokens: number; reasoning_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number; total_cost?: number };
+    return metrics as { latency_ms: number; input_tokens: number; output_tokens: number; model_request_count: number; reasoning_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number; total_cost?: number };
   };
 
   const finalizeRun = (state?: { runId: string }): void => {
@@ -399,6 +472,7 @@ export async function handleStartRunStream(
           messageSeq++;
         }
         if (data.payload?.phase === "message_end") {
+          modelRequestCount += 1;
           const usage = data.payload.usage && typeof data.payload.usage === "object"
             ? data.payload.usage as Record<string, unknown>
             : {};
@@ -421,6 +495,24 @@ export async function handleStartRunStream(
             if (cw !== undefined) { observedCacheWrite = true; cacheWriteTokens += cw; }
             const ct = typeof cost.total === "number" ? cost.total : undefined;
             if (ct !== undefined) { observedCost = true; totalCost += ct; }
+          }
+          const budgetFailure = findEvaluatorBudgetFailure(evaluatorBudget, {
+            inputTokens,
+            outputTokens,
+            requestCount: modelRequestCount,
+            ...(observedCost ? { cost: totalCost } : {}),
+          });
+          if (evaluatorBudget) {
+            writeSSE(res, "evaluation_metrics", { metrics: currentMetrics() });
+          }
+          if (budgetFailure) {
+            runCompleted = true;
+            abortController.abort();
+            writeSSE(res, "evaluation_budget_exceeded", {
+              message: budgetFailure,
+              metrics: currentMetrics(),
+            });
+            res.end();
           }
         }
         break;

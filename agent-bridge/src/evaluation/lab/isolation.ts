@@ -1,9 +1,31 @@
 import { spawn, ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
+
+const CHILD_ENV_ALLOWLIST = [
+  "PATH",
+  "TMPDIR",
+  "LANG",
+  "LC_ALL",
+  "TZ",
+  "SYSTEMROOT",
+  "WINDIR",
+  "PATHEXT",
+] as const;
+
+/** Keep host credentials and target URLs out of evaluator-owned children. */
+export function buildIsolatedChildEnv(
+  source: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of CHILD_ENV_ALLOWLIST) {
+    if (source[key] !== undefined) env[key] = source[key];
+  }
+  return env;
+}
 
 export async function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -17,9 +39,22 @@ export async function findFreePort(): Promise<number> {
   });
 }
 
+export function isExpectedEvaluationIdentity(
+  data: unknown,
+  expectedService: string,
+  expectedInstanceId: string,
+): boolean {
+  if (!data || typeof data !== "object") return false;
+  const record = data as Record<string, unknown>;
+  return record.app_env === "evaluation"
+    && record.service === expectedService
+    && record.evaluation_instance_id === expectedInstanceId;
+}
+
 export class IsolatedProcessPair {
   public tempRoot!: string;
   public nonce!: string;
+  public instanceId!: string;
   public adminToken!: string;
   public internalServiceToken!: string;
   public backendPort!: number;
@@ -30,14 +65,42 @@ export class IsolatedProcessPair {
   private backendProcess: ChildProcess | null = null;
   private sidecarProcess: ChildProcess | null = null;
 
-  async start(projectRoot: string): Promise<void> {
+  async start(projectRoot: string, model = "mock:mock-model"): Promise<void> {
     this.nonce = randomBytes(16).toString("hex");
+    this.instanceId = randomBytes(16).toString("hex");
     this.adminToken = randomBytes(16).toString("hex");
     this.internalServiceToken = randomBytes(16).toString("hex");
 
     this.tempRoot = await mkdtemp(join(tmpdir(), "projectflow-eval-"));
     await mkdir(join(this.tempRoot, "uploads"), { recursive: true });
-    await writeFile(join(this.tempRoot, ".evaluator-ownership-marker"), this.nonce, "utf-8");
+    await writeFile(
+      join(this.tempRoot, ".evaluator-ownership-marker"),
+      JSON.stringify({ nonce: this.nonce, instanceId: this.instanceId }),
+      { encoding: "utf-8", mode: 0o600 },
+    );
+    const isolatedModelConfigsPath = join(this.tempRoot, "model-configs.json");
+    const separator = model.indexOf(":");
+    const provider = model.slice(0, separator);
+    const name = model.slice(separator + 1);
+    const modelConfigs = JSON.parse(
+      await readFile(resolve(projectRoot, "agent-bridge", "model-configs.json"), "utf-8"),
+    ) as { models?: Array<Record<string, unknown>> };
+    if (!Array.isArray(modelConfigs.models)) {
+      throw new Error("model-configs.json 缺少 models 数组");
+    }
+    let selected = false;
+    modelConfigs.models = modelConfigs.models.map((entry) => {
+      const isSelected = entry.provider === provider && entry.name === name;
+      selected ||= isSelected;
+      return { ...entry, isDefault: isSelected };
+    });
+    if (!selected) {
+      throw new Error(`模型 ${model} 未在 evaluator-owned config 中注册`);
+    }
+    await writeFile(isolatedModelConfigsPath, JSON.stringify(modelConfigs, null, 2), {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
 
     this.backendPort = await findFreePort();
     this.sidecarPort = await findFreePort();
@@ -47,21 +110,25 @@ export class IsolatedProcessPair {
 
     const backendPath = resolve(projectRoot, "backend");
     const pythonExec = join(backendPath, ".venv", "bin", "python");
+    const isolatedBaseEnv = buildIsolatedChildEnv();
 
     // Spawn Backend
     this.backendProcess = spawn(
       pythonExec,
       ["-m", "uvicorn", "app.main:app", "--port", String(this.backendPort), "--host", "127.0.0.1"],
       {
-        cwd: backendPath,
+        // Keep pydantic-settings from auto-loading backend/.env.
+        cwd: this.tempRoot,
         env: {
-          ...process.env,
+          ...isolatedBaseEnv,
+          PYTHONPATH: backendPath,
           APP_ENV: "evaluation",
           DATABASE_URL: `sqlite:///${this.tempRoot}/projectflow_eval.sqlite`,
           UPLOAD_DIR: `${this.tempRoot}/uploads`,
           DEMO_ADMIN_TOKEN: this.adminToken,
           INTERNAL_SERVICE_TOKEN: this.internalServiceToken,
           EVALUATION_NONCE: this.nonce,
+          EVALUATION_INSTANCE_ID: this.instanceId,
           EVALUATION_TEMP_ROOT: this.tempRoot,
         },
         stdio: "ignore",
@@ -78,20 +145,20 @@ export class IsolatedProcessPair {
       {
         cwd: sidecarPath,
         env: {
-          ...process.env,
+          ...isolatedBaseEnv,
           APP_ENV: "evaluation",
           AGENT_BRIDGE_HOST: "127.0.0.1",
           AGENT_BRIDGE_PORT: String(this.sidecarPort),
           FASTAPI_BASE_URL: this.backendUrl,
+          DEFAULT_MODEL_PROVIDER: provider,
+          DEFAULT_MODEL_NAME: name,
           INTERNAL_SERVICE_TOKEN: this.internalServiceToken,
           DEMO_ADMIN_TOKEN: this.adminToken,
           EVALUATION_NONCE: this.nonce,
+          EVALUATION_INSTANCE_ID: this.instanceId,
           EVALUATION_TEMP_ROOT: this.tempRoot,
-          MODEL_CONFIGS_PATH: resolve(projectRoot, "agent-bridge/model-configs.json"),
+          MODEL_CONFIGS_PATH: isolatedModelConfigsPath,
           DOTENV_PATH: join(this.tempRoot, ".env"),
-          DEEPSEEK_API_KEY: "mock-key",
-          XIAOMI_API_KEY: "mock-key",
-          XIAOMI_TOKEN_PLAN_CN_API_KEY: "mock-key",
         },
         stdio: "ignore",
       }
@@ -100,8 +167,8 @@ export class IsolatedProcessPair {
     // Wait for both to be healthy
     try {
       await Promise.all([
-        this.waitHealth(`${this.backendUrl}/api/health`),
-        this.waitHealth(`${this.sidecarUrl}/health`),
+        this.waitHealth(`${this.backendUrl}/api/health`, "projectflow-backend"),
+        this.waitHealth(`${this.sidecarUrl}/health`, "agent-bridge"),
       ]);
     } catch (err) {
       await this.destroy();
@@ -109,19 +176,25 @@ export class IsolatedProcessPair {
     }
   }
 
-  private async waitHealth(url: string, timeoutMs = 15000): Promise<void> {
+  private async waitHealth(url: string, expectedService: string, timeoutMs = 15000): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      if (this.backendProcess?.killed || this.sidecarProcess?.killed) {
-        throw new Error("One of the processes exited early");
+      if (
+        this.backendProcess?.exitCode !== null || this.backendProcess?.signalCode !== null
+        || this.sidecarProcess?.exitCode !== null || this.sidecarProcess?.signalCode !== null
+      ) {
+        throw new Error("评测 backend 或 sidecar 进程提前退出");
       }
       try {
         const res = await fetch(url, {
-          headers: { "X-Evaluation-Nonce": this.nonce },
+          headers: {
+            "X-Evaluation-Nonce": this.nonce,
+            "X-Evaluation-Instance-Id": this.instanceId,
+          },
         });
         if (res.ok) {
           const data = await res.json() as any;
-          if (data && data.app_env === "evaluation") {
+          if (isExpectedEvaluationIdentity(data, expectedService, this.instanceId)) {
             return;
           }
         }
@@ -130,7 +203,7 @@ export class IsolatedProcessPair {
       }
       await new Promise((r) => setTimeout(r, 200));
     }
-    throw new Error(`Timeout waiting for service at ${url}`);
+    throw new Error(`等待评测服务健康检查超时: ${url}`);
   }
 
   async destroy(): Promise<void> {

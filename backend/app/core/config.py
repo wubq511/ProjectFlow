@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     sidecar_base_url: str = "http://localhost:4000"
     upload_dir: str = ""
     evaluation_nonce: SecretStr | None = None
+    evaluation_instance_id: SecretStr | None = None
     evaluation_temp_root: str | None = None
 
     @property

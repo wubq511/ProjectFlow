@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+COMMAND="${1:-}"
+if [ -z "$COMMAND" ]; then
+  echo '{"event":"validation_error","exitCode":3,"error":"缺少命令"}'
+  exit 3
+fi
+shift
+
+case "$COMMAND" in
+  list|validate|run|show|status|verify) ;;
+  *)
+    echo '{"event":"validation_error","exitCode":3,"error":"未知命令"}'
+    exit 3
+    ;;
+esac
+
+exec "$ROOT/scripts/project-npm" --silent --prefix "$ROOT/agent-bridge" run "eval:$COMMAND" -- "$@"

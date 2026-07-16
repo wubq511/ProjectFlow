@@ -23,6 +23,7 @@ export interface FixtureProvisionerConfig {
   adminToken?: string;
   fetchFn?: typeof fetch;
   evaluationNonce?: string;
+  evaluationInstanceId?: string;
 }
 
 interface SeedDemoResponse {
@@ -92,13 +93,16 @@ export async function provisionObservationFixture(
   if (config.evaluationNonce) {
     headers["X-Evaluation-Nonce"] = config.evaluationNonce;
   }
+  if (config.evaluationInstanceId) {
+    headers["X-Evaluation-Instance-Id"] = config.evaluationInstanceId;
+  }
 
   // Step 1: Seed demo state.
   try {
     await postJson<SeedDemoResponse>(fetchFn, `${base}/api/seed/demo`, {}, headers);
   } catch (err) {
-    const status = err instanceof Error ? err.message : "unknown";
-    throw new Error(`seed_demo ${status}`);
+    const status = err instanceof Error ? err.message : "未知错误";
+    throw new Error(`重置并生成评测夹具失败: ${status}`);
   }
 
   // Step 2: Fetch fresh workspace state.
@@ -111,8 +115,8 @@ export async function provisionObservationFixture(
     );
     workspaceState = stateResponse as unknown as Record<string, unknown>;
   } catch (err) {
-    const status = err instanceof Error ? err.message : "unknown";
-    throw new Error(`fetch_workspace_state ${status}`);
+    const status = err instanceof Error ? err.message : "未知错误";
+    throw new Error(`读取评测工作区状态失败: ${status}`);
   }
 
   // Step 3: Create a new conversation.
@@ -126,11 +130,11 @@ export async function provisionObservationFixture(
     );
     conversationId = convResponse.id;
     if (typeof conversationId !== "string" || !conversationId) {
-      throw new Error("HTTP 200 but missing id");
+      throw new Error("HTTP 200 但响应缺少会话 ID");
     }
   } catch (err) {
-    const status = err instanceof Error ? err.message : "unknown";
-    throw new Error(`create_conversation ${status}`);
+    const status = err instanceof Error ? err.message : "未知错误";
+    throw new Error(`创建评测会话失败: ${status}`);
   }
 
   return {

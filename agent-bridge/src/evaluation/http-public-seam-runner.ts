@@ -1,4 +1,5 @@
 import type { AgentScenario, ScenarioObservation, ScenarioRunner } from "./scenario-eval.js";
+import { EvaluationBudgetError } from "./lab/errors.js";
 
 export interface PublicSeamIdentity {
   conversationId: string;
@@ -18,6 +19,10 @@ export interface HttpPublicSeamRunnerOptions {
    * (new conversation, fresh workspace state) before each observation.
    */
   identityProvider?: () => Promise<PublicSeamIdentity>;
+  evaluationAuth?: {
+    nonce: string;
+    instanceId: string;
+  };
   fetchFn?: typeof fetch;
 }
 
@@ -44,28 +49,52 @@ function containsRawId(output: string, workspaceState: Record<string, unknown>):
   return UUID_PATTERN.test(output) || [...knownIds].some((id) => normalizedOutput.includes(id));
 }
 
-function parseSse(text: string): Array<{ event: string; data: Record<string, unknown> }> {
+export function parseSse(text: string): Array<{ event: string; data: Record<string, unknown> }> {
   return text.split(/\n\n+/).flatMap((block) => {
+    if (!block.trim() || block.trimStart().startsWith(":")) return [];
     let event = "";
     let data = "";
     for (const line of block.split("\n")) {
       if (line.startsWith("event: ")) event = line.slice(7).trim();
       if (line.startsWith("data: ")) data += line.slice(6);
     }
-    if (!event || !data) return [];
+    if (!event || !data) {
+      throw new Error("SSE 协议块缺少 event 或 data 字段");
+    }
     try {
       const parsed = JSON.parse(data);
-      return parsed && typeof parsed === "object" ? [{ event, data: parsed as Record<string, unknown> }] : [];
-    } catch {
-      return [];
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("data 必须是 JSON 对象");
+      }
+      return [{ event, data: parsed as Record<string, unknown> }];
+    } catch (error) {
+      throw new Error(`SSE data JSON 无效: ${(error as Error).message}`, { cause: error });
     }
   });
+}
+
+function metricsFromEvent(
+  data: Record<string, unknown> | undefined,
+  started: number,
+  output?: string,
+) {
+  const metrics = data?.metrics && typeof data.metrics === "object"
+    ? data.metrics as Record<string, unknown>
+    : data ?? {};
+  return {
+    latencyMs: typeof metrics.latency_ms === "number" ? metrics.latency_ms : Date.now() - started,
+    inputTokens: typeof metrics.input_tokens === "number" ? metrics.input_tokens : 0,
+    outputTokens: typeof metrics.output_tokens === "number" ? metrics.output_tokens : 0,
+    requestCount: typeof metrics.model_request_count === "number" ? metrics.model_request_count : 0,
+    ...(typeof metrics.total_cost === "number" ? { cost: metrics.total_cost } : {}),
+    ...(output ? { output } : {}),
+  };
 }
 
 /** Build a runner that exercises the real POST /runs/stream HTTP/SSE seam. */
 export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions): ScenarioRunner {
   if (!options.identity && !options.identityProvider) {
-    throw new Error("Either identity or identityProvider must be provided");
+    throw new Error("必须提供 identity 或 identityProvider");
   }
   const fetchFn = options.fetchFn ?? fetch;
   const baseUrl = options.baseUrl.replace(/\/$/, "");
@@ -74,113 +103,160 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
       ? await options.identityProvider()
       : options.identity!;
     const [provider, ...nameParts] = model.split(":");
-    if (!provider || nameParts.length === 0) throw new Error(`Invalid model ref: ${model}`);
+    if (!provider || nameParts.length === 0) throw new Error(`模型引用格式无效: ${model}`);
     const started = Date.now();
     const controller = new AbortController();
-    const timeoutTimer = setTimeout(() => {
-      controller.abort();
-    }, scenario.maxLatencyMs || 30000);
-
-    const response = await fetchFn(`${baseUrl}/runs/stream`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        conversation_id: identity.conversationId,
-        workspace_id: identity.workspaceId,
-        project_id: identity.projectId,
-        viewer_user_id: identity.viewerUserId,
-        user_content: scenario.prompt,
-        workspace_state: identity.workspaceState,
-        runtime_config: { model: { provider, name: nameParts.join(":") }, max_steps: 10, max_tool_calls: 20 },
-      }),
-    });
-    if (!response.ok) {
-      clearTimeout(timeoutTimer);
-      throw new Error(`Public seam returned HTTP ${response.status}`);
-    }
-
+    const maxLatencyMs = scenario.maxLatencyMs || 30_000;
+    const timeoutTimer = setTimeout(() => controller.abort(), maxLatencyMs);
     const events: Array<{ event: string; data: Record<string, unknown> }> = [];
-    let readSuccess = false;
-    const isEvaluation = typeof process !== "undefined" && process.env.APP_ENV === "evaluation";
+    const toolCallIds = new Set<string>();
 
-    if (isEvaluation && response.body && typeof response.body.getReader === "function") {
-      try {
+    const recordEvents = (items: Array<{ event: string; data: Record<string, unknown> }>) => {
+      for (const item of items) {
+        events.push(item);
+        if (item.event === "tool" && item.data.phase === "started") {
+          const id = typeof item.data.tool_call_id === "string"
+            ? item.data.tool_call_id
+            : typeof item.data.tool_name === "string" ? item.data.tool_name : `unknown-${events.length}`;
+          toolCallIds.add(id);
+          if (toolCallIds.size > 20) {
+            controller.abort();
+            throw new EvaluationBudgetError("工具调用次数超出 evaluator 硬上限 20");
+          }
+        }
+      }
+    };
+
+    try {
+      const response = await fetchFn(`${baseUrl}/runs/stream`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.evaluationAuth
+            ? {
+                "X-Evaluation-Nonce": options.evaluationAuth.nonce,
+                "X-Evaluation-Instance-Id": options.evaluationAuth.instanceId,
+              }
+            : {}),
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          conversation_id: identity.conversationId,
+          workspace_id: identity.workspaceId,
+          project_id: identity.projectId,
+          viewer_user_id: identity.viewerUserId,
+          user_content: scenario.prompt,
+          workspace_state: identity.workspaceState,
+          runtime_config: {
+            model: { provider, name: nameParts.join(":") },
+            max_steps: scenario.maxRequestCount ?? 4,
+            max_tool_calls: 20,
+            timeout_ms: maxLatencyMs,
+            ...(options.evaluationAuth
+              ? {
+                  evaluation_budget: {
+                    max_input_tokens: scenario.maxInputTokens,
+                    max_output_tokens: scenario.maxOutputTokens,
+                    max_request_count: scenario.maxRequestCount,
+                    max_cost_usd: scenario.maxSutCostUsd,
+                  },
+                }
+              : {}),
+          },
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`公开行为入口返回 HTTP ${response.status}`);
+      }
+
+      if (response.body && typeof response.body.getReader === "function") {
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
         let buffer = "";
-        let toolCount = 0;
-
-        while (true) {
-          const { done: streamDone, value } = await reader.read();
-          if (streamDone) break;
-          if (typeof value === "string") {
-            buffer += value;
-          } else if (value instanceof Uint8Array) {
-            buffer += decoder.decode(value, { stream: true });
-          } else if (value) {
-            buffer += decoder.decode(value as any, { stream: true });
+        try {
+          while (true) {
+            const { done: streamDone, value } = await reader.read();
+            if (streamDone) break;
+            buffer += value instanceof Uint8Array
+              ? decoder.decode(value, { stream: true })
+              : typeof value === "string" ? value : decoder.decode(value as ArrayBuffer, { stream: true });
+            const parts = buffer.split(/\n\n+/);
+            buffer = parts.pop() ?? "";
+            recordEvents(parts.flatMap(parseSse));
           }
-
-          let parts = buffer.split(/\n\n+/);
-          buffer = parts.pop() ?? "";
-
-          for (const block of parts) {
-            const blockEvents = parseSse(block);
-            for (const item of blockEvents) {
-              events.push(item);
-              if (item.event === "tool") {
-                toolCount++;
-                if (toolCount > 20) {
-                  controller.abort();
-                  throw new Error("工具调用次数超出沙箱硬上限限制");
-                }
-              }
-              if (item.event === "done") {
-                const metrics = item.data.metrics as Record<string, any> ?? {};
-                const totalCost = metrics.total_cost ?? 0;
-                if (totalCost > 0.10) {
-                  controller.abort();
-                  throw new Error("场景运行成本已超过预算上限 $0.10 USD");
-                }
-              }
-            }
-          }
-
-          // Active elapsed time check
-          if (Date.now() - started > (scenario.maxLatencyMs || 30000)) {
-            controller.abort();
-            throw new Error(`场景执行时间超出最大允许延迟 (${scenario.maxLatencyMs}ms)`);
-          }
+          buffer += decoder.decode();
+          if (buffer.trim()) recordEvents(parseSse(buffer));
+        } finally {
+          reader.releaseLock();
         }
-        reader.releaseLock();
-        readSuccess = true;
-      } catch (err: any) {
-        if (err.message && (err.message.includes("上限") || err.message.includes("延迟"))) {
-          throw err;
-        }
-        // Fallback silently to text parsing for mock/compatibility environments
-      } finally {
-        clearTimeout(timeoutTimer);
+      } else {
+        recordEvents(parseSse(await response.text()));
       }
-    }
-
-    if (!readSuccess) {
-      try {
-        const text = await response.text();
-        events.push(...parseSse(text));
-      } finally {
-        clearTimeout(timeoutTimer);
+    } catch (error) {
+      if (error instanceof EvaluationBudgetError) throw error;
+      if (controller.signal.aborted) {
+        const latestMetrics = [...events].reverse().find((item) => item.event === "evaluation_metrics");
+        throw new EvaluationBudgetError(
+          `场景执行时间超过 wall-time 上限 ${maxLatencyMs}ms`,
+          metricsFromEvent(latestMetrics?.data, started),
+        );
       }
+      throw error;
+    } finally {
+      clearTimeout(timeoutTimer);
     }
 
     const status = events.find((item) => item.event === "status" && item.data.run_id);
     const done = [...events].reverse().find((item) => item.event === "done");
     const error = [...events].reverse().find((item) => item.event === "error");
+    const budgetExceeded = [...events].reverse().find((item) => item.event === "evaluation_budget_exceeded");
     const metrics = done?.data.metrics && typeof done.data.metrics === "object"
       ? done.data.metrics as Record<string, unknown>
       : {};
-    const finalContent = typeof done?.data.final_content === "string" ? done.data.final_content : "";
+    const errorContent = error
+      ? typeof error.data.message === "string" ? error.data.message : JSON.stringify(error.data)
+      : "";
+    const finalContent = typeof done?.data.final_content === "string" ? done.data.final_content : errorContent;
+    if (budgetExceeded) {
+      const message = typeof budgetExceeded.data.message === "string"
+        ? budgetExceeded.data.message
+        : "ProjectFlow Agent 超出 evaluator 预算";
+      throw new EvaluationBudgetError(
+        message,
+        metricsFromEvent(budgetExceeded.data, started, finalContent),
+      );
+    }
+    if (!done && !error) {
+      throw new Error("SSE 流在终态事件前结束");
+    }
+    const requestCount = typeof metrics.model_request_count === "number" ? metrics.model_request_count : 0;
+    const inputTokens = typeof metrics.input_tokens === "number" ? metrics.input_tokens : 0;
+    const outputTokens = typeof metrics.output_tokens === "number" ? metrics.output_tokens : 0;
+    const totalCost = typeof metrics.total_cost === "number" ? metrics.total_cost : undefined;
+    if (requestCount > (scenario.maxRequestCount ?? Number.POSITIVE_INFINITY)) {
+      throw new EvaluationBudgetError(
+        `模型请求次数 ${requestCount} 超过上限 ${scenario.maxRequestCount}`,
+        metricsFromEvent({ metrics }, started, finalContent),
+      );
+    }
+    if (inputTokens > (scenario.maxInputTokens ?? Number.POSITIVE_INFINITY)) {
+      throw new EvaluationBudgetError(
+        `输入 Token ${inputTokens} 超过上限 ${scenario.maxInputTokens}`,
+        metricsFromEvent({ metrics }, started, finalContent),
+      );
+    }
+    if (outputTokens > (scenario.maxOutputTokens ?? Number.POSITIVE_INFINITY)) {
+      throw new EvaluationBudgetError(
+        `输出 Token ${outputTokens} 超过上限 ${scenario.maxOutputTokens}`,
+        metricsFromEvent({ metrics }, started, finalContent),
+      );
+    }
+    if (totalCost !== undefined && totalCost > (scenario.maxSutCostUsd ?? Number.POSITIVE_INFINITY)) {
+      throw new EvaluationBudgetError(
+        `SUT 成本 $${totalCost} 超过上限 $${scenario.maxSutCostUsd}`,
+        metricsFromEvent({ metrics }, started, finalContent),
+      );
+    }
     const outputPolicyPassed = (scenario.forbiddenOutputPatterns ?? []).every((pattern) => {
       pattern.lastIndex = 0;
       return !pattern.test(finalContent);
@@ -196,12 +272,13 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
       evidence: [...new Set(toolNames)],
       terminalStatus: done ? "completed" : error ? "failed" : "blocked",
       latencyMs: typeof metrics.latency_ms === "number" ? metrics.latency_ms : Date.now() - started,
-      inputTokens: typeof metrics.input_tokens === "number" ? metrics.input_tokens : 0,
-      outputTokens: typeof metrics.output_tokens === "number" ? metrics.output_tokens : 0,
+      inputTokens,
+      outputTokens,
       reasoningTokens: typeof metrics.reasoning_tokens === "number" ? metrics.reasoning_tokens : undefined,
       cacheReadTokens: typeof metrics.cache_read_tokens === "number" ? metrics.cache_read_tokens : undefined,
       cacheWriteTokens: typeof metrics.cache_write_tokens === "number" ? metrics.cache_write_tokens : undefined,
-      cost: typeof metrics.total_cost === "number" ? metrics.total_cost : undefined,
+      cost: totalCost,
+      requestCount,
       outputPolicyPassed,
       output: finalContent,
     };

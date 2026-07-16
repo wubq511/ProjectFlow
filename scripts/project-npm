@@ -1,0 +1,37 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+PINNED_NODE_VERSION="24.15.0"
+PINNED_NPM_VERSION="11.12.1"
+
+if [ -x "$ROOT/scripts/npm" ] && [ -x "$ROOT/scripts/node" ]; then
+  NPM="$ROOT/scripts/npm"
+  NODE="$ROOT/scripts/node"
+else
+  GIT_COMMON_DIR="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  PRIMARY_ROOT="$(dirname "$GIT_COMMON_DIR")"
+  if [ -n "$GIT_COMMON_DIR" ] \
+    && [ -x "$PRIMARY_ROOT/scripts/npm" ] \
+    && [ -x "$PRIMARY_ROOT/scripts/node" ]; then
+    NPM="$PRIMARY_ROOT/scripts/npm"
+    NODE="$PRIMARY_ROOT/scripts/node"
+  elif command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    NPM="$(command -v npm)"
+    NODE="$(command -v node)"
+  else
+    echo "缺少锁定工具链 Node.js $PINNED_NODE_VERSION / npm $PINNED_NPM_VERSION" >&2
+    exit 2
+  fi
+fi
+
+if [ "$("$NODE" --version)" != "v$PINNED_NODE_VERSION" ]; then
+  echo "Node.js 版本不匹配，需要 $PINNED_NODE_VERSION" >&2
+  exit 2
+fi
+if [ "$("$NPM" --version)" != "$PINNED_NPM_VERSION" ]; then
+  echo "npm 版本不匹配，需要 $PINNED_NPM_VERSION" >&2
+  exit 2
+fi
+
+exec "$NPM" "$@"

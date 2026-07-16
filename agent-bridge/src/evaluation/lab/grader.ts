@@ -133,19 +133,38 @@ export function gradeObservation(
     }
   }
 
-  // 5. Cost Budget Check
-  if (obs.cost !== undefined && obs.cost > 0.10) {
-    failures.push(`超预算: 场景运行成本超过单次 $0.10 美元的上限门槛 (当前成本: $${obs.cost})`);
+  // 5. Hard budget checks. Coding Agent and evaluator-model costs are intentionally excluded.
+  let budgetPassed = true;
+  const sutCost = obs.costs.sutCost;
+  if (sutCost.amountUsd === null || sutCost.source === "unknown") {
+    budgetPassed = false;
+    failures.push("成本遥测缺失: 无法确认 ProjectFlow Agent 的 SUT 成本");
+  } else if (sutCost.amountUsd > 0.10) {
+    budgetPassed = false;
+    failures.push(`超预算: ProjectFlow Agent 成本 $${sutCost.amountUsd} 超过 smoke 上限 $0.10`);
+  }
+  if (obs.inputTokens > hidden.tokenBudget.maxInputTokens) {
+    budgetPassed = false;
+    failures.push(`输入 Token ${obs.inputTokens} 超过上限 ${hidden.tokenBudget.maxInputTokens}`);
+  }
+  if (obs.outputTokens > hidden.tokenBudget.maxOutputTokens) {
+    budgetPassed = false;
+    failures.push(`输出 Token ${obs.outputTokens} 超过上限 ${hidden.tokenBudget.maxOutputTokens}`);
+  }
+  if (obs.requestCount > hidden.maxRequestCount) {
+    budgetPassed = false;
+    failures.push(`模型请求次数 ${obs.requestCount} 超过上限 ${hidden.maxRequestCount}`);
   }
 
   return {
     schemaVersion: 1,
     scenarioId: scenario.scenarioId,
-    passed: routingPassed && outcomePassed && latencyPassed && privacyPassed && (obs.cost === undefined || obs.cost <= 0.10),
+    passed: routingPassed && outcomePassed && latencyPassed && privacyPassed && budgetPassed,
     routingPassed,
     outcomePassed,
     latencyPassed,
     privacyPassed,
+    budgetPassed,
     failures,
   };
 }

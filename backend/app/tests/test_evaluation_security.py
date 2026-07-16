@@ -1,150 +1,184 @@
+import json
 import os
 from unittest.mock import patch
-from pydantic import SecretStr
+
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from app.core.config import settings as app_settings
 from app.main import app
 
 client = TestClient(app)
 
+NONCE = "correct-nonce"
+INSTANCE_ID = "evaluation-instance-001"
+ADMIN_TOKEN = "secret-token"
 
-def test_health_endpoint_evaluation_mode(monkeypatch):
-    """测试评估模式下 health 接口：无 nonce 头返回 403，有正确 nonce 头正常返回但绝不泄露 nonce 内容。"""
+
+def _evaluation_headers(
+    *, nonce: str = NONCE, instance_id: str = INSTANCE_ID
+) -> dict[str, str]:
+    return {
+        "X-ProjectFlow-Admin-Token": ADMIN_TOKEN,
+        "X-Evaluation-Nonce": nonce,
+        "X-Evaluation-Instance-Id": instance_id,
+    }
+
+
+def _configure_evaluation(monkeypatch, temp_root: str) -> None:
     monkeypatch.setattr(app_settings, "app_env", "evaluation")
-    monkeypatch.setattr(app_settings, "evaluation_nonce", SecretStr("test-nonce-123"), raising=False)
+    monkeypatch.setattr(
+        app_settings, "demo_admin_token", SecretStr(ADMIN_TOKEN), raising=False
+    )
+    monkeypatch.setattr(
+        app_settings, "evaluation_nonce", SecretStr(NONCE), raising=False
+    )
+    monkeypatch.setattr(
+        app_settings,
+        "evaluation_instance_id",
+        SecretStr(INSTANCE_ID),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app_settings, "evaluation_temp_root", temp_root, raising=False
+    )
 
-    # 1. 无头请求 -> 403
-    response = client.get("/api/health")
-    assert response.status_code == 403
-    assert "nonce" in response.json()["detail"].lower()
 
-    # 2. 携带正确 nonce -> 200
-    headers = {"X-Evaluation-Nonce": "test-nonce-123"}
-    response = client.get("/api/health", headers=headers)
+def _write_marker(temp_root: str) -> None:
+    marker_path = os.path.join(temp_root, ".evaluator-ownership-marker")
+    with open(marker_path, "w", encoding="utf-8") as marker:
+        json.dump({"nonce": NONCE, "instanceId": INSTANCE_ID}, marker)
+
+
+def test_health_requires_matching_nonce_and_instance_identity(monkeypatch):
+    monkeypatch.setattr(app_settings, "app_env", "evaluation")
+    monkeypatch.setattr(
+        app_settings, "evaluation_nonce", SecretStr(NONCE), raising=False
+    )
+    monkeypatch.setattr(
+        app_settings,
+        "evaluation_instance_id",
+        SecretStr(INSTANCE_ID),
+        raising=False,
+    )
+
+    assert client.get("/api/health").status_code == 403
+    assert (
+        client.get(
+            "/api/health", headers={"X-Evaluation-Nonce": NONCE}
+        ).status_code
+        == 403
+    )
+
+    response = client.get("/api/health", headers=_evaluation_headers())
     assert response.status_code == 200
     data = response.json()
     assert data["app_env"] == "evaluation"
+    assert data["evaluation_instance_id"] == INSTANCE_ID
     assert "evaluation_nonce" not in data
+    assert NONCE not in response.text
 
 
-def test_require_demo_admin_access_evaluation_mode_invalid_nonce(monkeypatch):
-    """测试评估模式下：nonce 缺失或不匹配时，拒绝破坏性操作并返回 403。"""
-    monkeypatch.setattr(app_settings, "app_env", "evaluation")
-    monkeypatch.setattr(app_settings, "demo_admin_token", SecretStr("secret-token"), raising=False)
-    monkeypatch.setattr(app_settings, "evaluation_nonce", SecretStr("correct-nonce"), raising=False)
-
-    # 不匹配的 nonce
-    headers = {
-        "X-ProjectFlow-Admin-Token": "secret-token",
-        "X-Evaluation-Nonce": "wrong-nonce"
-    }
-    response = client.post("/api/seed/demo", headers=headers)
-    assert response.status_code == 403
-    assert "nonce" in response.json()["detail"].lower()
-
-
-def test_require_demo_admin_access_evaluation_mode_outside_temp_root(monkeypatch, tmp_path):
-    """测试评估模式下：数据库路径或上传路径位于 temp 根目录之外时，拒绝破坏性操作并返回 403。"""
+def test_evaluation_seed_rejects_invalid_nonce(monkeypatch, tmp_path):
     temp_root = os.path.realpath(str(tmp_path))
-    monkeypatch.setattr(app_settings, "app_env", "evaluation")
-    monkeypatch.setattr(app_settings, "demo_admin_token", SecretStr("secret-token"), raising=False)
-    monkeypatch.setattr(app_settings, "evaluation_nonce", SecretStr("correct-nonce"), raising=False)
-    monkeypatch.setattr(app_settings, "evaluation_temp_root", temp_root, raising=False)
-    monkeypatch.setattr(app_settings, "database_url", "sqlite:///./data/projectflow.sqlite")
-    monkeypatch.setattr(app_settings, "upload_dir", "/unauthorized/uploads")
-
-    # 写入所有权标记文件
-    marker_path = os.path.join(temp_root, ".evaluator-ownership-marker")
-    with open(marker_path, "w", encoding="utf-8") as f:
-        f.write("correct-nonce")
-
-    headers = {
-        "X-ProjectFlow-Admin-Token": "secret-token",
-        "X-Evaluation-Nonce": "correct-nonce"
-    }
-    response = client.post("/api/seed/demo", headers=headers)
+    _configure_evaluation(monkeypatch, temp_root)
+    _write_marker(temp_root)
+    response = client.post(
+        "/api/seed/demo", headers=_evaluation_headers(nonce="wrong-nonce")
+    )
     assert response.status_code == 403
-    assert "目录限制" in response.json()["detail"]
 
 
-def test_require_demo_admin_access_adversarial_paths(monkeypatch, tmp_path):
-    """测试对抗性路径转义：相对路径试图穿透、软链接外部试图逃逸，以及所有权标记校验。"""
+def test_reused_nonce_from_another_instance_is_rejected(monkeypatch, tmp_path):
     temp_root = os.path.realpath(str(tmp_path))
-    monkeypatch.setattr(app_settings, "app_env", "evaluation")
-    monkeypatch.setattr(app_settings, "demo_admin_token", SecretStr("secret-token"), raising=False)
-    monkeypatch.setattr(app_settings, "evaluation_nonce", SecretStr("correct-nonce"), raising=False)
-    monkeypatch.setattr(app_settings, "evaluation_temp_root", temp_root, raising=False)
+    _configure_evaluation(monkeypatch, temp_root)
+    _write_marker(temp_root)
 
-    # 1. 相对路径穿透测试 (sqlite:///temp_root/../../outside.db)
-    escape_db_path = os.path.normpath(os.path.join(temp_root, "..", "outside.sqlite"))
-    monkeypatch.setattr(app_settings, "database_url", f"sqlite:///{escape_db_path}")
-    monkeypatch.setattr(app_settings, "upload_dir", os.path.join(temp_root, "uploads"))
+    response = client.post(
+        "/api/seed/demo",
+        headers=_evaluation_headers(instance_id="previous-evaluation-instance"),
+    )
+    assert response.status_code == 403
+    assert "Nonce" in response.json()["detail"]
 
-    # 写入所有权标记文件
-    marker_path = os.path.join(temp_root, ".evaluator-ownership-marker")
-    with open(marker_path, "w", encoding="utf-8") as f:
-        f.write("correct-nonce")
 
-    headers = {
-        "X-ProjectFlow-Admin-Token": "secret-token",
-        "X-Evaluation-Nonce": "correct-nonce"
-    }
-    response = client.post("/api/seed/demo", headers=headers)
+def test_evaluation_seed_rejects_relative_and_outside_database_paths(
+    monkeypatch, tmp_path
+):
+    temp_root = os.path.realpath(str(tmp_path))
+    _configure_evaluation(monkeypatch, temp_root)
+    _write_marker(temp_root)
+    monkeypatch.setattr(
+        app_settings, "upload_dir", os.path.join(temp_root, "uploads")
+    )
+
+    monkeypatch.setattr(
+        app_settings, "database_url", "sqlite:///relative/projectflow.sqlite"
+    )
+    response = client.post("/api/seed/demo", headers=_evaluation_headers())
+    assert response.status_code == 403
+    assert "绝对路径" in response.json()["detail"]
+
+    outside_db = os.path.join(temp_root, "..", "outside.sqlite")
+    monkeypatch.setattr(app_settings, "database_url", f"sqlite:///{outside_db}")
+    response = client.post("/api/seed/demo", headers=_evaluation_headers())
     assert response.status_code == 403
     assert "数据库路径超出" in response.json()["detail"]
 
-    # 2. 软链接试图逃逸 (uploads 软链接指向 /tmp 外部目录)
-    # 恢复合法 DB 路径
-    db_file_path = os.path.join(temp_root, "projectflow_eval.sqlite")
-    monkeypatch.setattr(app_settings, "database_url", f"sqlite:///{db_file_path}")
 
-    # 创建软链接 uploads -> 外部目录
-    symlink_dir = os.path.join(temp_root, "uploads_symlink")
-    outside_dir = os.path.join(temp_root, "..")
-    os.symlink(outside_dir, symlink_dir)
-
+def test_evaluation_seed_rejects_upload_symlink_escape(monkeypatch, tmp_path):
+    temp_root = os.path.realpath(str(tmp_path))
+    _configure_evaluation(monkeypatch, temp_root)
+    _write_marker(temp_root)
+    monkeypatch.setattr(
+        app_settings,
+        "database_url",
+        f"sqlite:///{os.path.join(temp_root, 'projectflow.sqlite')}",
+    )
+    symlink_dir = os.path.join(temp_root, "uploads")
+    os.symlink(os.path.join(temp_root, ".."), symlink_dir)
     monkeypatch.setattr(app_settings, "upload_dir", symlink_dir)
 
-    headers = {
-        "X-ProjectFlow-Admin-Token": "secret-token",
-        "X-Evaluation-Nonce": "correct-nonce"
-    }
-    response = client.post("/api/seed/demo", headers=headers)
+    response = client.post("/api/seed/demo", headers=_evaluation_headers())
     assert response.status_code == 403
     assert "上传目录路径超出" in response.json()["detail"]
 
 
-def test_require_demo_admin_access_evaluation_mode_success(monkeypatch, tmp_path):
-    """测试成功路径：所有权标记文件存在、nonce/token 匹配、路径安全限制全通过。"""
+def test_evaluation_credentials_cannot_authorize_production_target(monkeypatch):
+    monkeypatch.setattr(app_settings, "app_env", "production")
+    monkeypatch.setattr(
+        app_settings,
+        "demo_admin_token",
+        SecretStr("production-admin-token"),
+        raising=False,
+    )
+    response = client.post("/api/seed/demo", headers=_evaluation_headers())
+    assert response.status_code == 403
+
+
+def test_evaluation_seed_succeeds_only_with_owned_paths_and_identity(
+    monkeypatch, tmp_path
+):
     temp_root = os.path.realpath(str(tmp_path))
-    db_file_path = os.path.join(temp_root, "projectflow_eval.sqlite")
-    upload_dir_path = os.path.join(temp_root, "uploads")
-    os.makedirs(upload_dir_path, exist_ok=True)
+    upload_dir = os.path.join(temp_root, "uploads")
+    os.makedirs(upload_dir)
+    _configure_evaluation(monkeypatch, temp_root)
+    _write_marker(temp_root)
+    monkeypatch.setattr(
+        app_settings,
+        "database_url",
+        f"sqlite:///{os.path.join(temp_root, 'projectflow.sqlite')}",
+    )
+    monkeypatch.setattr(app_settings, "upload_dir", upload_dir)
 
-    # 写入所有权标记文件
-    marker_path = os.path.join(temp_root, ".evaluator-ownership-marker")
-    with open(marker_path, "w", encoding="utf-8") as f:
-        f.write("correct-nonce")
-
-    monkeypatch.setattr(app_settings, "app_env", "evaluation")
-    monkeypatch.setattr(app_settings, "demo_admin_token", SecretStr("secret-token"), raising=False)
-    monkeypatch.setattr(app_settings, "evaluation_nonce", SecretStr("correct-nonce"), raising=False)
-    monkeypatch.setattr(app_settings, "evaluation_temp_root", temp_root, raising=False)
-    monkeypatch.setattr(app_settings, "database_url", f"sqlite:///{db_file_path}")
-    monkeypatch.setattr(app_settings, "upload_dir", upload_dir_path)
-
-    with patch("app.api.routes_seed.reset_demo_data") as mock_reset, \
-         patch("app.api.routes_seed.seed_demo_data") as mock_seed:
+    with (
+        patch("app.api.routes_seed.reset_demo_data") as mock_reset,
+        patch("app.api.routes_seed.seed_demo_data") as mock_seed,
+    ):
         mock_seed.return_value = {"projects": 1}
+        response = client.post("/api/seed/demo", headers=_evaluation_headers())
 
-        headers = {
-            "X-ProjectFlow-Admin-Token": "secret-token",
-            "X-Evaluation-Nonce": "correct-nonce"
-        }
-        response = client.post("/api/seed/demo", headers=headers)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "ok"
-        mock_reset.assert_called_once()
-        mock_seed.assert_called_once()
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    mock_reset.assert_called_once()
+    mock_seed.assert_called_once()
