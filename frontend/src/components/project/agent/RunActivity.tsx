@@ -2,19 +2,13 @@
 
 import { useState } from "react";
 import {
-  Brain,
-  Sparkles,
-  Wrench,
-  Lock,
   ChevronDown,
-  ChevronUp,
+  ChevronRight,
   Loader2,
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  Compass,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import type { RunActivityItem } from "@/lib/types";
 
 interface RunActivityProps {
@@ -43,19 +37,19 @@ export function RunActivity({ activities, durationMs, isStreaming = false }: Run
     return `${(ms / 1000).toFixed(1)}s`;
   };
 
-  const getIcon = (item: RunActivityItem) => {
+  const getEmojiIcon = (item: RunActivityItem): string => {
     switch (item.kind) {
       case "skill":
-        return <Sparkles className="h-3.5 w-3.5 text-indigo-500" />;
+        return "🪄";
       case "tool":
-        return <Wrench className="h-3.5 w-3.5 text-neutral-500" />;
+        return "🔧";
       case "approval":
-        return <Lock className="h-3.5 w-3.5 text-amber-500" />;
+        return "🔒";
       case "steering":
-        return <Compass className="h-3.5 w-3.5 text-emerald-500" />;
+        return "🧭";
       case "progress":
       default:
-        return <Brain className="h-3.5 w-3.5 text-blue-500 animate-pulse" />;
+        return "⚙️";
     }
   };
 
@@ -78,43 +72,29 @@ export function RunActivity({ activities, durationMs, isStreaming = false }: Run
   };
 
   return (
-    <div className="my-2 overflow-hidden rounded-lg border border-neutral-100 bg-neutral-50/50 dark:border-neutral-800 dark:bg-neutral-900/50">
-      {/* Header */}
+    <div className="my-2.5">
+      {/* Collapsible Trigger Header */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50 transition-colors"
+        className="inline-flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors py-1.5 focus:outline-none"
       >
-        <span className="flex items-center gap-1.5">
-          <Brain className="h-3.5 w-3.5 text-neutral-500" />
-          <span>思考过程</span>
-          {isStreaming ? (
-            <span className="flex items-center gap-1">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-neutral-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-neutral-500"></span>
-              </span>
-              <span className="text-[10px] text-neutral-400">运行中</span>
-            </span>
-          ) : (
-            durationMs && <span className="text-[10px] text-neutral-400">({formatDuration(durationMs)})</span>
-          )}
-        </span>
-        {isOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        <span>{isStreaming ? "正在处理" : `已处理 ${formatDuration(durationMs) || "完成"}`}</span>
+        {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
       </button>
 
-      {/* Activities List */}
+      {/* Activities List (Transparent Flow) */}
       {isOpen && (
-        <div className="border-t border-neutral-100 dark:border-neutral-800 p-2.5 space-y-2 max-h-[250px] overflow-y-auto custom-scrollbar">
+        <div className="pl-3 py-1 space-y-2 border-l border-neutral-100 dark:border-neutral-800 max-h-[300px] overflow-y-auto custom-scrollbar mt-1.5">
           {activities.map((item) => (
             <div
               key={item.id}
               className="flex items-start justify-between gap-3 text-xs"
             >
               <div className="flex items-start gap-2 min-w-0">
-                <span className="mt-0.5 shrink-0">{getIcon(item)}</span>
-                <div className="min-w-0">
-                  <p className="font-medium text-neutral-700 dark:text-neutral-300 break-words leading-5">
+                <span className="mt-0.5 shrink-0 text-sm">{getEmojiIcon(item)}</span>
+                <div className="min-w-0 text-neutral-600 dark:text-neutral-400">
+                  <p className="text-xs leading-5">
                     {getActivityLabel(item)}
                   </p>
                   {item.kind === "progress" && item.content && (

@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentConversationMessage, AgentStreamTurn, ExecutionStep } from "@/lib/types";
 import { SLASH_COMMANDS, type SlashCommandDef } from "@/components/project/project-actions";
@@ -177,14 +177,14 @@ export const ChatMessage = React.memo(function ChatMessage({
               {hasThinking && (
                 <Collapsible open={effectiveThinkingOpen} onOpenChange={handleThinkingToggle} className="mb-2">
                   <CollapsibleTrigger
-                    className="flex w-full items-center gap-1 rounded-md px-1.5 py-2 text-[11px] text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 min-h-[44px] dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                    className="inline-flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors py-1.5 focus:outline-none"
                     aria-expanded={effectiveThinkingOpen}
                     aria-controls={thinkingContentId}
                   >
-                    <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform duration-200", effectiveThinkingOpen && "rotate-90")} />
                     <span>{thinkingTitle}</span>
+                    {effectiveThinkingOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
                   </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2 dark:border-neutral-800 dark:bg-neutral-900/60" id={thinkingContentId}>
+                  <CollapsibleContent className="pl-3 py-1 border-l border-neutral-100 dark:border-neutral-800 mt-1.5" id={thinkingContentId}>
                     <p className="whitespace-pre-wrap text-[11px] leading-5 text-neutral-500 dark:text-neutral-400">{thinkingContent}</p>
                   </CollapsibleContent>
                 </Collapsible>
@@ -193,16 +193,16 @@ export const ChatMessage = React.memo(function ChatMessage({
               {hasExecutionSteps && (
                 <Collapsible open={stepsOpen} onOpenChange={setStepsOpen} className="mb-2">
                   <CollapsibleTrigger
-                    className="flex min-h-[44px] w-full items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                    className="inline-flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors py-1.5 focus:outline-none"
                     aria-expanded={stepsOpen}
                     aria-controls={stepsContentId}
                   >
-                    <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform duration-200", stepsOpen && "rotate-90")} />
                     <span>执行过程</span>
                     <span className="text-neutral-400">·</span>
                     <span className="text-neutral-400">{executionSteps.length} 步</span>
+                    {stepsOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
                   </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-1 rounded-md border border-neutral-100 bg-white/60 p-2 dark:border-neutral-800 dark:bg-neutral-900/60" id={stepsContentId}>
+                  <CollapsibleContent className="pl-3 py-1 border-l border-neutral-100 dark:border-neutral-800 mt-1.5" id={stepsContentId}>
                     <ul className="space-y-1">
                       {executionSteps.map((step, i) => (
                         <li key={i} className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
