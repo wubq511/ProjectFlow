@@ -23,6 +23,11 @@ beforeEach(() => {
       removeEventListener: vi.fn(),
     }),
   });
+
+  let rafNow = 0;
+  window.requestAnimationFrame = (cb: FrameRequestCallback) =>
+    setTimeout(() => cb((rafNow += 16)), 16) as unknown as number;
+  window.cancelAnimationFrame = (id: number) => clearTimeout(id);
 });
 
 afterEach(() => {
@@ -162,6 +167,23 @@ describe("StreamingText rendering", () => {
     expect(screen.queryByTestId("md")).toBeNull();
     // But content should still be visible
     expect(document.body.textContent).toContain(buffer);
+  });
+
+  it("uses the final answer typography while the active tail is streaming", () => {
+    vi.useFakeTimers();
+    const buffer = "Streaming typography must stay stable";
+
+    const { container } = render(
+      <StreamingText buffer={buffer} isStreaming={true} />,
+    );
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    const tail = container.querySelector("p.whitespace-pre-wrap");
+    expect(tail).toBeTruthy();
+    expect(tail?.classList.contains("text-xs")).toBe(true);
+    expect(tail?.classList.contains("leading-5")).toBe(true);
   });
 });
 

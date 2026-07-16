@@ -38,7 +38,9 @@ export const IncrementalProcessMarkdown = React.memo(function IncrementalProcess
   if (stableBlocks.length === 0) {
     return (
       <div className={className}>
-        <span className="whitespace-pre-wrap">{activeTail}</span>
+        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-neutral-600 dark:text-neutral-400">
+          {activeTail}
+        </p>
       </div>
     );
   }
@@ -49,7 +51,9 @@ export const IncrementalProcessMarkdown = React.memo(function IncrementalProcess
         <MemoizedStableBlock key={block.id} content={block.content} />
       ))}
       {activeTail && (
-        <span className="whitespace-pre-wrap">{activeTail}</span>
+        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-neutral-600 dark:text-neutral-400">
+          {activeTail}
+        </p>
       )}
     </div>
   );

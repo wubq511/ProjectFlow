@@ -42,9 +42,8 @@ export const StreamingProcessText = React.memo(function StreamingProcessText({
 
   // Always call useIncrementalMarkdown (Rules of Hooks).
   // When not streaming, this returns finalized state immediately.
-  const displayText = content.slice(0, displayLength);
   const { stableBlocks, activeTail, isFinalized, finalizedContent } =
-    useIncrementalMarkdown(displayText, isStreaming);
+    useIncrementalMarkdown(content, isStreaming, displayLength);
 
   // Non-streaming: short-circuit render with finalized content.
   // The hook returns isFinalized=true when !isStreaming, but we also

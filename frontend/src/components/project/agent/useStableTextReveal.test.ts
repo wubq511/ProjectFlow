@@ -20,10 +20,11 @@ beforeEach(() => {
 
   // Polyfill rAF/cRAF for jsdom — delegates to setTimeout so fake timers control it
   let rafId = 0;
+  let rafNow = 0;
   const rafMap = new Map<number, ReturnType<typeof setTimeout>>();
   window.requestAnimationFrame = (cb: FrameRequestCallback) => {
     const id = ++rafId;
-    rafMap.set(id, setTimeout(() => cb(performance.now()), 16));
+    rafMap.set(id, setTimeout(() => cb((rafNow += 16)), 16));
     return id;
   };
   window.cancelAnimationFrame = (id: number) => {
@@ -39,7 +40,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-import { useStableTextReveal, advanceToBoundary } from "./useStableTextReveal";
+import {
+  useStableTextReveal,
+  advanceToBoundary,
+  MIN_FRAME_MS,
+  shouldCommitRevealFrame,
+} from "./useStableTextReveal";
 
 describe("advanceToBoundary", () => {
   it("stops at word boundary (space)", () => {
@@ -264,7 +270,14 @@ describe("useStableTextReveal onRevealProgress", () => {
 });
 
 describe("useStableTextReveal cadence", () => {
-  it("reveals at ~16fps with adaptive backlog, not all at once", () => {
+  it("rejects display-refresh frames before the presentation deadline", () => {
+    expect(shouldCommitRevealFrame(16)).toBe(false);
+    expect(shouldCommitRevealFrame(32)).toBe(false);
+    expect(shouldCommitRevealFrame(MIN_FRAME_MS - 4)).toBe(true);
+    expect(shouldCommitRevealFrame(MIN_FRAME_MS)).toBe(true);
+  });
+
+  it("reveals at a bounded presentation cadence with adaptive backlog", () => {
     vi.useFakeTimers();
     const longBuffer = "A".repeat(500);
 

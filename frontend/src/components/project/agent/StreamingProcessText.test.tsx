@@ -24,6 +24,11 @@ beforeEach(() => {
       removeEventListener: vi.fn(),
     }),
   });
+
+  let rafNow = 0;
+  window.requestAnimationFrame = (cb: FrameRequestCallback) =>
+    setTimeout(() => cb((rafNow += 16)), 16) as unknown as number;
+  window.cancelAnimationFrame = (id: number) => clearTimeout(id);
 });
 
 afterEach(() => {
@@ -42,10 +47,10 @@ function getRenderedText(): string {
   // Try ProcessMarkdown first (used for stable blocks and finalized content)
   const pm = document.querySelector("[data-testid='process-md']");
   if (pm?.textContent) return pm.textContent;
-  // Fall back to plain text span (active tail during streaming)
-  const spans = document.querySelectorAll("span.whitespace-pre-wrap");
-  for (const span of spans) {
-    if (span.textContent) return span.textContent;
+  // Fall back to plain text paragraph (active tail during streaming)
+  const paragraphs = document.querySelectorAll("p.whitespace-pre-wrap");
+  for (const paragraph of paragraphs) {
+    if (paragraph.textContent) return paragraph.textContent;
   }
   return "";
 }
@@ -143,6 +148,23 @@ describe("StreamingProcessText scheduler behavior", () => {
 });
 
 describe("StreamingProcessText Markdown renderer cadence", () => {
+  it("uses the final process typography while the active tail is streaming", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <StreamingProcessText content="正在稳定输出执行过程" isStreaming={true} />,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    const tail = container.querySelector("p.whitespace-pre-wrap");
+    expect(tail).toBeTruthy();
+    expect(tail?.classList.contains("text-[13px]")).toBe(true);
+    expect(tail?.classList.contains("leading-relaxed")).toBe(true);
+    expect(tail?.classList.contains("text-neutral-600")).toBe(true);
+  });
+
   it("renderer calls ≤22 per second in normal mode (throttled)", () => {
     vi.useFakeTimers();
     const content = "A".repeat(500);

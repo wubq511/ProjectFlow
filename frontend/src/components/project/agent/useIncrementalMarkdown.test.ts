@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderHook } from "@testing-library/react";
 import {
   useIncrementalMarkdown,
+  buildMarkdownBlockPlan,
   stripIncompleteMarkdown,
   splitIntoParagraphs,
 } from "./useIncrementalMarkdown";
@@ -121,6 +122,38 @@ describe("splitIntoParagraphs", () => {
 });
 
 describe("useIncrementalMarkdown", () => {
+  it("selects visible text from a precomputed full-buffer plan", () => {
+    const buffer = "First paragraph.\n\nSecond paragraph being typed";
+    const firstBoundary = "First paragraph.\n\n".length;
+    const { result, rerender } = renderHook(
+      ({ displayLength }) =>
+        useIncrementalMarkdown(buffer, true, displayLength),
+      { initialProps: { displayLength: 5 } },
+    );
+
+    expect(result.current.stableBlocks).toHaveLength(0);
+    expect(result.current.activeTail).toBe("First");
+
+    rerender({ displayLength: firstBoundary });
+    expect(result.current.stableBlocks).toHaveLength(1);
+    expect(result.current.stableBlocks[0].content).toBe("First paragraph.");
+    expect(result.current.activeTail).toBe("");
+
+    rerender({ displayLength: buffer.length });
+    expect(result.current.stableBlocks).toHaveLength(1);
+    expect(result.current.activeTail).toBe("Second paragraph being typed");
+  });
+
+  it("plans only completed paragraph boundaries outside code fences", () => {
+    const buffer = "Intro\n\n```ts\nconst a = 1;\n\nconst b = 2;\n```\n\nTail";
+    const plan = buildMarkdownBlockPlan(buffer);
+
+    expect(plan.blocks.map((block) => block.content)).toEqual([
+      "Intro",
+      "```ts\nconst a = 1;\n\nconst b = 2;\n```",
+    ]);
+  });
+
   it("returns finalized state when not streaming", () => {
     const text = "Hello\n\nWorld";
     const { result } = renderHook(() =>

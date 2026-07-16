@@ -81,6 +81,15 @@ export interface StableBlock {
   content: string;
 }
 
+interface PlannedBlock extends StableBlock {
+  /** Buffer offset after this block's paragraph separator. */
+  revealEnd: number;
+}
+
+export interface MarkdownBlockPlan {
+  blocks: PlannedBlock[];
+}
+
 export interface IncrementalMarkdownState {
   /** Stable blocks — each individually memoizable. */
   stableBlocks: StableBlock[];
@@ -161,6 +170,43 @@ export function splitIntoParagraphs(text: string): string[] {
 }
 
 /**
+ * Build immutable paragraph boundaries from the network buffer.
+ *
+ * This deliberately runs when the buffer grows, not on every visual reveal
+ * frame. `displayLength` can then select visible blocks in O(block count)
+ * without rescanning the growing prefix from character zero.
+ */
+export function buildMarkdownBlockPlan(text: string): MarkdownBlockPlan {
+  const blocks: PlannedBlock[] = [];
+  const paragraphs = splitIntoParagraphs(text);
+  let searchFrom = 0;
+
+  for (let ordinal = 0; ordinal < paragraphs.length; ordinal++) {
+    const content = paragraphs[ordinal];
+    const start = text.indexOf(content, searchFrom);
+    if (start < 0) continue;
+
+    const contentEnd = start + content.length;
+    let revealEnd = contentEnd;
+    while (text[revealEnd] === "\n") revealEnd += 1;
+
+    // A block becomes immutable only after a real blank-line boundary.
+    if (revealEnd - contentEnd >= 2) {
+      blocks.push({
+        id: blockId(content, ordinal),
+        content,
+        revealEnd,
+      });
+      searchFrom = revealEnd;
+    } else {
+      searchFrom = contentEnd;
+    }
+  }
+
+  return { blocks };
+}
+
+/**
  * Hook that splits text into stable blocks and an active tail for
  * incremental markdown rendering.
  *
@@ -172,11 +218,19 @@ export function splitIntoParagraphs(text: string): string[] {
  * see raw `**`, `` ` ``, `|---|` tokens while typing.
  */
 export function useIncrementalMarkdown(
-  text: string,
+  buffer: string,
   isStreaming: boolean,
+  displayLength = buffer?.length ?? 0,
 ): IncrementalMarkdownState {
+  // Parsing is tied to incoming data, not the presentation clock. During
+  // catch-up, displayLength changes ~20 times/sec while this plan stays stable.
+  const plan = useMemo(
+    () => buildMarkdownBlockPlan(buffer ?? ""),
+    [buffer],
+  );
+
   return useMemo(() => {
-    if (text === undefined || text === null) {
+    if (buffer === undefined || buffer === null) {
       return {
         stableBlocks: [],
         activeTail: "",
@@ -188,34 +242,19 @@ export function useIncrementalMarkdown(
     if (!isStreaming) {
       // Finalized: render full text as complete markdown, single block
       return {
-        stableBlocks: text.length > 0 ? [{ id: blockId(text, 0), content: text }] : [],
+        stableBlocks: buffer.length > 0 ? [{ id: blockId(buffer, 0), content: buffer }] : [],
         activeTail: "",
         isFinalized: true,
-        finalizedContent: text,
+        finalizedContent: buffer,
       };
     }
 
-    // Split into paragraphs respecting fenced code blocks
-    const paragraphs = splitIntoParagraphs(text);
-
-    if (paragraphs.length <= 1) {
-      // Single paragraph (or empty) — all content is the active tail
-      return {
-        stableBlocks: [],
-        activeTail: paragraphs[0] ? stripIncompleteMarkdown(paragraphs[0]) : "",
-        isFinalized: false,
-        finalizedContent: "",
-      };
-    }
-
-    // All paragraphs except the last are stable blocks
-    const stableContents = paragraphs.slice(0, -1);
-    const tailRaw = paragraphs[paragraphs.length - 1];
-
-    const stableBlocks: StableBlock[] = stableContents.map((content, i) => ({
-      id: blockId(content, i),
-      content,
-    }));
+    const visibleLength = Math.max(0, Math.min(displayLength, buffer.length));
+    const stableBlocks = plan.blocks.filter(
+      (block) => block.revealEnd <= visibleLength,
+    );
+    const activeStart = stableBlocks.at(-1)?.revealEnd ?? 0;
+    const tailRaw = buffer.slice(activeStart, visibleLength);
 
     return {
       stableBlocks,
@@ -223,5 +262,5 @@ export function useIncrementalMarkdown(
       isFinalized: false,
       finalizedContent: "",
     };
-  }, [text, isStreaming]);
+  }, [buffer, displayLength, isStreaming, plan]);
 }

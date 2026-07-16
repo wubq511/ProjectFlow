@@ -50,7 +50,7 @@ export const IncrementalMarkdown = React.memo(function IncrementalMarkdown({
   if (stableBlocks.length === 0) {
     return (
       <div className={className}>
-        <span className="whitespace-pre-wrap">{activeTail}</span>
+        <p className="whitespace-pre-wrap text-xs leading-5">{activeTail}</p>
       </div>
     );
   }
@@ -63,7 +63,7 @@ export const IncrementalMarkdown = React.memo(function IncrementalMarkdown({
       ))}
       {/* Active tail — safe inline text, no raw markdown noise */}
       {activeTail && (
-        <span className="whitespace-pre-wrap">{activeTail}</span>
+        <p className="whitespace-pre-wrap text-xs leading-5">{activeTail}</p>
       )}
     </div>
   );

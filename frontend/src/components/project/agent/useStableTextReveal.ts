@@ -10,15 +10,21 @@ import { useEffect, useRef, useState, useCallback } from "react";
 export const BASE_CHARS_PER_SECOND = 110;
 /** Maximum catch-up multiplier when backlog builds (3x base ≈ 330 chars/sec). */
 export const MAX_BACKLOG_MULTIPLIER = 3;
-/** Target fps for the rAF scheduler — 16fps keeps CPU light while staying smooth. */
-export const TARGET_FPS = 16;
+/** Target presentation fps. Text does not benefit from 60 React commits/sec. */
+export const TARGET_FPS = 20;
 /** Minimum frame interval in ms (derived from TARGET_FPS). */
 export const MIN_FRAME_MS = 1000 / TARGET_FPS;
+/** Let a 60Hz display's third frame (~50ms) pass despite timer rounding. */
+const FRAME_TOLERANCE_MS = 4;
 /** Maximum frame interval cap — when tab is backgrounded then resumed,
  *  cap elapsed to prevent a single giant jump. */
 export const MAX_FRAME_MS = 200;
 /** Throttle interval for onRevealProgress callbacks. */
 export const REVEAL_CALLBACK_THROTTLE_MS = 80;
+
+export function shouldCommitRevealFrame(rawElapsed: number): boolean {
+  return rawElapsed + FRAME_TOLERANCE_MS >= MIN_FRAME_MS;
+}
 
 // ---------------------------------------------------------------------------
 // Markdown-safe boundary detection
@@ -73,7 +79,7 @@ interface UseStableTextRevealOptions {
  * Stable character reveal hook — rAF-driven scheduler for progressive text display.
  *
  * Behavior:
- * - requestAnimationFrame-driven (~16fps target)
+ * - requestAnimationFrame-driven (~20fps presentation target)
  * - Base 110 chars/s, adaptive backlog max 330 chars/s
  * - Advances to word/punctuation/newline boundaries when possible
  * - displayLength is monotonically non-decreasing
@@ -163,6 +169,16 @@ export function useStableTextReveal({
       // Compute elapsed, capping for background tab recovery
       const rawElapsed =
         lastFrameTimeRef.current > 0 ? now - lastFrameTimeRef.current : MIN_FRAME_MS;
+
+      // rAF runs at the display refresh rate (usually 60–120Hz), but a text
+      // reveal only needs a stable presentation cadence. Skipping early frames
+      // prevents React commits and markdown selection work from competing with
+      // scrolling and layout on every paint.
+      if (!shouldCommitRevealFrame(rawElapsed)) {
+        rafIdRef.current = requestAnimationFrame(frameRef.current!);
+        return;
+      }
+
       const elapsed = Math.min(rawElapsed, MAX_FRAME_MS);
       lastFrameTimeRef.current = now;
 
@@ -226,7 +242,9 @@ export function useStableTextReveal({
   const startScheduler = useCallback(() => {
     if (rafIdRef.current != null) return;
     stoppedRef.current = false;
-    lastFrameTimeRef.current = performance.now();
+    // The first rAF timestamp establishes the scheduler's clock. Keeping this
+    // at zero also avoids mixing clocks in test and embedded browser runtimes.
+    lastFrameTimeRef.current = 0;
     rafIdRef.current = requestAnimationFrame(frameRef.current!);
   }, []);
 

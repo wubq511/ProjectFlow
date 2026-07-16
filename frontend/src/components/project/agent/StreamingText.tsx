@@ -28,8 +28,6 @@ export const StreamingText = React.memo(function StreamingText({
     onRevealProgress,
   });
 
-  const displayText = buffer.slice(0, displayLength);
-
   // Stay in "presentation streaming" mode until the visual display has caught
   // up with the full buffer. This prevents useIncrementalMarkdown from
   // finalizing (and forcing a full ReactMarkdown re-parse every rAF frame)
@@ -38,9 +36,9 @@ export const StreamingText = React.memo(function StreamingText({
   const showCursor = presentationStreaming;
 
   const { stableBlocks, activeTail, isFinalized, finalizedContent } =
-    useIncrementalMarkdown(displayText, presentationStreaming);
+    useIncrementalMarkdown(buffer, presentationStreaming, displayLength);
 
-  if (!displayText && !isStreaming) return null;
+  if (displayLength === 0 && !isStreaming) return null;
 
   return (
     <div className={className}>
