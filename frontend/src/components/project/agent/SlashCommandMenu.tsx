@@ -48,14 +48,14 @@ export function SlashCommandMenu({
         ref={menuRef}
         role="listbox"
         aria-label="斜杠命令"
-        className="fixed z-50 rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
+        className="fixed z-50 rounded-xl border border-neutral-100 bg-white/95 p-3 shadow-md backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-950/95"
         style={{
           left: anchorRect.left,
           bottom: window.innerHeight - anchorRect.top + 4,
-          width: anchorRect.width,
+          width: Math.min(480, anchorRect.width),
         }}
       >
-        <div className="px-3 py-2 text-xs text-neutral-500 dark:text-neutral-400">没有匹配的命令</div>
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">没有匹配的命令</div>
       </div>
     );
   }
@@ -66,11 +66,11 @@ export function SlashCommandMenu({
       role="listbox"
       aria-label="斜杠命令"
       aria-activedescendant={activeId}
-      className="fixed z-50 max-h-64 overflow-y-auto rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
+      className="fixed z-50 max-h-64 overflow-y-auto rounded-xl border border-neutral-100 bg-white/95 p-1 shadow-md backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-950/95 custom-scrollbar"
       style={{
         left: anchorRect.left,
         bottom: window.innerHeight - anchorRect.top + 4,
-        width: anchorRect.width,
+        width: Math.min(480, anchorRect.width),
       }}
     >
       {commands.map((cmd, index) => {
@@ -85,23 +85,24 @@ export function SlashCommandMenu({
             role="option"
             aria-selected={isActive}
             onClick={() => onSelect(cmd)}
-            className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors ${
+            className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors rounded-lg ${
               isActive
-                ? "bg-moss/10 text-moss dark:bg-moss/10 dark:text-moss"
-                : "hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
+                : "text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50/50 dark:hover:bg-neutral-900/30"
             }`}
           >
-            <Icon className="h-4 w-4 shrink-0 text-neutral-500 dark:text-neutral-400" />
+            <Icon className="h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" />
             <div className="flex min-w-0 flex-1 items-baseline gap-2">
-              <span className="shrink-0 font-mono text-xs font-medium text-neutral-700 dark:text-neutral-300">
+              <span className="shrink-0 text-[13px] font-medium text-neutral-900 dark:text-neutral-100">
+                {cmd.label}
+              </span>
+              <span className="shrink-0 font-mono text-[10px] text-neutral-400 dark:text-neutral-500">
                 /{cmd.command}
               </span>
-              <span className="shrink-0 text-xs text-neutral-900 dark:text-neutral-100">{cmd.label}</span>
-              <span className="truncate text-[11px] text-neutral-500 dark:text-neutral-400">{cmd.description}</span>
+              <span className="truncate text-xs text-neutral-400 dark:text-neutral-500 font-normal">
+                {cmd.description}
+              </span>
             </div>
-            <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-              {cmd.category}
-            </span>
           </button>
         );
       })}
