@@ -161,7 +161,7 @@ def test_project_state_endpoint_returns_frontend_payload(client: TestClient):
     assert len(state["member_profiles"]) == 6
     assert len(state["projects"]) == 1
     assert len(state["stages"]) == 4
-    assert len(state["tasks"]) == 10
+    assert len(state["tasks"]) == 11
     assert state["tasks"][0]["dependency_ids"] == []
     assert isinstance(state["risks"][0]["evidence"], list)
     assert state["timeline"]

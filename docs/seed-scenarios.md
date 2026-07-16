@@ -1,88 +1,45 @@
 # ProjectFlow Seed Scenarios
 
-Status: current as of 2026-05-29.
+Status: current as of 2026-07-16.
 
-Documents the scenarios embedded in the demo seed data for risk detection and replanning demonstration.
+Documents the scenarios embedded in the demo seed data (`backend/app/seed/demo_projectflow.py`, 1456 lines).
+
+## Seed Overview
+
+11 任务 / 8 Agent 事件 / 7 ProjectMemories（全覆盖 7 种 V1 memory_type + subject_and_owner 隐私边界）/ 5 AgentProposal（4 confirmed + 1 rejected）/ 3 AgentConversation（18 messages）/ 1 AssignmentNegotiation / 12 TaskStatusUpdate / 3 AssignmentResponse / 6 CheckIn responses（3 个日期分散）/ 3 Risks / 5 ActionCards。
+
+Timeline aligned to real ProjectFlow development (05-28→07-17)。详细见 `docs/demo-script.md`。
 
 ## Scenario 1: Blocker + Availability Change
 
 ### Context
+ProjectFlow 项目处于"核心实现"阶段（07-05~07-14）。3 个 P0 任务并行：前端框架（小王，due 07-10）、后端 API（小张，due 07-10）、Agent 核心（小赵，due 07-14）。
 
-The ProjectFlow project is in the "核心实现" stage with 3 P0 tasks running in parallel:
-
-| Task | Owner | Status | Due |
-|------|-------|--------|-----|
-| 前端 Shell 与核心页面 | 小王 | in_progress | 2026-06-03 |
-| 后端 API 与数据模型 | 小张 | in_progress | 2026-06-03 |
-| Agent 核心流程 | 小赵 | in_progress | 2026-06-05 |
-
-Assignments are finalized based on member skills and preferences.
-
-### Trigger Events
-
-1. Check-in response from 小张 reports a blocker: "SQLite 外键约束报错，还在排查".
-2. 小张's available hours drop from 8h/week to 6h/week.
+### Trigger (07-12 check-in → 07-14 detection)
+1. 小张在 07-12 check-in 报告 blocker："SQLite 外键约束报错"
+2. 小张可用时间从 8h→6h
+3. 后端 API 逾期 4 天（due 07-10 → detection 07-14）
 
 ### Agent Detection
+- **dependency risk** (medium): 后端 API 外键约束问题，逾期 4 天
+- **workload risk** (high): 小张可用时间下降 + 后端逾期叠加
+- **deadline risk** (medium): 核心实现阶段逾期 2 天，测试窗口仅剩 1 天
 
-The Agent detects 3 risks from the check-in data.
+### Replan (07-14, confirmed)
+- 小林接手后端 API 修复
+- 后端 due 07-10→07-16
+- 前端先走 mock 数据独立验证
 
-#### Risk 1: Dependency (Medium)
+## Scenario 2: Assignment Negotiation (07-06)
+- 小王 accept 前端分工后反馈动效耗时偏高
+- Agent 建议小刘（design 4 + animation 3）接手动画
+- 协商 resolved——展示 Agent 在分工确认后的实时协调能力
 
-- Title: 后端 API 外键约束问题
-- Evidence:
-  - 小张 check-in reports blocker: "SQLite 外键约束报错"
-  - 后端 API is P0 task and blocks frontend integration
-- Recommendation: 小林 assists with debugging; if unresolved in 1 day, simplify data model
+## Scenario 3: Scope Expansion Rejection (07-08)
+- 有人提议支持多 Agent 架构
+- 否决并记录为 proposal_rejected memory（rejection 类型），防止重复讨论
 
-#### Risk 2: Workload (High)
-
-- Title: 小张可用时间下降
-- Evidence:
-  - 小张 check-in reports `available_hours_next_cycle: 6`
-  - 小张 profile has `available_hours_per_week: 8`
-  - 小张 constraint: "周末经常回家"
-- Recommendation: consider assigning part of backend work to 小林, or cut non-core API work
-
-#### Risk 3: Deadline (Medium)
-
-- Title: 核心实现阶段时间紧张
-- Evidence:
-  - 3 P0 tasks simultaneously in progress
-  - Stage deadline 2026-06-07
-  - Agent core is the largest estimated task
-- Recommendation: prioritize Agent core flow closure; non-core features can be marked `can_cut`
-
-### Expected Replan Proposal
-
-If replan is triggered, the Agent should propose:
-
-1. Move part of backend API support from 小张 to 小林.
-2. Cut or defer non-essential API endpoints.
-3. Prioritize Agent core flow because it carries the highest demo value.
-
-### Demo Flow
-
-1. Show check-in results with the blocker highlighted.
-2. Run risk analysis and display risk cards with evidence.
-3. Run replan and display before/after comparison.
-4. Show Agent timeline with all events.
-5. Export the review summary.
-
-## Scenario Data Location
-
-The scenario data is embedded in `backend/app/seed/demo_projectflow.py`:
-
-- Check-in responses: IDs `demo-checkin-resp-001` through `demo-checkin-resp-003`
-- Risks: IDs `demo-risk-001` through `demo-risk-003`
-- Action cards: IDs `demo-action-001` through `demo-action-005`
-- Agent events: IDs `demo-event-001` through `demo-event-005`
-
-The scenario documentation module is at `backend/app/seed/demo_blocker_scenario.py`.
-
-## Adding New Scenarios
-
-1. Create a new seed function in `backend/app/seed/`.
-2. Add a seed API endpoint if needed.
-3. Document the scenario in this file.
-4. Update `docs/demo-script.md` if the scenario changes the demo flow.
+## Conversation Scenarios (3 team conversations, 18 messages)
+1. **Agent 与后端边界怎么划** (06-08, 小林): 提案确认模式、sidecar 分离原因、create_risk 权限边界
+2. **LLM JSON 输出不稳定怎么兜底** (07-08, 小赵): Pydantic→JSON 修复→fallback 三层 + 超时自动兜底
+3. **模型怎么选 & Agent 记不记得我们的决策** (07-14, 小林): Flash Pro 实测差异、记忆引用验证、隐私边界确认
