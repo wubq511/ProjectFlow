@@ -204,7 +204,7 @@ def test_export_timeline_includes_status(client: TestClient):
     assert response.status_code == 200
     md = response.json()["markdown"]
     # Should contain status indicators in timeline section
-    assert "success" in md or "fallback" in md or "failed" in md
+    assert "成功" in md or "基础建议" in md or "失败" in md
 
 
 def test_export_no_none_or_null(client: TestClient):

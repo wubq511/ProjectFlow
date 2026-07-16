@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
@@ -222,6 +223,127 @@ interface AgentSidebarProps {
   onLoadOlderMessages?: () => void;
 }
 
+// ── Collapsible conversation group list ────────────────────────────────
+
+/** Group conversations by month for foldable history sections. */
+function groupByMonth(summaries: AgentConversationSummary[]): { label: string; items: AgentConversationSummary[] }[] {
+  const months: { label: string; items: AgentConversationSummary[] }[] = [];
+  const seen = new Map<string, number>();
+  const now = new Date();
+  for (const s of summaries) {
+    const d = new Date(s.created_at);
+    const monthKey = `${d.getFullYear()}-${d.getMonth()}`;
+    let label: string;
+    if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) {
+      label = "本月";
+    } else {
+      label = `${d.getMonth() + 1}月`;
+    }
+    if (!seen.has(monthKey)) {
+      seen.set(monthKey, months.length);
+      months.push({ label, items: [] });
+    }
+    months[seen.get(monthKey)!].items.push(s);
+  }
+  return months;
+}
+
+function ConversationGroupList({
+  summaries,
+  activeConversationId,
+  isDraft,
+  isStreamingConversation,
+  expandedGroups,
+  onToggleGroup,
+  onSwitchConversation,
+}: {
+  summaries: AgentConversationSummary[];
+  activeConversationId: string | null;
+  isDraft: boolean;
+  isStreamingConversation: boolean;
+  expandedGroups: Record<string, boolean>;
+  onToggleGroup: (group: string) => void;
+  onSwitchConversation: (id: string) => void;
+}) {
+  const groups = useMemo(() => groupByMonth(summaries), [summaries]);
+
+  // Auto-expand all groups on first load (ref to avoid setState-in-effect)
+  const autoExpanded = useRef(false);
+  useEffect(() => {
+    if (!autoExpanded.current && groups.length > 0 && Object.keys(expandedGroups).length === 0) {
+      autoExpanded.current = true;
+      for (const g of groups) onToggleGroup(g.label);
+    }
+  }, [groups, expandedGroups, onToggleGroup]);
+
+  return (
+    <div className="space-y-2" role="listbox" aria-label="会话列表（按月份分组）">
+      {groups.map((group) => {
+        const isExpanded = expandedGroups[group.label] !== false; // default expanded
+        return (
+          <div key={group.label}>
+            <button
+              type="button"
+              onClick={() => onToggleGroup(group.label)}
+              className="flex w-full items-center gap-1 rounded px-1 py-1 text-left text-[11px] font-medium text-neutral-500 transition hover:text-neutral-700"
+            >
+              <ChevronDown
+                className={cn(
+                  "h-3 w-3 shrink-0 transition-transform",
+                  !isExpanded && "-rotate-90",
+                )}
+              />
+              <span>{group.label}</span>
+              <span className="ml-auto text-neutral-400">{group.items.length}</span>
+            </button>
+            {isExpanded && (
+              <ul className="space-y-0.5">
+                {group.items.map((summary) => {
+                  const isActive = activeConversationId === summary.id && !isDraft;
+                  return (
+                    <li key={summary.id} role="option" aria-selected={isActive}>
+                      <button
+                        type="button"
+                        onClick={() => onSwitchConversation(summary.id)}
+                        disabled={isStreamingConversation || isActive}
+                        className={cn(
+                          "flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moss/40",
+                          isActive
+                            ? "bg-moss/10 text-moss"
+                            : "hover:bg-neutral-50 text-neutral-700",
+                        )}
+                      >
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <span className="truncate">{summary.title || "未命名会话"}</span>
+                          {summary.visibility === "private" ? (
+                            <Lock className="h-3 w-3 shrink-0 text-neutral-500" aria-label="私人会话" />
+                          ) : (
+                            <Users className="h-3 w-3 shrink-0 text-neutral-500" aria-label="团队会话" />
+                          )}
+                        </span>
+                        <span className="flex items-center gap-1.5 text-[11px] text-neutral-500">
+                          <span>{summary.message_count} 条消息</span>
+                          <span>·</span>
+                          <span>{formatTimeAgo(summary.updated_at)}</span>
+                        </span>
+                        {summary.last_message_preview && (
+                          <span className="truncate text-[11px] text-neutral-500">
+                            {summary.last_message_preview}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AgentSidebar({
   state,
   selectedProjectId,
@@ -261,6 +383,10 @@ export function AgentSidebar({
 }: AgentSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  /** Collapsible groups in conversation history — all expanded by default. */
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  /** Collapse older chat messages — default collapsed when loading a conversation. */
+  const [showOlderMessages, setShowOlderMessages] = useState(false);
   /** null = auto (no explicit override); non-null = user explicitly chose this level. */
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel | null>(null);
   const [modelConfigs, setModelConfigs] = useState<ModelConfigEntry[]>([]);
@@ -425,6 +551,16 @@ export function AgentSidebar({
   const pendingProposalCount = state.agent_proposals?.filter((proposal) => proposal.status === "pending").length ?? 0;
   const focus = conversation?.current_focus || inferFocus(state);
   const messages = useMemo(() => conversation?.messages ?? [], [conversation]);
+
+  // Reset older-messages collapse when conversation switches
+  const conversationIdRef = useRef(conversation?.id);
+  useEffect(() => {
+    if (conversationIdRef.current !== conversation?.id) {
+      conversationIdRef.current = conversation?.id;
+      setShowOlderMessages(false);
+    }
+  }, [conversation?.id]);
+
   const timelineEntries = useMemo<ConversationTimelineEntry[]>(() => {
     const entries: ConversationTimelineEntry[] = messages.map((message, index) => ({
       key: message.id,
@@ -456,6 +592,21 @@ export function AgentSidebar({
 
     return entries.sort((a, b) => a.sortAt - b.sortAt);
   }, [archivedStreamTurns, messages]);
+
+  // Split messages: last 2 (user+assistant) always visible, older collapsed
+  const lastVisible = 2;
+  const hasOlderEntries = timelineEntries.length > lastVisible;
+  const recentEntries = hasOlderEntries
+    ? timelineEntries.slice(timelineEntries.length - lastVisible)
+    : timelineEntries;
+  const olderEntries = hasOlderEntries
+    ? timelineEntries.slice(0, timelineEntries.length - lastVisible)
+    : [];
+
+  // When streaming, always show everything
+  const shouldCollapse = hasOlderEntries && !isStreamingConversation;
+  const visibleEntries = shouldCollapse && !showOlderMessages ? recentEntries : timelineEntries;
+
   const normalizedSuggestions = normalizeSuggestions(conversationSuggestions);
   const suggestions = normalizedSuggestions.length > 0 ? normalizedSuggestions : inferStructuredSuggestions(focus);
 
@@ -718,48 +869,18 @@ export function AgentSidebar({
                     </p>
                   )}
                   {!isLoadingHistory && !historyError && conversationSummaries.length > 0 && (
-                    <ul className="space-y-1" role="listbox" aria-label="会话列表">
-                      {conversationSummaries.map((summary) => {
-                        const isActive = conversation?.id === summary.id && !isDraft;
-                        return (
-                          <li key={summary.id} role="option" aria-selected={isActive}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onSwitchConversation?.(summary.id);
-                                setHistoryOpen(false);
-                              }}
-                              disabled={isStreamingConversation || isActive}
-                              className={cn(
-                                "flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moss/40",
-                                isActive
-                                  ? "bg-moss/10 text-moss"
-                                  : "hover:bg-neutral-50 text-neutral-700",
-                              )}
-                            >
-                              <span className="flex items-center gap-1.5 font-medium">
-                                <span className="truncate">{summary.title || "未命名会话"}</span>
-                                {summary.visibility === "private" ? (
-                                  <Lock className="h-3 w-3 shrink-0 text-neutral-500" aria-label="私人会话" />
-                                ) : (
-                                  <Users className="h-3 w-3 shrink-0 text-neutral-500" aria-label="团队会话" />
-                                )}
-                              </span>
-                              <span className="flex items-center gap-1.5 text-[11px] text-neutral-500">
-                                <span>{summary.message_count} 条消息</span>
-                                <span>·</span>
-                                <span>{formatTimeAgo(summary.updated_at)}</span>
-                              </span>
-                              {summary.last_message_preview && (
-                                <span className="truncate text-[11px] text-neutral-500">
-                                  {summary.last_message_preview}
-                                </span>
-                              )}
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                    <ConversationGroupList
+                      summaries={conversationSummaries}
+                      activeConversationId={conversation?.id ?? null}
+                      isDraft={isDraft}
+                      isStreamingConversation={isStreamingConversation}
+                      expandedGroups={expandedGroups}
+                      onToggleGroup={(group) => setExpandedGroups((prev) => ({ ...prev, [group]: !prev[group] }))}
+                      onSwitchConversation={(id) => {
+                        onSwitchConversation?.(id);
+                        setHistoryOpen(false);
+                      }}
+                    />
                   )}
                 </div>
               </SheetContent>
@@ -879,11 +1000,27 @@ export function AgentSidebar({
                           />
                         </div>
                       )}
-                      {timelineEntries.map((entry, index) => (
+                      {/* Collapsible older-messages bar */}
+                      {shouldCollapse && (
+                        <button
+                          type="button"
+                          onClick={() => setShowOlderMessages((prev) => !prev)}
+                          className="flex w-full items-center justify-center gap-1.5 rounded-md py-1.5 text-[11px] text-neutral-500 transition hover:bg-neutral-50 hover:text-neutral-700"
+                        >
+                          <ChevronDown
+                            className={cn(
+                              "h-3 w-3 shrink-0 transition-transform",
+                              showOlderMessages && "rotate-180",
+                            )}
+                          />
+                          {showOlderMessages ? "收起历史消息" : `展开历史消息 · ${olderEntries.length} 条`}
+                        </button>
+                      )}
+                      {visibleEntries.map((entry, index) => (
                         <ChatMessage
                           key={entry.key}
                           message={entry.message}
-                          isLast={index === timelineEntries.length - 1}
+                          isLast={index === visibleEntries.length - 1}
                           index={index}
                           streamTurn={entry.turn}
                           onRetry={pendingConversationInstruction ? () => void submitMessage(pendingConversationInstruction) : undefined}

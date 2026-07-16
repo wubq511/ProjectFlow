@@ -1,8 +1,33 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-14.
+Status: current as of 2026-07-16.
 
 ## Latest Architecture Handoff
+
+### 2026-07-16 — Demo Seed Data V2 Overhaul, Conversation Folding, Chat Message Collapsing
+
+Implemented on `feature/handoff-member-a-ts-runtime` branch. Full seed rewrite in `backend/app/seed/demo_projectflow.py` (1456 lines) and frontend UX for conversation/message folding in `agent-sidebar.tsx` and `ChatMessage.tsx`.
+
+**Seed data V2 changes:**
+
+- **Expanded entities**: 11 tasks (was 10, added agent_architecture), 8 AgentEvents (was 5, added negotiate + scope_rejected + replan), 7 ProjectMemories (was 3, covering all 7 V1 memory_type values including subject_and_owner privacy boundary), 5 AgentProposals (was 0, 4 confirmed + 1 rejected), 3 AgentConversations with 18 messages (was 0), 1 AssignmentNegotiation (was 0), 12 TaskStatusUpdates (was 0), 3 AssignmentResponses (was 0), 6 check-ins spread across 3 dates (was 6 all same date).
+- **Timeline aligned to real development**: 4 stages (05-28→06-07 research, 06-08→07-04 design with T41 ADR, 07-05→07-14 implementation with T41-T45 slices, 07-15→07-17 testing). 16 timeline anchors with distinct UTC datetimes, no `created_at=now()` for historical entities.
+- **De-paneling**: direction_card suggestions/questions/decision_points/unknowns no longer reference defense/presentation context. Risk evidence updated to match due dates (backend_api overdue 4→6 days consistently). memory rationale rewritten from "评审关注/答辩前" to development-focused language.
+- **Memory indexing**: 7 seeds get FTS5-indexed with ProjectMemorySync records (best-effort, same semantics as memory_service._persist_candidates).
+- **Frontend conversation UX**: Conversation history Sheet now groups by month with collapsible sections (`ConversationGroupList` with `ChevronDown` toggle). Chat messages default-collapse older history (last 2 messages visible, "展开历史消息 · N 条" toggle bar). `displayContent` threshold raised from 50→2000 chars so seed conversation messages display in full.
+
+**Key files:**
+
+- `backend/app/seed/demo_projectflow.py` — complete rewrite (1456 lines)
+- `backend/app/seed/reset.py` — no changes (already covered all SQLModel tables)
+- `backend/app/seed/demo_blocker_scenario.py` — narrative sync
+- `backend/app/tests/test_seed_reset_export.py` — assertion counts updated
+- `backend/app/tests/test_replan_proposal_flow.py` — fixed 1 pre-existing test (Chinese status label)
+- `frontend/src/components/project/agent-sidebar.tsx` — `ConversationGroupList` component + collapsible older messages
+- `frontend/src/components/project/agent/ChatMessage.tsx` — `displayContent` threshold 50→2000
+- `docs/demo-script.md` — 11-step flow with conversation/memory privacy steps
+
+**Verification:** backend seed tests 31/31 pass; backend ruff pass; frontend 191 passed (18 files), lint pass, build pass.
 
 ### 2026-07-15 — Workspace UI/UX Polish, Accessibility Contrast, Nested Cards Removal and Framer Motion Transitions
 
