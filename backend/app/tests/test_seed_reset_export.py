@@ -39,10 +39,14 @@ class TestSeedEndpoint:
         assert summary["workspace"] == 1
         assert summary["project"] == 1
         assert summary["stages"] == 4
-        assert summary["tasks"] == 10
+        assert summary["tasks"] == 11
         assert summary["risks"] == 3
         assert summary["action_cards"] == 5
-        assert summary["agent_events"] == 5
+        assert summary["agent_events"] == 8
+        assert summary["agent_proposals"] == 5
+        assert summary["project_memories"] == 7
+        assert summary["checkin_responses"] == 6
+        assert summary["agent_conversations"] == 3
 
     def test_seed_demo_is_idempotent(self, client: TestClient):
         # Seed twice — each call resets then seeds, so both succeed
@@ -82,7 +86,7 @@ class TestSeedEndpoint:
         direction_card = response.json()["direction_card"]
         assert direction_card["users"] == "大学生项目小队（3-8人）"
         assert "AI Agent 主动推进项目" in direction_card["value"]
-        assert "本地演示优先" in direction_card["boundaries"]
+        assert "本地运行优先" in direction_card["boundaries"]
         assert "Agent 输出不稳定" in direction_card["risks"]
         assert "target_users" not in direction_card
         assert "core_value" not in direction_card
@@ -256,15 +260,15 @@ class TestResetEndpoint:
 
             result = reset_demo_data(session)
 
-            assert result["deleted"]["agent_messages"] == 1
-            assert result["deleted"]["agent_runs"] == 1
-            assert result["deleted"]["agent_conversations"] == 1
-            assert result["deleted"]["agent_proposals"] == 1
+            assert result["deleted"]["agent_messages"] == 19  # 18 seed + 1 test
+            assert result["deleted"]["agent_runs"] == 1  # 0 seed + 1 test
+            assert result["deleted"]["agent_conversations"] == 4  # 3 seed + 1 test
+            assert result["deleted"]["agent_proposals"] == 6  # 5 seed + 1 test
             assert result["deleted"]["agent_run_events"] == 1
             assert result["deleted"]["agent_tool_resources"] == 1
             assert result["deleted"]["agent_runs_v2"] == 1
-            assert result["deleted"]["project_memory_sync"] == 1
-            assert result["deleted"]["project_memories"] == 1
+            assert result["deleted"]["project_memory_sync"] == 8  # 7 seed + 1 test
+            assert result["deleted"]["project_memories"] == 8  # 7 seed + 1 test
             assert session.exec(select(AgentMessage)).all() == []
             assert session.exec(select(AgentRun)).all() == []
             assert session.exec(select(AgentConversation)).all() == []

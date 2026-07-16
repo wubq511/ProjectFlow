@@ -33,8 +33,10 @@ function displayContent(message: AgentConversationMessage): string {
   if (message.role !== "user") return message.content;
   const match = message.content.match(/「(.+?)」/);
   if (match?.[1]) return match[1];
-  // Fallback: truncate long instructions to avoid showing raw prompt text
-  return message.content.length > 50 ? message.content.slice(0, 50) + "…" : message.content;
+  // Truncate only extremely long raw instructions (2000+ chars) that are
+  // clearly prompt injection artifacts, not real user messages.
+  // Seed conversation messages (100-150 chars) pass through unchanged.
+  return message.content.length > 2000 ? message.content.slice(0, 2000) + "…" : message.content;
 }
 
 function getSlashCommand(message: AgentConversationMessage): SlashCommandDef | null {
