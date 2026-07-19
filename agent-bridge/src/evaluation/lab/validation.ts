@@ -380,7 +380,7 @@ function validateMilestoneDag(
   }
 }
 
-function validateBudget(budget: EvaluationBudget, scenarios: ScenarioContract[]): ValidationIssue[] {
+function validateBudget(budget: EvaluationBudget, scenarios: ScenarioContract[], preset?: string): ValidationIssue[] {
   const errors: ValidationIssue[] = [];
   const add = (code: string, message: string) => errors.push({ code, message });
   const positiveFields: Array<[keyof EvaluationBudget, number]> = [
@@ -401,8 +401,17 @@ function validateBudget(budget: EvaluationBudget, scenarios: ScenarioContract[])
       add("budget_integer", `预算字段 ${field} 必须为整数`);
     }
   }
-  if (budget.maxSutCostUsd > 0.10) {
-    add("budget_smoke_cost", "Slice 0 smoke 的 ProjectFlow Agent 成本上限不得超过 $0.10");
+  // T46-3 (Issue #96): preset-aware cost cap.
+  //   - smoke / smoke-v2 / demo: maxSutCostUsd ≤ $0.10 (Slice 0 handoff).
+  //   - full: maxSutCostUsd ≤ $1.00 (Slice 0 handoff: full $1).
+  //   - calibrate (future): $3 — not implemented in this ticket.
+  // The cap is enforced per-preset so `full` can run more scenarios
+  // without tripping the smoke budget guard.
+  const isFullPreset = preset === "full";
+  const costCap = isFullPreset ? 1.00 : 0.10;
+  const costCapLabel = isFullPreset ? "full" : "smoke/demo";
+  if (budget.maxSutCostUsd > costCap) {
+    add("budget_preset_cost", `${costCapLabel} 的 ProjectFlow Agent 成本上限不得超过 $${costCap.toFixed(2)}`);
   }
   if (scenarios.length > budget.maxObservations) {
     add("budget_observations", "场景数量超过 maxObservations");
@@ -524,6 +533,9 @@ export async function validateEvaluationConfig(options: {
   model: string;
   scenarios: ScenarioContract[];
   budget: EvaluationBudget;
+  /** Optional preset name, used to apply preset-specific budget caps.
+   *  When omitted, the smoke/demo $0.10 cap is enforced. */
+  preset?: string;
 }): Promise<ValidationResult> {
   const scenarioErrors = options.scenarios.flatMap(validateScenario);
   const duplicateIds = options.scenarios
@@ -532,7 +544,7 @@ export async function validateEvaluationConfig(options: {
   if (duplicateIds.length > 0) {
     scenarioErrors.push({ code: "scenario_duplicate", message: `场景 ID 重复: ${[...new Set(duplicateIds)].join(", ")}` });
   }
-  const budgetErrors = validateBudget(options.budget, options.scenarios);
+  const budgetErrors = validateBudget(options.budget, options.scenarios, options.preset);
   const modelErrors = await validateModel(options.projectRoot, options.model);
   const toolchainErrors = await validateToolchain(options.projectRoot);
   const errors = [...scenarioErrors, ...budgetErrors, ...modelErrors, ...toolchainErrors];

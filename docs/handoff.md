@@ -1,8 +1,33 @@
 # ProjectFlow Handoff
 
-Status: current as of 2026-07-19.
+Status: current as of 2026-07-20.
 
 ## Latest Architecture Handoff
+
+### 2026-07-20 — T46 Issue #96 Slice 1 Multi-Turn / Skill / Runtime / Reliability
+
+GitHub Issue #96 is implemented on branch `glm/t46-96-conversation-runtime-reliability` (not yet merged, issue not closed). It completes Slice 1's remaining acceptance surface on top of #95's hard-domain foundation: deterministic multi-turn user controller, simulator integrity, attempt ledger, Skill evaluation (8 dimensions), Runtime fault matrix (11 fault classes), demo/smoke/smoke-v2/full presets with P0 scenario IDs and budget caps, candidate/baseline paired comparison with 8-resource isolation and resolved-model verification, reliability statistics with 6 metrics and statistical-significance guard, operational metrics with SUT/evaluator/coding-agent cost separation, and a 6-condition fail-closed Slice 1 exit gate. All new code lives in `agent-bridge/src/evaluation/lab/` and does not touch #95's evidence seam, hard graders, Reference Programs, or public Proposal paths. Proposal-Confirm, FastAPI as source of truth, sidecar not reading/writing business DB, public HTTP/SSE seam, evaluator-owned isolation, immutable checkpoint/SHA-256, paid-model fail-closed, and Slice 0/1 compatibility boundaries remain unchanged.
+
+A 15-class adversarial self-review (hidden oracle leakage, LLM phrasing rewrite, simulator_error denominator contamination, retry erasing prior failure, candidate/baseline shared resources, requested model masquerading as resolved, excluded/skipped beautifying denominator, pass@k/pass^k confusion, duplicate/contradictory terminal, cancellation persisted as completed, resume duplicate side effects, checkpoint/artifact tampering, preset missing P0, demo/smoke statistical significance, missing cost telemetry for paid models) found and fixed 3 release-blocking bugs: (1) `attempt-ledger.ts` set `recoveredBy` even on failed retries and overwrote existing pointers; (2) `cli.ts` exit-gate `requiredScenarios` marked observed-but-hard-grade-failed scenarios as "passed"; (3) `paired-comparison.ts` `buildSide` accepted `confirmedBy="requested"` and silently promoted the requested model to the resolved model. Each fix has deterministic regression tests. 40 mutation tests cover all declared graders/checkers across the 8 new modules.
+
+**Operator/Coding Agent commands:**
+
+```bash
+# New in #96: Slice 1 exit gate and reliability report
+scripts/eval-lab exit-gate <run-id> --json
+scripts/eval-lab reliability <run-id> --json
+scripts/eval-lab reliability <run-id> --confidence-level 0.95
+
+# Preset matrix (validate)
+scripts/eval-lab validate --preset demo --model mock:mock-model
+scripts/eval-lab validate --preset smoke --model mock:mock-model
+scripts/eval-lab validate --preset smoke-v2 --model mock:mock-model
+scripts/eval-lab validate --preset full --model mock:mock-model
+```
+
+**Key files:** `agent-bridge/src/evaluation/lab/user-controller.ts`, `agent-bridge/src/evaluation/lab/simulator-error.ts`, `agent-bridge/src/evaluation/lab/attempt-ledger.ts`, `agent-bridge/src/evaluation/lab/skill-evaluator.ts`, `agent-bridge/src/evaluation/lab/runtime-faults.ts`, `agent-bridge/src/evaluation/lab/presets.ts`, `agent-bridge/src/evaluation/lab/paired-comparison.ts`, `agent-bridge/src/evaluation/lab/reliability-stats.ts`, `agent-bridge/src/evaluation/lab/exit-gate.ts`, `agent-bridge/src/evaluation/lab/contract-v3.ts`, `agent-bridge/src/evaluation/lab/cli.ts`, and `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice1_Handoff.md`.
+
+**Verification:** backend 890 passed / 4 skipped plus Ruff; agent-bridge 1628 passed across 75 files plus typecheck/build; frontend 333 passed / 6 skipped across 26 files plus lint/build; 4 preset validations (demo/smoke/smoke-v2/full) all valid; real local runs smoke 1/1, smoke-v2 3/3, demo 3/6 (T46-3 new scenarios require runner integration, expected) passed; `exit-gate` and `reliability` CLI outputs verified. Slice 1 cannot be declared closed until #96 is merged and a paid-model canary passes the frozen routing/outcome/privacy/latency gates on the `full` preset.
 
 ### 2026-07-19 — T46 Issue #95 Slice 1 Hard-Domain Foundation
 

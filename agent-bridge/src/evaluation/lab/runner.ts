@@ -282,7 +282,13 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
   if (!SAFE_ID.test(options.runId)) {
     throw new EvaluationValidationError("运行 ID 只能包含字母、数字、下划线和连字符");
   }
-  const validation = await validateEvaluationConfig(options);
+  const validation = await validateEvaluationConfig({
+    projectRoot: options.projectRoot,
+    model: options.model,
+    scenarios: options.scenarios,
+    budget: options.budget,
+    preset: options.preset,
+  });
   if (!validation.valid) {
     throw new EvaluationValidationError(JSON.stringify(validation));
   }

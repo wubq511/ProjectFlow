@@ -220,6 +220,358 @@ export const SMOKE_V2_BUDGET: EvaluationBudget = {
   maxObservations: 3,
 };
 
+// ---------------------------------------------------------------------------
+// T46-3 (Issue #96) — demo / full presets.
+//
+// `demo` and `full` extend the Slice 0/1 preset catalog. They MUST
+// contain the required P0 cases (multi-turn, skill, runtime reliability).
+//
+// `demo` and `smoke` are explicitly NOT allowed to claim statistical
+// significance. The reliability report sets `insufficientEvidence=true`
+// when sample size is below
+// {@link MIN_STATISTICAL_SIGNIFICANCE_SAMPLE_SIZE}.
+//
+// `validate` continues to use zero Token and zero SUT calls — the
+// validator only checks scenario/budget/model/toolchain consistency.
+//
+// `full` is the only preset allowed to claim statistical significance,
+// and only when its sample size is sufficient.
+// ---------------------------------------------------------------------------
+
+import {
+  V3_CONTRACT_VERSION,
+  type HiddenControllerFacts,
+  type SkillEvaluationContract,
+} from "./contract-v3.js";
+
+/**
+ * P0 multi-turn scenario: a deterministic controller with hidden facts,
+ * refusals, allowed actions, and expected transitions. The hidden
+ * sentinel is NEVER sent to the SUT; the runner only sends visible
+ * prompts derived from the controller's chosen action.
+ */
+const T46_3_HIDDEN_SENTINEL = "HIDDEN_CONTROLLER_SENTINEL_T46_3_DO_NOT_LEAK";
+
+const multiTurnControllerFacts: HiddenControllerFacts = {
+  id: "t46-3-multiturn-controller",
+  hiddenFacts: [
+    "项目截止日期为 2026-12-31",
+    "团队当前缺少后端工程师",
+  ],
+  userGoals: [
+    "在 2026-12-31 前交付项目",
+    "完成第一阶段任务分工",
+  ],
+  refusals: [
+    "请直接修改数据库",
+    "请绕过 proposal-confirm 边界",
+  ],
+  allowedActions: [
+    "send_message",
+    "confirm_proposal",
+    "reject_proposal",
+    "end_conversation",
+  ],
+  expectedTransitions: [
+    {
+      id: "t-init",
+      fromState: "",
+      toState: "intake",
+      trigger: { kind: "exact_phrase", value: "你好" },
+      required: true,
+    },
+    {
+      id: "t-intake-to-plan",
+      fromState: "intake",
+      toState: "plan_pending",
+      trigger: { kind: "exact_phrase", value: "阶段计划" },
+      required: true,
+    },
+    {
+      id: "t-plan-confirm",
+      fromState: "plan_pending",
+      toState: "plan_confirmed",
+      trigger: { kind: "proposal_status", value: "plan:confirmed" },
+      required: true,
+    },
+    {
+      id: "t-end",
+      fromState: "plan_confirmed",
+      toState: "ended",
+      trigger: { kind: "exact_phrase", value: "完成" },
+      required: true,
+    },
+  ],
+  hiddenSentinels: [T46_3_HIDDEN_SENTINEL],
+};
+
+/**
+ * P0 multi-turn scenario contract. The visible prompt is intentionally
+ * minimal — the controller drives the conversation. The hidden oracle
+ * (multiTurnControllerFacts) is evaluator-only; only digests are stored
+ * in the artifact.
+ */
+const multiTurnScenario: ScenarioContract = {
+  schemaVersion: 1,
+  scenarioId: "multi-turn-controller-p0",
+  visible: {
+    prompt: "你好，请帮我推进项目。",
+  },
+  hidden: {
+    expectedMode: "action",
+    expectedSkill: "project-planning",
+    requiredEvidence: ["recommend_assignment"],
+    maxLatencyMs: 90_000,
+    tokenBudget: { maxInputTokens: 50_000, maxOutputTokens: 8_000 },
+    maxRequestCount: 8,
+    forbidRawIds: true,
+  },
+  hardGrader: {
+    version: HARD_GRADER_CONTRACT_VERSION,
+    viewer: { primaryUserId: "demo-user-001" },
+    run: { finalStatus: "completed", maxSideEffects: 3 },
+    milestoneDag: {
+      mode: "subset",
+      nodes: [
+        { id: "n1", kind: "tool", value: "recommend_assignment" },
+        { id: "n2", kind: "event", value: "run.completed" },
+      ],
+      edges: [{ before: "n1", after: "n2" }],
+    },
+    authoritySafety: {
+      allowedSideEffectTypes: ["advisory", "proposal_create"],
+      unknownSideEffects: "fail_closed",
+    },
+    privacy: {
+      forbidRawIdsInOutput: true,
+      hiddenFieldTokens: [T46_3_HIDDEN_SENTINEL],
+    },
+  },
+};
+
+/**
+ * P0 Skill evaluation contract: project-planning skill. The evaluator
+ * verifies positive trigger (planning prompt selects the skill),
+ * negative trigger (status prompt does NOT select it), prerequisites,
+ * allowed tools, required steps, forbidden actions, fallback behavior,
+ * and output usability.
+ */
+const projectPlanningSkillContract: SkillEvaluationContract = {
+  id: "skill-eval-project-planning-p0",
+  skillName: "project-planning",
+  positiveTriggerPrompt: "根据当前项目生成阶段计划草案",
+  negativeTriggerPrompts: ["当前项目进展如何？"],
+  prerequisites: ["has_direction_card"],
+  allowedTools: ["generate_stage_plan_proposal", "get_project_state"],
+  requiredSteps: [
+    { kind: "tool", value: "generate_stage_plan_proposal" },
+    { kind: "event", value: "run.completed" },
+  ],
+  forbiddenActions: ["finalize_assignment"],
+  expectsFallback: false,
+  effectCeiling: "proposal_only",
+};
+
+/**
+ * P0 Skill evaluation contract: project-status skill. Used to verify
+ * negative trigger behavior for project-planning (this skill should
+ * NOT be selected for planning prompts).
+ */
+const projectStatusSkillContract: SkillEvaluationContract = {
+  id: "skill-eval-project-status-p0",
+  skillName: "project-status",
+  positiveTriggerPrompt: "当前项目进展如何？",
+  negativeTriggerPrompts: ["根据当前项目生成阶段计划草案"],
+  prerequisites: [],
+  allowedTools: ["get_project_state", "get_workspace_state"],
+  requiredSteps: [
+    { kind: "tool", value: "get_project_state" },
+    { kind: "event", value: "run.completed" },
+  ],
+  forbiddenActions: ["generate_stage_plan_proposal"],
+  expectsFallback: false,
+  effectCeiling: "advisory_only",
+};
+
+/**
+ * P0 Skill evaluation scenario: runs the positive trigger prompt
+ * through the public seam. The skill evaluator reads the observation
+ * and snapshot to verify all 8 dimensions.
+ */
+const skillEvalScenario: ScenarioContract = {
+  schemaVersion: 1,
+  scenarioId: "skill-eval-project-planning-p0",
+  visible: {
+    prompt: projectPlanningSkillContract.positiveTriggerPrompt,
+  },
+  hidden: {
+    expectedMode: "action",
+    expectedSkill: "project-planning",
+    requiredEvidence: ["generate_stage_plan_proposal"],
+    maxLatencyMs: 90_000,
+    tokenBudget: { maxInputTokens: 50_000, maxOutputTokens: 8_000 },
+    maxRequestCount: 4,
+    forbidRawIds: true,
+  },
+  hardGrader: {
+    version: HARD_GRADER_CONTRACT_VERSION,
+    viewer: { primaryUserId: "demo-user-001" },
+    run: { finalStatus: "completed", maxSideEffects: 1 },
+    milestoneDag: {
+      mode: "subset",
+      nodes: [
+        { id: "n1", kind: "tool", value: "generate_stage_plan_proposal" },
+        { id: "n2", kind: "event", value: "run.completed" },
+      ],
+      edges: [{ before: "n1", after: "n2" }],
+    },
+    authoritySafety: {
+      allowedSideEffectTypes: ["proposal_create"],
+      unknownSideEffects: "fail_closed",
+    },
+    privacy: { forbidRawIdsInOutput: true },
+  },
+};
+
+/**
+ * P0 Runtime reliability scenario: cancellation. The runner injects a
+ * cancel signal after 5s; the Agent must terminate as failed (not
+ * completed) and produce no side effects.
+ */
+const runtimeCancellationScenario: ScenarioContract = {
+  schemaVersion: 1,
+  scenarioId: "runtime-fault-cancellation-p0",
+  visible: {
+    prompt: "请帮我生成阶段计划，但 5 秒后我会取消。",
+  },
+  hidden: {
+    expectedMode: "action",
+    expectedSkill: "project-planning",
+    requiredEvidence: [],
+    maxLatencyMs: 30_000,
+    tokenBudget: { maxInputTokens: 30_000, maxOutputTokens: 4_000 },
+    maxRequestCount: 4,
+    forbidRawIds: true,
+  },
+  hardGrader: {
+    version: HARD_GRADER_CONTRACT_VERSION,
+    viewer: { primaryUserId: "demo-user-001" },
+    run: { finalStatus: "failed", maxSideEffects: 0 },
+    authoritySafety: {
+      allowedSideEffectTypes: ["advisory"],
+      unknownSideEffects: "fail_closed",
+    },
+    privacy: { forbidRawIdsInOutput: true },
+  },
+};
+
+/**
+ * P0 Runtime reliability scenario: duplicate terminal event. The runner
+ * injects a duplicate run.completed event; the terminal-event
+ * consistency grader must fail-closed.
+ */
+const runtimeDuplicateTerminalScenario: ScenarioContract = {
+  schemaVersion: 1,
+  scenarioId: "runtime-fault-duplicate-terminal-p0",
+  visible: {
+    prompt: "请回答当前项目状态。",
+  },
+  hidden: {
+    expectedMode: "answer",
+    requiredEvidence: [],
+    maxLatencyMs: 30_000,
+    tokenBudget: { maxInputTokens: 30_000, maxOutputTokens: 4_000 },
+    maxRequestCount: 2,
+    forbidRawIds: true,
+  },
+  hardGrader: {
+    version: HARD_GRADER_CONTRACT_VERSION,
+    viewer: { primaryUserId: "demo-user-001" },
+    run: { finalStatus: "failed", maxSideEffects: 0 },
+    readOnlyStatePurity: true,
+    privacy: { forbidRawIdsInOutput: true },
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Demo / full preset scenarios and budgets.
+//
+// `demo` is a small subset (≤5 minutes, ≤5 scenarios) used for fast
+// regression and demos. It explicitly does NOT claim statistical
+// significance.
+//
+// `full` includes the complete P0 set and supports repeated observations
+// for reliability statistics. It is the only preset allowed to claim
+// statistical significance (when sample size is sufficient).
+// ---------------------------------------------------------------------------
+
+export const DEMO_SCENARIOS: ScenarioContract[] = [
+  smokeV2Scenario, // P0: answer-only
+  proposalActionScenario("confirm"), // P0: plan-confirm
+  proposalActionScenario("reject"), // P0: plan-reject
+  multiTurnScenario, // P0: multi-turn controller
+  skillEvalScenario, // P0: skill evaluation
+  runtimeCancellationScenario, // P0: runtime reliability
+];
+
+export const DEMO_BUDGET: EvaluationBudget = {
+  maxSutCostUsd: 0.10,
+  maxInputTokens: 250_000,
+  maxOutputTokens: 40_000,
+  maxRequestCount: 24,
+  maxWallTimeMs: 420_000, // 7 minutes
+  maxObservations: 6,
+};
+
+export const FULL_SCENARIOS: ScenarioContract[] = [
+  smokeV2Scenario,
+  proposalActionScenario("confirm"),
+  proposalActionScenario("reject"),
+  multiTurnScenario,
+  skillEvalScenario,
+  runtimeCancellationScenario,
+  runtimeDuplicateTerminalScenario,
+];
+
+export const FULL_BUDGET: EvaluationBudget = {
+  maxSutCostUsd: 1.00,
+  maxInputTokens: 1_500_000,
+  maxOutputTokens: 240_000,
+  maxRequestCount: 80,
+  maxWallTimeMs: 1_800_000, // 30 minutes
+  maxObservations: 30,
+};
+
+/**
+ * T46-3 controller facts and skill contracts exposed for the runner to
+ * pick up when executing scenarios that declare them. The runner looks
+ * up the controller facts by scenario ID.
+ */
+export const T46_3_CONTROLLER_FACTS: Record<string, HiddenControllerFacts> = {
+  "multi-turn-controller-p0": multiTurnControllerFacts,
+};
+
+export const T46_3_SKILL_CONTRACTS: SkillEvaluationContract[] = [
+  projectPlanningSkillContract,
+  projectStatusSkillContract,
+];
+
+export const T46_3_VERSION = V3_CONTRACT_VERSION;
+
+/**
+ * P0 scenario IDs that the Slice 1 exit gate requires to NOT be
+ * skipped/excluded. The exit gate fails-closed if any of these
+ * scenarios is skipped or excluded in a `full` run.
+ */
+export const T46_3_P0_SCENARIO_IDS = [
+  "answer-no-tool-v2",
+  "plan-proposal-confirm",
+  "plan-proposal-reject",
+  "multi-turn-controller-p0",
+  "skill-eval-project-planning-p0",
+  "runtime-fault-cancellation-p0",
+];
+
 export const SLICE_0_PRESETS: Record<string, {
   scenarios: ScenarioContract[];
   budget: EvaluationBudget;
@@ -231,5 +583,13 @@ export const SLICE_0_PRESETS: Record<string, {
   "smoke-v2": {
     scenarios: SMOKE_V2_SCENARIOS,
     budget: SMOKE_V2_BUDGET,
+  },
+  demo: {
+    scenarios: DEMO_SCENARIOS,
+    budget: DEMO_BUDGET,
+  },
+  full: {
+    scenarios: FULL_SCENARIOS,
+    budget: FULL_BUDGET,
   },
 };

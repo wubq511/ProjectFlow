@@ -1,6 +1,6 @@
 # ProjectFlow CodeWiki
 
-> 最初基于 2026-06-02 代码库全量扫描生成；2026-07-19 同步 T46 Evaluation Lab Slice 0/1、锁定工具链和最新验证基线。
+> 最初基于 2026-06-02 代码库全量扫描生成；2026-07-20 同步 T46 Evaluation Lab Slice 0/1（含 Issue #96 多轮/Skill/Runtime/可靠性）、锁定工具链和最新验证基线。
 
 ---
 
@@ -59,12 +59,12 @@ ProjectFlow/
 │   │   ├── tools/             # registry.ts, fastapi-client.ts, projectflow-tools.ts, register-defaults.ts, mock-tools.ts, result-normalizer.ts
 │   │   ├── policy/            # policy-engine.ts, budget.ts, boundaries
 │   │   ├── events/            # event-mapper.ts, stream.ts, trace-envelope.ts
-│   │   ├── evaluation/        # T43 public seam + T46 Slice 0 lab + Issue #95 hard-domain contracts/DAG/graders/reference/evidence
+│   │   ├── evaluation/        # T43 public seam + T46 Slice 0 lab + Issue #95 hard-domain contracts/DAG/graders/reference/evidence + Issue #96 multi-turn/skill/runtime/reliability (user-controller, simulator-error, attempt-ledger, skill-evaluator, runtime-faults, presets, paired-comparison, reliability-stats, exit-gate, contract-v3)
 │   │   ├── skills/            # skill-index.ts, skill-loader.ts, skill-selector.ts
 │   │   ├── types/             # run-state.ts, tool-manifest.ts, tool-result.ts, wire.ts, runtime-event.ts
 │   │   └── utils/             # 工具函数
 │   ├── skills/                # 6 SKILL.md files
-│   └── tests/unit/            # 包含 Issue #95 mutation/validation/oracle/reference/public confirm-reject isolated E2E
+│   └── tests/unit/            # 包含 Issue #95 mutation/validation/oracle/reference/public confirm-reject isolated E2E + Issue #96 user-controller/simulator-error/attempt-ledger/skill-evaluator/runtime-faults/paired-comparison/reliability-stats/exit-gate/presets-contract/mutation（40 mutation tests）
 ├── frontend/
 │   ├── src/
 │   │   ├── app/               # Next.js 页面路由（不写业务逻辑）

@@ -6,7 +6,7 @@ The primary Agent path uses the T41 TypeScript Agent Bridge Sidecar with Pi comp
 
 ## Current Status
 
-All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory V1, T43 Agent Harness V2 P0, T44 efficiency/model integrity, and T45 private conversation history are implemented. On 2026-07-17, T46 Evaluation Lab Slice 0 added the minimum trustworthy Agent-evaluation loop: zero-token validation, evaluator-owned backend/sidecar isolation, a real public HTTP/SSE smoke scenario, bounded cost/token/request/time controls, resumable immutable artifacts, SHA-256 integrity verification, and a repository-local Coding Agent Skill/CLI. On 2026-07-19, T46 Issue #95 merged the Slice 1 hard-domain foundation into `main`: a normalized read-only viewer-scoped evidence seam, true event/tool Milestone DAG constraints, 15 deterministic hard graders, full-oracle Reference Programs, mutation validation, hidden-field commitments, and real isolated Proposal confirm/reject paths in `smoke-v2`. Issue #96 remains required before the whole Slice 1 can close. The repeated post-T44 production canary continues to satisfy the frozen routing, outcome, privacy and latency gates; Flash remains the default and Pro remains explicit escalation.
+All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory V1, T43 Agent Harness V2 P0, T44 efficiency/model integrity, and T45 private conversation history are implemented. On 2026-07-17, T46 Evaluation Lab Slice 0 added the minimum trustworthy Agent-evaluation loop: zero-token validation, evaluator-owned backend/sidecar isolation, a real public HTTP/SSE smoke scenario, bounded cost/token/request/time controls, resumable immutable artifacts, SHA-256 integrity verification, and a repository-local Coding Agent Skill/CLI. On 2026-07-19, T46 Issue #95 merged the Slice 1 hard-domain foundation into `main`: a normalized read-only viewer-scoped evidence seam, true event/tool Milestone DAG constraints, 15 deterministic hard graders, full-oracle Reference Programs, mutation validation, hidden-field commitments, and real isolated Proposal confirm/reject paths in `smoke-v2`. On 2026-07-20, T46 Issue #96 was implemented on `glm/t46-96-conversation-runtime-reliability` (not yet merged): a deterministic multi-turn user controller, simulator integrity, append-only attempt ledger, Skill evaluation across 8 dimensions, Runtime fault matrix with 11 fault classes, `demo`/`smoke`/`smoke-v2`/`full` presets with P0 scenario IDs and budget caps, candidate/baseline paired comparison with 8-resource isolation and resolved-model verification, reliability statistics with 6 metrics and a statistical-significance guard, operational metrics with SUT/evaluator/coding-agent cost separation, and a 6-condition fail-closed Slice 1 exit gate. A 15-class adversarial self-review found and fixed 3 release-blocking bugs; 40 mutation tests cover all declared graders/checkers. Slice 1 cannot be declared closed until #96 is merged and a paid-model canary passes the frozen gates on the `full` preset. The repeated post-T44 production canary continues to satisfy the frozen routing, outcome, privacy and latency gates; Flash remains the default and Pro remains explicit escalation.
 
 - Phase 0 / GitHub #2 — Guardrails & Setup
 - Phase 1 / GitHub #3 — Account / Workspace / Member Profile
@@ -42,8 +42,9 @@ All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory 
 - T45 private conversation history / GitHub #91 — private/team conversations, safe migration, viewer authorization, cursor pagination and Agent sidebar history UI (2026-07-13)
 - T46 Evaluation Lab Slice 0 / GitHub #94 — evaluator-owned isolation, bounded smoke execution, immutable evidence, machine-readable CLI and Coding Agent Skill (2026-07-17)
 - T46 Evaluation Lab Slice 1 foundation / GitHub #95 — scoped evidence, hard-state/authority oracles, public confirm/reject E2E, hidden-field commitments and `smoke-v2` (merged 2026-07-19; #96 remains)
+- T46 Evaluation Lab Slice 1 multi-turn / Skill / Runtime / Reliability / GitHub #96 — deterministic multi-turn user controller, simulator integrity, attempt ledger, Skill 8 dimensions, Runtime 11 fault classes, demo/smoke/smoke-v2/full presets, candidate/baseline paired comparison, reliability statistics, operational metrics, Slice 1 exit gate (2026-07-20, branch `glm/t46-96-conversation-runtime-reliability`, not yet merged)
 
-Implemented: FastAPI backend with private multi-conversation persistence and service-token-protected internal runtime/tools; T41 typed domain tools and Proposal-Confirm; T42 governed ProjectMemory; T43 durable Agent Harness V2; T44 request/model/prompt/Skill efficiency hardening; the T46 trustworthy evaluation minimum loop; and the T46 Slice 1 ProjectFlow-aware deterministic hard graders. See [the post-T44 production canary](docs/T44/post-t44-production-canary-2026-07-13.md) for repeated model evidence, [the T46 Slice 0 handoff](docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice0_Handoff.md) for evaluator usage and trust boundaries, and [the T46 Slice 1 handoff](docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice1_Handoff.md) for hard grader contracts and adversarial review remediation.
+Implemented: FastAPI backend with private multi-conversation persistence and service-token-protected internal runtime/tools; T41 typed domain tools and Proposal-Confirm; T42 governed ProjectMemory; T43 durable Agent Harness V2; T44 request/model/prompt/Skill efficiency hardening; the T46 trustworthy evaluation minimum loop; the T46 Slice 1 ProjectFlow-aware deterministic hard graders; and the T46 Slice 1 multi-turn / Skill / Runtime / reliability surface. See [the post-T44 production canary](docs/T44/post-t44-production-canary-2026-07-13.md) for repeated model evidence, [the T46 Slice 0 handoff](docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice0_Handoff.md) for evaluator usage and trust boundaries, and [the T46 Slice 1 handoff](docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice1_Handoff.md) for hard grader contracts, the #96 module table, adversarial review remediation, and the Slice 1 closure path.
 
 ## Stack
 
@@ -104,7 +105,7 @@ scripts/project-npm --prefix agent-bridge run build
 
 ## Agent Evaluation Lab
 
-Slice 0 runs only the bounded local mock smoke; Issue #95 adds the ProjectFlow-aware deterministic foundation via `smoke-v2`, including public Proposal confirm/reject. Issue #96 will complete Slice 1. Paid models fail closed until a frozen price table and pre-call worst-case estimate exist. Coding Agent cost is reported separately and never counts against the ProjectFlow Agent cap.
+Slice 0 runs only the bounded local mock smoke; Issue #95 adds the ProjectFlow-aware deterministic foundation via `smoke-v2`, including public Proposal confirm/reject; Issue #96 (branch `glm/t46-96-conversation-runtime-reliability`, not yet merged) adds the multi-turn user controller, simulator integrity, attempt ledger, Skill 8 dimensions, Runtime 11 fault classes, `demo`/`smoke`/`smoke-v2`/`full` presets, candidate/baseline paired comparison, reliability statistics, operational metrics, and a 6-condition Slice 1 exit gate. Slice 1 cannot be declared closed until #96 is merged and a paid-model canary passes the frozen gates on the `full` preset. Paid models fail closed until a frozen price table and pre-call worst-case estimate exist. Coding Agent cost is reported separately and never counts against the ProjectFlow Agent cap.
 
 ```bash
 # Slice 0 — minimum trustworthy loop
@@ -115,6 +116,12 @@ scripts/eval-lab verify <run-id>
 # Slice 1 foundation (#95) — V2 hard graders + public human-action seams
 scripts/eval-lab validate --preset smoke-v2 --model mock:mock-model
 scripts/eval-lab run --preset smoke-v2 --model mock:mock-model --json
+
+# Slice 1 multi-turn / Skill / Runtime / Reliability (#96, not yet merged)
+scripts/eval-lab validate --preset demo --model mock:mock-model
+scripts/eval-lab validate --preset full --model mock:mock-model
+scripts/eval-lab exit-gate <run-id> --json
+scripts/eval-lab reliability <run-id> --json
 ```
 
 ## Frontend
