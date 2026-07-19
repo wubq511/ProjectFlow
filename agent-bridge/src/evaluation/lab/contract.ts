@@ -38,6 +38,16 @@ export interface ScenarioContract {
       actorUserId: string;
       reason?: string;
     };
+    /** T46-3 evaluator-only execution policy. The values are stable IDs;
+     * raw controller facts remain outside the portable scenario contract. */
+    v3?: {
+      controllerId?: string;
+      controllerMaxTurns?: number;
+      skillContractId?: string;
+      runtimeFaultId?: string;
+      repeatGroupId?: string;
+      repeatIndex?: number;
+    };
   };
   /**
    * T46-2 (Issue #95): optional V2 hard grader block. When present, the
@@ -85,6 +95,13 @@ export interface RunManifest {
   scenarios: ScenarioContract[];
   budget: EvaluationBudget;
   provenance: EvaluationProvenance;
+  /** Commitments to evaluator-owned V3 inputs. Contains digests/IDs only. */
+  v3?: {
+    version: number;
+    controllerFactsDigests: Record<string, import("./contract-v3.js").HiddenFactsDigests>;
+    skillContractIds: string[];
+    runtimeFaultIds: string[];
+  };
 }
 
 export interface CostLedgerEntry {
@@ -122,6 +139,7 @@ export interface ScenarioObservation {
    * event with `run_id` — run-scoped graders then see empty/null facts.
    */
   runId?: string;
+  runtimeEvidence?: import("../scenario-eval.js").ScenarioObservation["runtimeEvidence"];
 }
 
 export interface Grade {
@@ -183,6 +201,8 @@ export interface EvaluationArtifact {
     report: string;
     integrity: string;
   };
+  /** Additive T46-3 result graph. Absent for Slice 0/Issue #95 runs. */
+  v3?: import("./contract-v3.js").EvaluationArtifactV3;
 }
 
 export interface EvaluationStatusRecord {

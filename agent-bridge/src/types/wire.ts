@@ -79,6 +79,13 @@ export interface WireRunStartRequest {
       max_request_count: number;
       max_cost_usd: number;
     };
+    /** Evaluator-owned deterministic fault profile. Rejected outside an
+     * authenticated evaluation instance. Never exposed to the model. */
+    evaluation_fault?: {
+      kind: string;
+      delay_ms?: number;
+      tool_name?: string;
+    };
   };
 }
 

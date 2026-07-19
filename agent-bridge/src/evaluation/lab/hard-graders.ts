@@ -562,6 +562,8 @@ function gradeTerminalEventConsistency(
     "agent.error",
     "run.aborted",
     "agent.aborted",
+    "run.cancelled",
+    "agent.cancelled",
   ]);
   const terminals = trajectory.filter(
     (fact) => completionEvents.has(fact.event_type) || failureEvents.has(fact.event_type),

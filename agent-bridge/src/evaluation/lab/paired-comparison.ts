@@ -70,7 +70,12 @@ export function buildSide(input: BuildSideInput): PairedComparisonSide {
       );
     }
   }
-  return { ...input };
+  const { nonce, instanceId, ...portable } = input;
+  return {
+    ...portable,
+    nonceSha256: sha256(nonce),
+    instanceIdSha256: sha256(instanceId),
+  };
 }
 
 export interface BuildManifestInput {
@@ -134,10 +139,10 @@ export function verifyIsolation(
   if (candidate.sidecarPort === baseline.sidecarPort) {
     violations.push("candidate 与 baseline 共享 sidecar port");
   }
-  if (candidate.nonce === baseline.nonce) {
+  if (candidate.nonceSha256 === baseline.nonceSha256) {
     violations.push("candidate 与 baseline 共享 nonce");
   }
-  if (candidate.instanceId === baseline.instanceId) {
+  if (candidate.instanceIdSha256 === baseline.instanceIdSha256) {
     violations.push("candidate 与 baseline 共享 instance ID");
   }
   if (candidate.databasePath === baseline.databasePath) {

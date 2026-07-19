@@ -215,6 +215,36 @@ export async function handleStartRunStream(
     return;
   }
   const evaluatorBudget = evaluatorBudgetResult.budget;
+  const evaluationFault = wireRequest.runtime_config?.evaluation_fault;
+  if (evaluationFault && !evaluatorBudget) {
+    sendJson(res, 403, {
+      error: "unauthorized",
+      message: "evaluation_fault 仅允许在已认证的 evaluation 运行中使用",
+    });
+    return;
+  }
+  if (evaluationFault) {
+    const allowedFaults = new Set([
+      "sse_event_delay",
+      "tool_call_invalid_args",
+      "tool_call_partial_result",
+      "cancel_signal",
+      "steering_message",
+      "checkpoint_after_event",
+      "force_idempotency_repeat",
+    ]);
+    if (!allowedFaults.has(evaluationFault.kind)) {
+      sendJson(res, 400, { error: "validation_error", message: "未知 evaluation_fault.kind" });
+      return;
+    }
+    if (
+      evaluationFault.delay_ms !== undefined
+      && (!Number.isFinite(evaluationFault.delay_ms) || evaluationFault.delay_ms < 0 || evaluationFault.delay_ms > 10_000)
+    ) {
+      sendJson(res, 400, { error: "validation_error", message: "evaluation_fault.delay_ms 超出 0..10000" });
+      return;
+    }
+  }
 
   // Step 1: Create run record in FastAPI
   const modelName = wireRequest.runtime_config?.model
@@ -625,7 +655,12 @@ export async function handleStartRunStream(
         } else if (errorCode === "timeout") {
           userMessage = "Agent 响应超时，请稍后重试。";
         } else {
-          userMessage = "Agent 运行时错误，请稍后重试。";
+          const detail = typeof data.payload?.error === "string"
+            ? data.payload.error
+            : typeof data.payload?.message === "string" ? data.payload.message : "";
+          userMessage = process.env.APP_ENV === "evaluation" && detail
+            ? `Agent 运行时错误: ${detail.slice(0, 1000)}`
+            : "Agent 运行时错误，请稍后重试。";
         }
         if (!runCompleted) {
           runCompleted = true;
@@ -647,7 +682,10 @@ export async function handleStartRunStream(
       case "agent.failed":
       case "run.failed": {
         runCompleted = true;
-        writeSSE(res, "error", { message: "Agent 处理失败，请稍后重试。" });
+        const evaluationError = process.env.APP_ENV === "evaluation" && typeof data.payload?.error === "string"
+          ? `Agent 处理失败: ${data.payload.error.slice(0, 1000)}`
+          : "Agent 处理失败，请稍后重试。";
+        writeSSE(res, "error", { message: evaluationError });
         res.end();
         break;
       }
@@ -689,6 +727,14 @@ export async function handleStartRunStream(
       {
         traceIncludeSensitiveData: wireRequest.runtime_config?.trace_include_sensitive_data ?? ctx.config.traceIncludeSensitiveData,
         signal: abortController.signal,
+        evaluationFault: evaluationFault
+          ? {
+              kind: evaluationFault.kind,
+              delayMs: evaluationFault.delay_ms,
+              toolName: evaluationFault.tool_name,
+            }
+          : undefined,
+        sessionStore: ctx.sessionStore,
       },
       {
         onEvent: (_type, _payload) => {
@@ -702,7 +748,11 @@ export async function handleStartRunStream(
           ctx.sessionStore.clearAbortController(state.runId);
           if (!runCompleted) {
             runCompleted = true;
-            writeSSE(res, "error", { message: "Agent 执行出错，请稍后重试。" });
+            writeSSE(res, "error", {
+              message: process.env.APP_ENV === "evaluation"
+                ? `Agent 执行出错: ${_error.message.slice(0, 1000)}`
+                : "Agent 执行出错，请稍后重试。",
+            });
             res.end();
           }
         },
@@ -711,7 +761,12 @@ export async function handleStartRunStream(
   } catch (_err) {
     if (!runCompleted) {
       runCompleted = true;
-      writeSSE(res, "error", { message: "Agent 执行出错，请稍后重试。" });
+      const detail = _err instanceof Error ? _err.message : String(_err);
+      writeSSE(res, "error", {
+        message: process.env.APP_ENV === "evaluation"
+          ? `Agent 执行出错: ${detail.slice(0, 1000)}`
+          : "Agent 执行出错，请稍后重试。",
+      });
       res.end();
     }
   } finally {

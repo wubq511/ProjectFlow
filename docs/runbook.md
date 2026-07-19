@@ -206,7 +206,7 @@ Issue #95 does not yet implement #96's multi-turn controller, full Skill/Runtime
 
 ### T46 Evaluation Lab Slice 1 Multi-Turn / Skill / Runtime / Reliability (#96)
 
-Issue #96 is implemented on branch `glm/t46-96-conversation-runtime-reliability` (not yet merged, issue not closed). It adds the deterministic multi-turn user controller, simulator integrity (simulator_error excluded from the score denominator, `SIMULATOR_RETRY_BUDGET=2` frozen), append-only attempt ledger (only successful retries write `recoveredBy`; existing pointers cannot be overwritten), Skill evaluation across 8 dimensions, Runtime fault matrix with 11 fault classes, `demo`/`smoke`/`smoke-v2`/`full` presets with `T46_3_P0_SCENARIO_IDS` and budget caps (smoke $0.10 / full $1 / calibrate $3), candidate/baseline paired comparison with 8-resource isolation and `resolvedModel.confirmedBy` verification, reliability statistics with 6 metrics and a statistical-significance guard (only `full` preset with sample size ≥ 30 may claim significance), operational metrics with SUT/evaluator/coding-agent cost separation, and a 6-condition fail-closed Slice 1 exit gate. All new code is in `agent-bridge/src/evaluation/lab/`; #95's evidence seam, hard graders, Reference Programs, and public Proposal paths are untouched.
+Issue #96 is implemented and independently hardened on branch `glm/t46-96-conversation-runtime-reliability` (not yet merged, issue not closed). It adds the deterministic multi-turn user controller, simulator integrity (simulator_error excluded from the score denominator, `SIMULATOR_RETRY_BUDGET=2` frozen), append-only attempt ledger, Skill evaluation across 8 dimensions, Runtime fault matrix with 11 fault classes, `demo`/`smoke`/`smoke-v2`/`full` presets with `T46_3_P0_SCENARIO_IDS` and budget caps (smoke $0.10 / full $1 / calibrate $3), a candidate/baseline paired runner with separate detached worktrees and isolated runtime/state/artifact resources, reliability statistics that require explicit repeat groups before repeat-run claims, operational metrics with SUT/evaluator/coding-agent cost separation, and a 6-condition fail-closed Slice 1 exit gate.
 
 ```bash
 # Preset matrix
@@ -222,9 +222,12 @@ scripts/eval-lab exit-gate <run-id>
 # New: Reliability report (6 metrics + statistical-significance flag)
 scripts/eval-lab reliability <run-id> --json
 scripts/eval-lab reliability <run-id> --confidence-level 0.95
+
+# New: execute candidate and baseline in isolated worktrees/runtimes
+scripts/eval-lab compare --candidate <git-ref> --baseline <git-ref> --preset smoke --model mock:mock-model --json
 ```
 
-`exit-gate` exits `0` when all 6 conditions pass and `1` on any regression (P0 mutation not detected, reference hard false failure, hidden-field leakage, required scenario skipped/excluded/failed, evidence integrity missing, or semantic Judge detected). `reliability` exits `0` normally and `4` when evidence is insufficient. A 15-class adversarial self-review found and fixed 3 release-blocking bugs (attempt-ledger failed retry writing `recoveredBy`, CLI exit-gate masking hard-grade failures as "passed", and `buildSide` accepting `confirmedBy="requested"`); each fix has deterministic regression tests, and 40 mutation tests cover all declared graders/checkers. Slice 1 cannot be declared closed until #96 is merged and a paid-model canary passes the frozen routing/outcome/privacy/latency gates on the `full` preset. See `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice1_Handoff.md` for the full module table, adversarial review, and Slice 1 closure path.
+`exit-gate` exits `0` when all 6 conditions pass and `1` on any regression (P0 mutation not detected, reference hard false failure, hidden-field leakage, required scenario skipped/excluded/failed, evidence integrity missing, or semantic Judge detected). `reliability` exits `0` only when the artifact has enough explicit repeat evidence and `4` when evidence is insufficient. `compare` must never reuse either side's worktree, ports, nonce, instance identity, database, temp root, or artifact staging; missing resolved-model confirmation is reported as possible model drift. The mock `full` preset is the deterministic Slice 1 closure surface. Paid models are optional later calibration evidence and remain fail-closed until a frozen price table and pre-call worst-case estimate exist. See `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice1_Handoff.md` for the full trust model and closure evidence.
 
 ### Conversation history smoke test
 

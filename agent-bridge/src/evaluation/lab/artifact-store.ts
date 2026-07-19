@@ -139,6 +139,7 @@ function sameResumeContract(existing: RunManifest, expected: RunManifest): boole
     scenarios: existing.scenarios,
     budget: existing.budget,
     provenance: existing.provenance,
+    v3: existing.v3,
   }) === stableStringify({
     schemaVersion: expected.schemaVersion,
     runId: expected.runId,
@@ -147,6 +148,7 @@ function sameResumeContract(existing: RunManifest, expected: RunManifest): boole
     scenarios: expected.scenarios,
     budget: expected.budget,
     provenance: expected.provenance,
+    v3: expected.v3,
   });
 }
 

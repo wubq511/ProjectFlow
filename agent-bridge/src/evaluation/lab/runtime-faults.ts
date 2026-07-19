@@ -49,7 +49,6 @@ export const RUNTIME_FAULT_CATALOG: RuntimeFaultInjection[] = [
     seam: { kind: "sse_event_delay", eventPattern: "*", delayMs: 60_000 },
     expectation: {
       finalStatus: "failed",
-      requiresInfrastructureRetry: true,
     },
   },
   {
@@ -66,7 +65,7 @@ export const RUNTIME_FAULT_CATALOG: RuntimeFaultInjection[] = [
     faultId: "fault-agent-retry",
     faultClass: "agent_internal_retry",
     description: "工具调用返回错误；Agent 内部重试并恢复",
-    seam: { kind: "tool_call_invalid_args", toolName: "recommend_assignment" },
+    seam: { kind: "tool_call_invalid_args", toolName: "get_workspace_state" },
     expectation: {
       finalStatus: "completed",
       requiresAgentRetry: true,
@@ -76,7 +75,7 @@ export const RUNTIME_FAULT_CATALOG: RuntimeFaultInjection[] = [
     faultId: "fault-invalid-args",
     faultClass: "invalid_tool_arguments",
     description: "Agent 发出无效工具参数；工具返回错误，Agent 必须修正",
-    seam: { kind: "tool_call_invalid_args", toolName: "recommend_assignment" },
+    seam: { kind: "tool_call_invalid_args", toolName: "get_workspace_state" },
     expectation: {
       finalStatus: "completed",
       requiresAgentRetry: true,
@@ -86,7 +85,7 @@ export const RUNTIME_FAULT_CATALOG: RuntimeFaultInjection[] = [
     faultId: "fault-partial-results",
     faultClass: "partial_tool_results",
     description: "工具返回部分结果；Agent 必须显式处理缺失字段",
-    seam: { kind: "tool_call_partial_result", toolName: "get_project_state" },
+    seam: { kind: "tool_call_partial_result", toolName: "get_workspace_state" },
     expectation: {
       finalStatus: "completed",
       requiresAgentRetry: true,
@@ -139,7 +138,7 @@ export const RUNTIME_FAULT_CATALOG: RuntimeFaultInjection[] = [
     seam: { kind: "sse_duplicate_terminal", terminalEvent: "run.completed" },
     expectation: {
       finalStatus: "failed",
-      requiresNoDuplicateTerminal: true,
+      requiresDuplicateTerminalDetection: true,
     },
   },
   {
@@ -149,7 +148,7 @@ export const RUNTIME_FAULT_CATALOG: RuntimeFaultInjection[] = [
     seam: { kind: "sse_contradictory_terminal", first: "run.completed", second: "run.failed" },
     expectation: {
       finalStatus: "failed",
-      requiresNoContradictoryTerminal: true,
+      requiresContradictoryTerminalDetection: true,
     },
   },
 ];
@@ -227,13 +226,13 @@ export function evaluateFaultBehavior(input: {
   }
 
   // §4 duplicate terminal check
-  if (expectation.requiresNoDuplicateTerminal && hadDuplicateTerminal) {
-    failures.push("观察到重复终态事件");
+  if (expectation.requiresDuplicateTerminalDetection && !hadDuplicateTerminal) {
+    failures.push("未检测到评测注入的重复终态事件，fail-closed 检查未生效");
   }
 
   // §5 contradictory terminal check
-  if (expectation.requiresNoContradictoryTerminal && hadContradictoryTerminal) {
-    failures.push("观察到矛盾终态事件");
+  if (expectation.requiresContradictoryTerminalDetection && !hadContradictoryTerminal) {
+    failures.push("未检测到评测注入的矛盾终态事件，fail-closed 检查未生效");
   }
 
   // §6 agent retry check
@@ -317,8 +316,8 @@ export function expectationSummary(expectation: FaultExpectation): string[] {
   const summary: string[] = [`finalStatus=${expectation.finalStatus}`];
   if (expectation.requiresNoSideEffects) summary.push("no_side_effects");
   if (expectation.requiresIdempotency) summary.push("idempotency");
-  if (expectation.requiresNoDuplicateTerminal) summary.push("no_duplicate_terminal");
-  if (expectation.requiresNoContradictoryTerminal) summary.push("no_contradictory_terminal");
+  if (expectation.requiresDuplicateTerminalDetection) summary.push("duplicate_terminal_detected");
+  if (expectation.requiresContradictoryTerminalDetection) summary.push("contradictory_terminal_detected");
   if (expectation.requiresAgentRetry) summary.push("agent_retry");
   if (expectation.requiresInfrastructureRetry) summary.push("infrastructure_retry");
   return summary;

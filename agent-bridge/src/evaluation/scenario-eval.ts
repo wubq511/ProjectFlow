@@ -12,6 +12,16 @@ export interface AgentScenario {
   maxOutputTokens?: number;
   maxRequestCount?: number;
   maxSutCostUsd?: number;
+  /** Evaluator-owned fault profile. It is accepted only by an isolated
+   * APP_ENV=evaluation runtime with matching instance credentials. */
+  evaluationFault?: {
+    kind: string;
+    delayMs?: number;
+    /** Evaluator control-plane request delay. Kept separate from the SUT
+     * fault delay so cancellation/steering can interrupt an active run. */
+    controlAfterMs?: number;
+    toolName?: string;
+  };
 }
 
 export interface ScenarioObservation {
@@ -42,6 +52,15 @@ export interface ScenarioObservation {
    * see empty/null facts and may fail closed depending on the oracle.
    */
   runId?: string;
+  runtimeEvidence?: {
+    duplicateTerminal: boolean;
+    contradictoryTerminal: boolean;
+    cancellationRequested: boolean;
+    steeringRequested: boolean;
+    terminalEvents: string[];
+    toolCallAttempts?: number;
+    repeatedToolCalls?: number;
+  };
 }
 
 export interface ScenarioResult {

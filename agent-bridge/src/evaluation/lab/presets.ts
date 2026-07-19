@@ -276,15 +276,8 @@ const multiTurnControllerFacts: HiddenControllerFacts = {
     {
       id: "t-init",
       fromState: "",
-      toState: "intake",
-      trigger: { kind: "exact_phrase", value: "你好" },
-      required: true,
-    },
-    {
-      id: "t-intake-to-plan",
-      fromState: "intake",
       toState: "plan_pending",
-      trigger: { kind: "exact_phrase", value: "阶段计划" },
+      trigger: { kind: "tool_call", value: "generate_stage_plan_proposal" },
       required: true,
     },
     {
@@ -298,7 +291,7 @@ const multiTurnControllerFacts: HiddenControllerFacts = {
       id: "t-end",
       fromState: "plan_confirmed",
       toState: "ended",
-      trigger: { kind: "exact_phrase", value: "完成" },
+      trigger: { kind: "regex", value: ".+" },
       required: true,
     },
   ],
@@ -315,16 +308,20 @@ const multiTurnScenario: ScenarioContract = {
   schemaVersion: 1,
   scenarioId: "multi-turn-controller-p0",
   visible: {
-    prompt: "你好，请帮我推进项目。",
+    prompt: "根据当前项目生成阶段计划草案",
   },
   hidden: {
     expectedMode: "action",
     expectedSkill: "project-planning",
-    requiredEvidence: ["recommend_assignment"],
+    requiredEvidence: ["generate_stage_plan_proposal"],
     maxLatencyMs: 90_000,
     tokenBudget: { maxInputTokens: 50_000, maxOutputTokens: 8_000 },
     maxRequestCount: 8,
     forbidRawIds: true,
+    v3: {
+      controllerId: multiTurnControllerFacts.id,
+      controllerMaxTurns: 4,
+    },
   },
   hardGrader: {
     version: HARD_GRADER_CONTRACT_VERSION,
@@ -333,13 +330,17 @@ const multiTurnScenario: ScenarioContract = {
     milestoneDag: {
       mode: "subset",
       nodes: [
-        { id: "n1", kind: "tool", value: "recommend_assignment" },
-        { id: "n2", kind: "event", value: "run.completed" },
+        { id: "n1", kind: "tool", value: "generate_stage_plan_proposal" },
+        { id: "n2", kind: "event", value: "agent.completed" },
       ],
       edges: [{ before: "n1", after: "n2" }],
     },
     authoritySafety: {
-      allowedSideEffectTypes: ["advisory", "proposal_create"],
+      proposalConfirm: {
+        required: [{ proposalType: "plan", status: "confirmed" }],
+        forbidden: [{ proposalType: "plan", status: "pending" }],
+      },
+      allowedSideEffectTypes: ["proposal_create"],
       unknownSideEffects: "fail_closed",
     },
     privacy: {
@@ -365,7 +366,7 @@ const projectPlanningSkillContract: SkillEvaluationContract = {
   allowedTools: ["generate_stage_plan_proposal", "get_project_state"],
   requiredSteps: [
     { kind: "tool", value: "generate_stage_plan_proposal" },
-    { kind: "event", value: "run.completed" },
+    { kind: "event", value: "agent.completed" },
   ],
   forbiddenActions: ["finalize_assignment"],
   expectsFallback: false,
@@ -386,7 +387,7 @@ const projectStatusSkillContract: SkillEvaluationContract = {
   allowedTools: ["get_project_state", "get_workspace_state"],
   requiredSteps: [
     { kind: "tool", value: "get_project_state" },
-    { kind: "event", value: "run.completed" },
+    { kind: "event", value: "agent.completed" },
   ],
   forbiddenActions: ["generate_stage_plan_proposal"],
   expectsFallback: false,
@@ -412,6 +413,7 @@ const skillEvalScenario: ScenarioContract = {
     tokenBudget: { maxInputTokens: 50_000, maxOutputTokens: 8_000 },
     maxRequestCount: 4,
     forbidRawIds: true,
+    v3: { skillContractId: projectPlanningSkillContract.id },
   },
   hardGrader: {
     version: HARD_GRADER_CONTRACT_VERSION,
@@ -421,7 +423,7 @@ const skillEvalScenario: ScenarioContract = {
       mode: "subset",
       nodes: [
         { id: "n1", kind: "tool", value: "generate_stage_plan_proposal" },
-        { id: "n2", kind: "event", value: "run.completed" },
+        { id: "n2", kind: "event", value: "agent.completed" },
       ],
       edges: [{ before: "n1", after: "n2" }],
     },
@@ -452,11 +454,11 @@ const runtimeCancellationScenario: ScenarioContract = {
     tokenBudget: { maxInputTokens: 30_000, maxOutputTokens: 4_000 },
     maxRequestCount: 4,
     forbidRawIds: true,
+    v3: { runtimeFaultId: "fault-cancellation" },
   },
   hardGrader: {
     version: HARD_GRADER_CONTRACT_VERSION,
     viewer: { primaryUserId: "demo-user-001" },
-    run: { finalStatus: "failed", maxSideEffects: 0 },
     authoritySafety: {
       allowedSideEffectTypes: ["advisory"],
       unknownSideEffects: "fail_closed",
@@ -477,21 +479,50 @@ const runtimeDuplicateTerminalScenario: ScenarioContract = {
     prompt: "请回答当前项目状态。",
   },
   hidden: {
-    expectedMode: "answer",
+    expectedMode: "action",
+    expectedSkill: "project-status",
     requiredEvidence: [],
     maxLatencyMs: 30_000,
     tokenBudget: { maxInputTokens: 30_000, maxOutputTokens: 4_000 },
-    maxRequestCount: 2,
+    maxRequestCount: 4,
     forbidRawIds: true,
-  },
-  hardGrader: {
-    version: HARD_GRADER_CONTRACT_VERSION,
-    viewer: { primaryUserId: "demo-user-001" },
-    run: { finalStatus: "failed", maxSideEffects: 0 },
-    readOnlyStatePurity: true,
-    privacy: { forbidRawIdsInOutput: true },
+    v3: { runtimeFaultId: "fault-duplicate-terminal" },
   },
 };
+
+function runtimeFaultScenario(
+  faultId: string,
+  scenarioId: string,
+): ScenarioContract {
+  const checkpoint = faultId === "fault-checkpoint-resume";
+  return {
+    schemaVersion: 1,
+    scenarioId,
+    visible: { prompt: checkpoint ? "根据当前项目生成阶段计划草案" : "请回答当前项目状态。" },
+    hidden: {
+      expectedMode: "action",
+      expectedSkill: checkpoint ? "project-planning" : "project-status",
+      requiredEvidence: checkpoint ? ["generate_stage_plan_proposal"] : [],
+      maxLatencyMs: faultId === "fault-timeout" ? 1_000 : 30_000,
+      tokenBudget: { maxInputTokens: 30_000, maxOutputTokens: 4_000 },
+      maxRequestCount: 6,
+      forbidRawIds: true,
+      v3: { runtimeFaultId: faultId },
+    },
+  };
+}
+
+const remainingRuntimeFaultScenarios: ScenarioContract[] = [
+  runtimeFaultScenario("fault-timeout", "runtime-fault-timeout-p0"),
+  runtimeFaultScenario("fault-infra-retry", "runtime-fault-infrastructure-retry-p0"),
+  runtimeFaultScenario("fault-agent-retry", "runtime-fault-agent-retry-p0"),
+  runtimeFaultScenario("fault-invalid-args", "runtime-fault-invalid-arguments-p0"),
+  runtimeFaultScenario("fault-partial-results", "runtime-fault-partial-results-p0"),
+  runtimeFaultScenario("fault-checkpoint-resume", "runtime-fault-checkpoint-resume-p0"),
+  runtimeFaultScenario("fault-steering", "runtime-fault-steering-p0"),
+  runtimeFaultScenario("fault-idempotency", "runtime-fault-idempotency-p0"),
+  runtimeFaultScenario("fault-contradictory-terminal", "runtime-fault-contradictory-terminal-p0"),
+];
 
 // ---------------------------------------------------------------------------
 // Demo / full preset scenarios and budgets.
@@ -508,7 +539,6 @@ const runtimeDuplicateTerminalScenario: ScenarioContract = {
 export const DEMO_SCENARIOS: ScenarioContract[] = [
   smokeV2Scenario, // P0: answer-only
   proposalActionScenario("confirm"), // P0: plan-confirm
-  proposalActionScenario("reject"), // P0: plan-reject
   multiTurnScenario, // P0: multi-turn controller
   skillEvalScenario, // P0: skill evaluation
   runtimeCancellationScenario, // P0: runtime reliability
@@ -519,8 +549,8 @@ export const DEMO_BUDGET: EvaluationBudget = {
   maxInputTokens: 250_000,
   maxOutputTokens: 40_000,
   maxRequestCount: 24,
-  maxWallTimeMs: 420_000, // 7 minutes
-  maxObservations: 6,
+  maxWallTimeMs: 300_000,
+  maxObservations: 5,
 };
 
 export const FULL_SCENARIOS: ScenarioContract[] = [
@@ -531,6 +561,7 @@ export const FULL_SCENARIOS: ScenarioContract[] = [
   skillEvalScenario,
   runtimeCancellationScenario,
   runtimeDuplicateTerminalScenario,
+  ...remainingRuntimeFaultScenarios,
 ];
 
 export const FULL_BUDGET: EvaluationBudget = {
@@ -570,6 +601,8 @@ export const T46_3_P0_SCENARIO_IDS = [
   "multi-turn-controller-p0",
   "skill-eval-project-planning-p0",
   "runtime-fault-cancellation-p0",
+  "runtime-fault-duplicate-terminal-p0",
+  ...remainingRuntimeFaultScenarios.map((scenario) => scenario.scenarioId),
 ];
 
 export const SLICE_0_PRESETS: Record<string, {

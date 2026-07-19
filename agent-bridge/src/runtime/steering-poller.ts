@@ -73,7 +73,7 @@ export class SteeringPoller {
     try {
       const snapshot = await this.deps.fastapiClient.getRunSnapshot(
         this.deps.runId,
-        undefined,
+        0,
         this.timeoutMs,
       );
       const steering = (snapshot.unconsumed_steering ?? []) as SteeringEventSnapshot[];

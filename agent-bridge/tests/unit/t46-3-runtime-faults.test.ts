@@ -162,15 +162,15 @@ describe("expectationSummary — stable summary", () => {
       finalStatus: "failed",
       requiresNoSideEffects: true,
       requiresIdempotency: true,
-      requiresNoDuplicateTerminal: true,
-      requiresNoContradictoryTerminal: true,
+      requiresDuplicateTerminalDetection: true,
+      requiresContradictoryTerminalDetection: true,
       requiresAgentRetry: true,
       requiresInfrastructureRetry: true,
     });
     expect(summary).toContain("no_side_effects");
     expect(summary).toContain("idempotency");
-    expect(summary).toContain("no_duplicate_terminal");
-    expect(summary).toContain("no_contradictory_terminal");
+    expect(summary).toContain("duplicate_terminal_detected");
+    expect(summary).toContain("contradictory_terminal_detected");
     expect(summary).toContain("agent_retry");
     expect(summary).toContain("infrastructure_retry");
   });
@@ -270,7 +270,7 @@ describe("evaluateFaultBehavior — cancellation", () => {
 });
 
 describe("evaluateFaultBehavior — duplicate terminal event", () => {
-  it("fails when a duplicate terminal event is observed", () => {
+  it("passes when the injected duplicate is detected and the seam fails closed", () => {
     const fault = findFault("fault-duplicate-terminal")!;
     const result = evaluateFaultBehavior({
       fault,
@@ -283,11 +283,10 @@ describe("evaluateFaultBehavior — duplicate terminal event", () => {
       infrastructureRetriesObserved: 0,
       metrics: zeroMetrics(),
     });
-    expect(result.passed).toBe(false);
-    expect(result.failures.some((f) => f.includes("重复终态"))).toBe(true);
+    expect(result.passed).toBe(true);
   });
 
-  it("passes when no duplicate terminal event is observed", () => {
+  it("fails when the injected duplicate is not detected", () => {
     const fault = findFault("fault-duplicate-terminal")!;
     const result = evaluateFaultBehavior({
       fault,
@@ -300,12 +299,13 @@ describe("evaluateFaultBehavior — duplicate terminal event", () => {
       infrastructureRetriesObserved: 0,
       metrics: zeroMetrics(),
     });
-    expect(result.passed).toBe(true);
+    expect(result.passed).toBe(false);
+    expect(result.failures.some((f) => f.includes("重复终态"))).toBe(true);
   });
 });
 
 describe("evaluateFaultBehavior — contradictory terminal event", () => {
-  it("fails when contradictory terminal events are observed (completed AND failed)", () => {
+  it("passes when the injected contradiction is detected and the seam fails closed", () => {
     const fault = findFault("fault-contradictory-terminal")!;
     const result = evaluateFaultBehavior({
       fault,
@@ -318,11 +318,10 @@ describe("evaluateFaultBehavior — contradictory terminal event", () => {
       infrastructureRetriesObserved: 0,
       metrics: zeroMetrics(),
     });
-    expect(result.passed).toBe(false);
-    expect(result.failures.some((f) => f.includes("矛盾终态"))).toBe(true);
+    expect(result.passed).toBe(true);
   });
 
-  it("passes when no contradictory terminal events are observed", () => {
+  it("fails when the injected contradiction is not detected", () => {
     const fault = findFault("fault-contradictory-terminal")!;
     const result = evaluateFaultBehavior({
       fault,
@@ -335,7 +334,8 @@ describe("evaluateFaultBehavior — contradictory terminal event", () => {
       infrastructureRetriesObserved: 0,
       metrics: zeroMetrics(),
     });
-    expect(result.passed).toBe(true);
+    expect(result.passed).toBe(false);
+    expect(result.failures.some((f) => f.includes("矛盾终态"))).toBe(true);
   });
 });
 
@@ -463,10 +463,10 @@ describe("aggregateRuntimeReliability — aggregation", () => {
 });
 
 describe("evaluateFaultBehavior — same AgentRun cannot be both completed and failed", () => {
-  it("the contradictory terminal grader catches this case", () => {
-    // The contradiction is detected via hadContradictoryTerminal=true.
-    // This represents the scenario where a run emits both run.completed
-    // and run.failed — the grader fails-closed.
+  it("passes the fault scenario only when the injected contradiction is detected and failed closed", () => {
+    // A RuntimeReliabilityResult grades the evaluator/SUT response to an
+    // injected fault. Detection plus an authoritative failed status is the
+    // expected safe behavior, so the scenario itself passes.
     const fault = findFault("fault-contradictory-terminal")!;
     const result = evaluateFaultBehavior({
       fault,
@@ -479,6 +479,6 @@ describe("evaluateFaultBehavior — same AgentRun cannot be both completed and f
       infrastructureRetriesObserved: 0,
       metrics: zeroMetrics(),
     });
-    expect(result.passed).toBe(false);
+    expect(result.passed).toBe(true);
   });
 });

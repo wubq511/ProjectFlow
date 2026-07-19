@@ -111,6 +111,8 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
     const timeoutTimer = setTimeout(() => controller.abort(), maxLatencyMs);
     const events: Array<{ event: string; data: Record<string, unknown> }> = [];
     const toolCallIds = new Set<string>();
+    const controlRequests: Promise<void>[] = [];
+    let controlScheduled = false;
 
     const recordEvents = (items: Array<{ event: string; data: Record<string, unknown> }>) => {
       for (const item of items) {
@@ -125,9 +127,65 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
             throw new EvaluationBudgetError("工具调用次数超出 evaluator 硬上限 20");
           }
         }
+        const runId = item.event === "status" && typeof item.data.run_id === "string"
+          ? item.data.run_id
+          : undefined;
+        if (runId && !controlScheduled && scenario.evaluationFault) {
+          const fault = scenario.evaluationFault;
+          if (fault.kind === "cancel_signal" || fault.kind === "steering_message") {
+            controlScheduled = true;
+            const delayMs = Math.max(0, fault.controlAfterMs ?? 10);
+            const request = new Promise<void>((resolveRequest) => {
+              setTimeout(() => {
+                const path = fault.kind === "cancel_signal" ? "cancel" : "steering";
+                void fetchFn(`${baseUrl}/runs/${encodeURIComponent(runId)}/${path}`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    ...(options.evaluationAuth
+                      ? {
+                          "X-Evaluation-Nonce": options.evaluationAuth.nonce,
+                          "X-Evaluation-Instance-Id": options.evaluationAuth.instanceId,
+                        }
+                      : {}),
+                  },
+                  body: JSON.stringify(
+                    fault.kind === "cancel_signal"
+                      ? { reason: "evaluation_fault_cancel" }
+                      : {
+                          steering_type: "constraint",
+                          content: "请额外考虑风险",
+                          client_message_id: `eval-steer-${runId}`,
+                        },
+                  ),
+                }).then((response) => {
+                  if (!response.ok) throw new Error(`评测控制请求失败: ${path} HTTP ${response.status}`);
+                  resolveRequest();
+                }).catch((error) => {
+                  controller.abort(error);
+                  resolveRequest();
+                });
+              }, delayMs);
+            });
+            controlRequests.push(request);
+          }
+        }
       }
     };
 
+    const sutFaultKinds = new Set([
+      "sse_event_delay",
+      "tool_call_invalid_args",
+      "tool_call_partial_result",
+      "cancel_signal",
+      "steering_message",
+      "checkpoint_after_event",
+      "force_idempotency_repeat",
+    ]);
+    const sutEvaluationFault = scenario.evaluationFault
+      && sutFaultKinds.has(scenario.evaluationFault.kind)
+      ? scenario.evaluationFault
+      : undefined;
     try {
       const response = await fetchFn(`${baseUrl}/runs/stream`, {
         method: "POST",
@@ -161,6 +219,19 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
                     max_request_count: scenario.maxRequestCount,
                     max_cost_usd: scenario.maxSutCostUsd,
                   },
+                  ...(sutEvaluationFault
+                    ? {
+                        evaluation_fault: {
+                          kind: sutEvaluationFault.kind,
+                          ...(sutEvaluationFault.delayMs !== undefined
+                            ? { delay_ms: sutEvaluationFault.delayMs }
+                            : {}),
+                          ...(sutEvaluationFault.toolName
+                            ? { tool_name: sutEvaluationFault.toolName }
+                            : {}),
+                        },
+                      }
+                    : {}),
                 }
               : {}),
           },
@@ -196,6 +267,12 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
     } catch (error) {
       if (error instanceof EvaluationBudgetError) throw error;
       if (controller.signal.aborted) {
+        if (
+          controller.signal.reason instanceof Error
+          && !controller.signal.reason.message.toLowerCase().includes("abort")
+        ) {
+          throw controller.signal.reason;
+        }
         const latestMetrics = [...events].reverse().find((item) => item.event === "evaluation_metrics");
         throw new EvaluationBudgetError(
           `场景执行时间超过 wall-time 上限 ${maxLatencyMs}ms`,
@@ -206,10 +283,121 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
     } finally {
       clearTimeout(timeoutTimer);
     }
+    await Promise.all(controlRequests);
+
+    if (scenario.evaluationFault?.kind === "checkpoint_after_event") {
+      const statusEvent = events.find((item) => item.event === "status" && typeof item.data.run_id === "string");
+      const interruptedRunId = statusEvent?.data.run_id;
+      if (typeof interruptedRunId !== "string") {
+        throw new Error("checkpoint/resume 故障场景缺少 run_id");
+      }
+      const authHeaders = {
+        ...(options.evaluationAuth
+          ? {
+              "X-Evaluation-Nonce": options.evaluationAuth.nonce,
+              "X-Evaluation-Instance-Id": options.evaluationAuth.instanceId,
+            }
+          : {}),
+      };
+      const resumeResponse = await fetchFn(`${baseUrl}/runs/${encodeURIComponent(interruptedRunId)}/resume`, {
+        method: "POST",
+        headers: authHeaders,
+      });
+      if (!resumeResponse.ok) {
+        throw new Error(`checkpoint/resume 恢复请求失败: HTTP ${resumeResponse.status} ${await resumeResponse.text()}`);
+      }
+      let resumedStatus = "";
+      let resumedSummary = "";
+      let terminalObservedAt = 0;
+      const pollDeadline = Date.now() + maxLatencyMs;
+      while (Date.now() < pollDeadline) {
+        const snapshotResponse = await fetchFn(`${baseUrl}/runs/${encodeURIComponent(interruptedRunId)}/snapshot`, {
+          headers: authHeaders,
+        });
+        if (!snapshotResponse.ok) throw new Error(`checkpoint/resume 状态查询失败: HTTP ${snapshotResponse.status}`);
+        const snapshot = await snapshotResponse.json() as Record<string, unknown>;
+        resumedStatus = typeof snapshot.status === "string" ? snapshot.status : "";
+        const terminalFacts = Array.isArray(snapshot.terminal_events) ? snapshot.terminal_events : [];
+        const terminalFact = terminalFacts.at(-1);
+        if (terminalFact && typeof terminalFact === "object") {
+          const summary = (terminalFact as Record<string, unknown>).verifier_summary;
+          const evaluationError = (terminalFact as Record<string, unknown>).evaluation_error;
+          resumedSummary = typeof summary === "string"
+            ? summary
+            : typeof evaluationError === "string" ? evaluationError : "";
+        }
+        if (["completed", "failed", "cancelled"].includes(resumedStatus)) {
+          terminalObservedAt ||= Date.now();
+          if (terminalFacts.length > 0 || Date.now() - terminalObservedAt >= 200) break;
+        }
+        await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+      }
+      if (!resumedStatus || !["completed", "failed", "cancelled"].includes(resumedStatus)) {
+        throw new Error("checkpoint/resume 恢复运行未在时限内进入终态");
+      }
+      for (let index = events.length - 1; index >= 0; index -= 1) {
+        if (events[index]?.event === "error") events.splice(index, 1);
+      }
+      events.push(resumedStatus === "completed"
+        ? { event: "done", data: { final_content: "检查点恢复完成", metrics: {} } }
+        : { event: "error", data: { message: `检查点恢复终态: ${resumedStatus}${resumedSummary ? ` (${resumedSummary})` : ""}` } });
+    }
+
+    if (scenario.evaluationFault?.kind === "steering_message") {
+      const statusEvent = events.find((item) => item.event === "status" && typeof item.data.run_id === "string");
+      const steeringRunId = statusEvent?.data.run_id;
+      if (typeof steeringRunId === "string" && events.some((item) => item.event === "error")) {
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          const snapshotResponse = await fetchFn(`${baseUrl}/runs/${encodeURIComponent(steeringRunId)}/snapshot`, {
+            headers: options.evaluationAuth
+              ? {
+                  "X-Evaluation-Nonce": options.evaluationAuth.nonce,
+                  "X-Evaluation-Instance-Id": options.evaluationAuth.instanceId,
+                }
+              : {},
+          });
+          if (!snapshotResponse.ok) break;
+          const snapshot = await snapshotResponse.json() as Record<string, unknown>;
+          const terminalFacts = Array.isArray(snapshot.terminal_events) ? snapshot.terminal_events : [];
+          const fact = terminalFacts.at(-1);
+          const factRecord = fact && typeof fact === "object" ? fact as Record<string, unknown> : {};
+          const diagnostic = typeof factRecord.evaluation_error === "string"
+            ? factRecord.evaluation_error
+            : typeof factRecord.verifier_summary === "string" ? factRecord.verifier_summary : undefined;
+          if (typeof diagnostic === "string") {
+            const terminalError = [...events].reverse().find((item) => item.event === "error");
+            if (terminalError) terminalError.data.message = `steering 运行失败: ${diagnostic}`;
+            break;
+          }
+          await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+        }
+      }
+    }
+
+    if (scenario.evaluationFault?.kind === "sse_duplicate_terminal") {
+      const terminal = [...events].reverse().find((item) => item.event === "done" || item.event === "error");
+      if (terminal) events.push(structuredClone(terminal));
+    } else if (scenario.evaluationFault?.kind === "sse_contradictory_terminal") {
+      const terminal = [...events].reverse().find((item) => item.event === "done" || item.event === "error");
+      if (terminal) {
+        events.push({
+          event: terminal.event === "done" ? "error" : "done",
+          data: terminal.event === "done"
+            ? { message: "评测注入的矛盾终态" }
+            : { final_content: "评测注入的矛盾终态", metrics: {} },
+        });
+      }
+    }
 
     const status = events.find((item) => item.event === "status" && item.data.run_id);
     const done = [...events].reverse().find((item) => item.event === "done");
     const error = [...events].reverse().find((item) => item.event === "error");
+    const terminalEvents = events
+      .filter((item) => item.event === "done" || item.event === "error")
+      .map((item) => item.event);
+    const duplicateTerminal = terminalEvents.length > 1
+      && new Set(terminalEvents).size === 1;
+    const contradictoryTerminal = new Set(terminalEvents).size > 1;
     const budgetExceeded = [...events].reverse().find((item) => item.event === "evaluation_budget_exceeded");
     const metrics = done?.data.metrics && typeof done.data.metrics === "object"
       ? done.data.metrics as Record<string, unknown>
@@ -271,7 +459,9 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
         ? status!.data.selected_skills.filter((item): item is string => typeof item === "string")
         : [],
       evidence: [...new Set(toolNames)],
-      terminalStatus: done ? "completed" : error ? "failed" : "blocked",
+      terminalStatus: duplicateTerminal || contradictoryTerminal
+        ? "failed"
+        : error ? "failed" : done ? "completed" : "blocked",
       latencyMs: typeof metrics.latency_ms === "number" ? metrics.latency_ms : Date.now() - started,
       inputTokens,
       outputTokens,
@@ -287,6 +477,15 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
       // graders see empty trajectory_facts/side_effect_facts and cannot
       // detect authority or trajectory violations.
       runId: typeof status?.data.run_id === "string" ? status!.data.run_id : undefined,
+      runtimeEvidence: {
+        duplicateTerminal,
+        contradictoryTerminal,
+        cancellationRequested: scenario.evaluationFault?.kind === "cancel_signal" && controlScheduled,
+        steeringRequested: scenario.evaluationFault?.kind === "steering_message" && controlScheduled,
+        terminalEvents,
+        toolCallAttempts: toolNames.length,
+        repeatedToolCalls: Math.max(0, toolNames.length - new Set(toolNames).size),
+      },
     };
   };
 }

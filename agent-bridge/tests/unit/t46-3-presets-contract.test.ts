@@ -89,8 +89,9 @@ describe("DEMO_SCENARIOS — P0 coverage", () => {
     expect(DEMO_SCENARIOS.some((s) => s.scenarioId === "plan-proposal-confirm")).toBe(true);
   });
 
-  it("includes the plan-proposal-reject P0 scenario", () => {
-    expect(DEMO_SCENARIOS.some((s) => s.scenarioId === "plan-proposal-reject")).toBe(true);
+  it("keeps plan-proposal-reject in full because demo is capped at five scenarios", () => {
+    expect(DEMO_SCENARIOS.some((s) => s.scenarioId === "plan-proposal-reject")).toBe(false);
+    expect(FULL_SCENARIOS.some((s) => s.scenarioId === "plan-proposal-reject")).toBe(true);
   });
 });
 
@@ -129,8 +130,8 @@ describe("SLICE_0_SMOKE_BUDGET — cost cap", () => {
 });
 
 describe("T46_3_P0_SCENARIO_IDS — all required P0 IDs", () => {
-  it("includes all 6 required P0 scenario IDs", () => {
-    expect(T46_3_P0_SCENARIO_IDS).toEqual([
+  it("includes the six domain/controller P0 IDs plus every runtime fault P0", () => {
+    expect(T46_3_P0_SCENARIO_IDS.slice(0, 6)).toEqual([
       "answer-no-tool-v2",
       "plan-proposal-confirm",
       "plan-proposal-reject",
@@ -138,6 +139,9 @@ describe("T46_3_P0_SCENARIO_IDS — all required P0 IDs", () => {
       "skill-eval-project-planning-p0",
       "runtime-fault-cancellation-p0",
     ]);
+    expect(T46_3_P0_SCENARIO_IDS).toHaveLength(16);
+    expect(T46_3_P0_SCENARIO_IDS).toContain("runtime-fault-duplicate-terminal-p0");
+    expect(T46_3_P0_SCENARIO_IDS).toContain("runtime-fault-contradictory-terminal-p0");
   });
 
   it("all P0 scenario IDs appear in the DEMO or FULL preset", () => {

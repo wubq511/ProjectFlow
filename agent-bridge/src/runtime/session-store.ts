@@ -66,6 +66,12 @@ export class SessionStore {
     return value;
   }
 
+  /** Observe steering without consuming the flag. Used to suppress a
+   * transient aborted model terminal while the loop is about to re-enter. */
+  hasSteeringAvailable(runId: string): boolean {
+    return this.steeringAvailable.get(runId) ?? false;
+  }
+
   /** Get all active runs. */
   getActiveRuns(): AgentRunState[] {
     return Array.from(this.runs.values()).filter(

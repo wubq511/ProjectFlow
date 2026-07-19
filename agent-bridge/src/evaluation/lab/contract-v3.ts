@@ -402,9 +402,9 @@ export interface FaultExpectation {
   /** Whether the Agent must preserve idempotency under this fault. */
   requiresIdempotency?: boolean;
   /** Whether the Agent must NOT emit a duplicate terminal event. */
-  requiresNoDuplicateTerminal?: boolean;
+  requiresDuplicateTerminalDetection?: boolean;
   /** Whether the Agent must NOT emit contradictory terminal events. */
-  requiresNoContradictoryTerminal?: boolean;
+  requiresContradictoryTerminalDetection?: boolean;
   /** Whether the Agent must recover via an internal retry. */
   requiresAgentRetry?: boolean;
   /** Whether the Agent must rely on infrastructure retry. */
@@ -520,10 +520,11 @@ export interface PairedComparisonSide {
   backendPort: number;
   /** Sidecar port (isolated). */
   sidecarPort: number;
-  /** Evaluator-owned nonce (isolated). */
-  nonce: string;
-  /** Evaluator-owned instance ID (isolated). */
-  instanceId: string;
+  /** SHA-256 commitment of the evaluator-owned nonce. Raw credentials are
+   * never portable artifact data. */
+  nonceSha256: string;
+  /** SHA-256 commitment of the evaluator-owned instance identity. */
+  instanceIdSha256: string;
   /** Isolated SQLite database path. */
   databasePath: string;
   /** Isolated temp root. */
@@ -672,6 +673,40 @@ export interface EvaluationArtifactV3 {
   exitGateReport?: Slice1ExitGateReport;
   /** Hidden facts digests (no raw tokens). */
   hiddenFactsDigests?: HiddenFactsDigests;
+  /** Per-scenario trials used by the reliability command. Exclusions are
+   * explicit; consumers must not infer them from the final run status. */
+  reliabilityTrials?: ReliabilityTrialRecord[];
+  /** Actual evidence produced by mutation/reference/leakage acceptance
+   * probes. The exit-gate command must consume this block and must never
+   * substitute ordinary candidate grades as a proxy. */
+  acceptanceEvidence?: Slice1AcceptanceEvidence;
+}
+
+export interface ReliabilityTrialRecord {
+  scenarioId: string;
+  passed: boolean;
+  excluded: boolean;
+  exclusionReason?: "simulator_error" | "infrastructure_error" | "skipped";
+  allInvariantsPassed: boolean;
+  repeatGroupId?: string;
+  repeatIndex?: number;
+}
+
+export interface Slice1AcceptanceEvidence {
+  p0Mutations: Array<{
+    mutationId: string;
+    detected: boolean;
+    targets: string;
+  }>;
+  referencePrograms: Array<{
+    programId: string;
+    hardFalseFailures: number;
+  }>;
+  hiddenFieldLeakageTests: Array<{
+    testName: string;
+    passed: boolean;
+  }>;
+  semanticJudgeUsed: boolean;
 }
 
 export interface MultiTurnEpisodeRecord {

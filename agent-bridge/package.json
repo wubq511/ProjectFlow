@@ -22,7 +22,10 @@
     "eval:show": "tsx src/evaluation/lab/cli.ts show",
     "eval:status": "tsx src/evaluation/lab/cli.ts status",
     "eval:verify": "tsx src/evaluation/lab/cli.ts verify",
-    "eval:validate": "tsx src/evaluation/lab/cli.ts validate"
+    "eval:validate": "tsx src/evaluation/lab/cli.ts validate",
+    "eval:exit-gate": "tsx src/evaluation/lab/cli.ts exit-gate",
+    "eval:reliability": "tsx src/evaluation/lab/cli.ts reliability",
+    "eval:compare": "tsx src/evaluation/lab/cli.ts compare"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.80.3",

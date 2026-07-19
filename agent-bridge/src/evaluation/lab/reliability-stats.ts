@@ -7,8 +7,9 @@
  *  - empirical_all_k_reliability: (# of trials where all k invocations
  *    passed) / total k-trial groups
  *  - pass_at_k: 1 - ((1 - p)^k) where p is the observed pass rate
- *    (modeled, not empirical)
- *  - modeled_pass_k: same formula but with a Beta prior on p
+ *    (modeled probability that at least one of k succeeds)
+ *  - modeled_pass_k: E[p^k | data] with a Beta prior (modeled
+ *    probability that all k independent attempts succeed)
  *  - all_invariant_pass: # of trials where all hard invariants passed
  *    / denominator
  *  - confidence_interval: Wilson score interval on the observed pass rate
@@ -53,7 +54,13 @@ export interface ReliabilityTrial {
 /** Compute the full reliability report for a list of trials. */
 export function computeReliabilityReport(
   trials: ReliabilityTrial[],
-  options: { preset: "demo" | "smoke" | "smoke-v2" | "full"; confidenceLevel?: number },
+  options: {
+    preset: "demo" | "smoke" | "smoke-v2" | "full";
+    confidenceLevel?: number;
+    /** k for modeled pass@k/pass^k. Defaults to the largest observed
+     * repeat group, or 1 when the artifact has no repeated trials. */
+    k?: number;
+  },
 ): ReliabilityReport {
   const confidenceLevel = options.confidenceLevel ?? DEFAULT_CONFIDENCE_LEVEL;
   const included = trials.filter((t) => !t.excluded);
@@ -79,12 +86,17 @@ export function computeReliabilityReport(
   // §2 empirical_all_k_reliability
   const repeatGroups = groupRepeatGroups(included);
   const empiricalAllK = computeEmpiricalAllK(repeatGroups);
+  const observedK = repeatGroups.reduce((maximum, group) => Math.max(maximum, group.length), 1);
+  const k = options.k ?? observedK;
+  if (!Number.isInteger(k) || k < 1) {
+    throw new Error("可靠性指标 k 必须是正整数");
+  }
 
-  // §3 pass_at_k (modeled, k=1)
-  const passAtK1 = computePassAtK(passed, denominator, 1);
+  // §3 pass_at_k: modeled probability that at least one of k succeeds.
+  const passAtK = computePassAtK(passed, denominator, k, excludedTrials);
 
-  // §4 modeled_pass_k (Beta prior, k=1)
-  const modeledPassK1 = computeModeledPassK(passed, denominator, 1);
+  // §4 modeled_pass_k: modeled probability that all k succeed.
+  const modeledPassK = computeModeledPassK(passed, denominator, k, excludedTrials);
 
   // §5 all_invariant_pass
   const allInvariantPass: ReliabilityMetric = {
@@ -104,8 +116,8 @@ export function computeReliabilityReport(
   const metrics: ReliabilityMetric[] = [
     observedTrialPassRate,
     empiricalAllK,
-    passAtK1,
-    modeledPassK1,
+    passAtK,
+    modeledPassK,
     allInvariantPass,
     ci,
   ];
@@ -168,14 +180,19 @@ function computeEmpiricalAllK(groups: ReliabilityTrial[][]): ReliabilityMetric {
   };
 }
 
-function computePassAtK(passed: number, denominator: number, k: number): ReliabilityMetric {
+function computePassAtK(
+  passed: number,
+  denominator: number,
+  k: number,
+  excluded: number,
+): ReliabilityMetric {
   if (denominator === 0) {
     return {
       kind: "pass_at_k",
       value: null,
       numerator: 0,
       denominator: 0,
-      excluded: 0,
+      excluded,
       assumptions: [`k=${k}`, "p = 观察通过率", "pass@k = 1 - (1-p)^k"],
       sampleSize: 0,
       sufficientEvidence: false,
@@ -189,7 +206,7 @@ function computePassAtK(passed: number, denominator: number, k: number): Reliabi
     value,
     numerator: passed,
     denominator,
-    excluded: 0,
+    excluded,
     assumptions: [`k=${k}`, "p = 观察通过率", "pass@k = 1 - (1-p)^k", "各次尝试独立同分布"],
     sampleSize: denominator,
     sufficientEvidence: denominator > 0,
@@ -197,19 +214,24 @@ function computePassAtK(passed: number, denominator: number, k: number): Reliabi
   };
 }
 
-function computeModeledPassK(passed: number, denominator: number, k: number): ReliabilityMetric {
+function computeModeledPassK(
+  passed: number,
+  denominator: number,
+  k: number,
+  excluded: number,
+): ReliabilityMetric {
   // Beta(α=1, β=1) uniform prior; posterior is Beta(1+passed, 1+failed).
-  // E[1 - (1-p)^k | data] = 1 - E[(1-p)^k | data].
-  // For Beta(a, b), E[(1-p)^k] = Γ(b+k)Γ(a+b) / (Γ(b)Γ(a+b+k)).
-  // For integer k, this is ∏_{i=0}^{k-1} (b+i) / (a+b+i).
+  // E[p^k | data] for Beta(a, b) is
+  // Γ(a+k)Γ(a+b) / (Γ(a)Γ(a+b+k)). For integer k this is
+  // ∏_{i=0}^{k-1} (a+i) / (a+b+i).
   if (denominator === 0) {
     return {
       kind: "modeled_pass_k",
       value: null,
       numerator: 0,
       denominator: 0,
-      excluded: 0,
-      assumptions: [`k=${k}`, "先验: Beta(1,1) 均匀分布", "后验: Beta(1+passed, 1+failed)"],
+      excluded,
+      assumptions: [`k=${k}`, "先验: Beta(1,1) 均匀分布", "后验: Beta(1+passed, 1+failed)", "pass^k 表示 k 次全部成功"],
       sampleSize: 0,
       sufficientEvidence: false,
       k,
@@ -217,22 +239,22 @@ function computeModeledPassK(passed: number, denominator: number, k: number): Re
   }
   const a = 1 + passed;
   const b = 1 + (denominator - passed);
-  let eOneMinusPK = 1;
+  let expectedAllK = 1;
   for (let i = 0; i < k; i++) {
-    eOneMinusPK *= (b + i) / (a + b + i);
+    expectedAllK *= (a + i) / (a + b + i);
   }
-  const value = 1 - eOneMinusPK;
   return {
     kind: "modeled_pass_k",
-    value,
+    value: expectedAllK,
     numerator: passed,
     denominator,
-    excluded: 0,
+    excluded,
     assumptions: [
       `k=${k}`,
       "先验: Beta(1,1) 均匀分布",
       "后验: Beta(1+passed, 1+failed)",
-      "modeled pass^k = 1 - E[(1-p)^k | data]",
+      "modeled pass^k = E[p^k | data]",
+      "各次尝试独立且成功概率恒定",
     ],
     sampleSize: denominator,
     sufficientEvidence: denominator > 0,

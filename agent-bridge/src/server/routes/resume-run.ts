@@ -189,16 +189,36 @@ export async function handleResumeRun(
     };
 
     // Step 12: Create local run state from rehydrated data
+    const rehydratedModel = rehydrateResult.runState!.model;
+    const durableModel = {
+      provider: typeof snapshot.model_provider === "string" ? snapshot.model_provider : rehydratedModel.provider,
+      name: typeof snapshot.model_name === "string" ? snapshot.model_name : rehydratedModel.name,
+    };
     const runState = createRunState({
       runId,
       conversationId: rehydrateResult.runState!.conversationId,
       workspaceId: rehydrateResult.runState!.workspaceId,
       projectId: rehydrateResult.runState!.projectId,
-      model: rehydrateResult.runState!.model,
+      model: rehydratedModel.provider === "unknown" || rehydratedModel.name === "unknown"
+        ? durableModel
+        : rehydratedModel,
       maxSteps: rehydrateResult.runState!.budgetLimits.maxSteps,
       maxToolCalls: rehydrateResult.runState!.budgetLimits.maxToolCalls,
       timeoutMs: rehydrateResult.runState!.budgetLimits.timeoutMs,
     });
+    if (typeof snapshot.resolved_model_provider === "string" && typeof snapshot.resolved_model_name === "string") {
+      runState.resolvedModel = {
+        provider: snapshot.resolved_model_provider,
+        name: snapshot.resolved_model_name,
+      };
+    }
+    runState.status = typeof snapshot.status === "string"
+      ? snapshot.status as typeof runState.status
+      : rehydrateResult.runState!.status;
+    runState.toolResults = [...rehydrateResult.runState!.toolResults];
+    runState.sideEffects = [...rehydrateResult.runState!.sideEffects];
+    runState.currentStep = rehydrateResult.runState!.currentStep;
+    runState.currentTurn = rehydrateResult.runState!.currentTurn;
     // Restore sequence counter and state version from durable baseline
     runState.lastEventSeq = resumeContext.lastEventSeq;
     runState.stateVersion = resumeContext.stateVersion;

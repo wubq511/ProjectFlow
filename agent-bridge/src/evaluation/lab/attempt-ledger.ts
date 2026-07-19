@@ -182,6 +182,7 @@ export function aggregateLedger(entries: AttemptLedgerEntry[]): AttemptLedger {
 export function verifyLedgerInvariants(ledger: AttemptLedger): string[] {
   const violations: string[] = [];
   const seenIds = new Set<string>();
+  const allIds = new Set(ledger.entries.map((entry) => entry.attemptId));
   for (const entry of ledger.entries) {
     if (seenIds.has(entry.attemptId)) {
       violations.push(`重复 attempt ID: ${entry.attemptId}`);
@@ -197,9 +198,10 @@ export function verifyLedgerInvariants(ledger: AttemptLedger): string[] {
         `attempt ${entry.attemptId} 引用未知或被过滤的 retryOf ${entry.retryOf}`,
       );
     }
-    if (entry.recoveredBy && !seenIds.has(entry.recoveredBy)) {
-      // recoveredBy is set via markRecovered; if the recovering entry
-      // is not in the ledger, the pointer is dangling.
+    if (entry.recoveredBy && !allIds.has(entry.recoveredBy)) {
+      // recoveredBy necessarily points forward in an append-only ledger.
+      // Validate against the complete ID set rather than the prefix seen so
+      // far, otherwise every legitimate recovery is reported as dangling.
       violations.push(
         `attempt ${entry.attemptId} 的 recoveredBy 指向未知 attempt ${entry.recoveredBy}`,
       );

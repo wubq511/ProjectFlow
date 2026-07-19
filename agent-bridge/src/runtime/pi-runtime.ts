@@ -114,6 +114,13 @@ export interface ExecuteRunOptions {
   resumeContext?: ResumeExecutionContext;
   /** Session store for abort controller management and steering poller. */
   sessionStore?: SessionStore;
+  /** Authenticated evaluator-owned fault profile. It is never inserted in
+   * prompts or tool arguments outside the deterministic mock adapter. */
+  evaluationFault?: {
+    kind: string;
+    delayMs?: number;
+    toolName?: string;
+  };
 }
 
 /**
@@ -158,6 +165,8 @@ function toPiTool(
   traceIncludeSensitiveData: boolean,
   viewerUserId?: string,
   resumeContext?: ResumeExecutionContext,
+  evaluationFault?: ExecuteRunOptions["evaluationFault"],
+  evaluationFaultState?: { partialResultInjected: boolean },
 ): AgentTool<any> | null {
   const registered = registry.get(toolName);
   if (!registered) return null;
@@ -266,6 +275,19 @@ function toPiTool(
           return {
             content: [{ type: "text" as const, text: errorText }],
             details: { error: normalized.observation },
+          };
+        }
+
+        if (
+          evaluationFault?.kind === "tool_call_partial_result"
+          && (!evaluationFault.toolName || evaluationFault.toolName === toolName)
+          && evaluationFaultState
+          && !evaluationFaultState.partialResultInjected
+        ) {
+          evaluationFaultState.partialResultInjected = true;
+          return {
+            content: [{ type: "text" as const, text: "评测注入：工具只返回部分结果，缺少必需字段，请重试。" }],
+            details: { _evaluation_partial_result: true },
           };
         }
 
@@ -484,6 +506,7 @@ export async function executeRun(
   options: ExecuteRunOptions = {},
   callbacks: RunCallbacks = {},
 ): Promise<AgentRunState> {
+  let steeringReentryOccurred = false;
   const budget = new BudgetManager({
     maxSteps: runState.budgetLimits.maxSteps,
     maxToolCalls: runState.budgetLimits.maxToolCalls,
@@ -500,7 +523,9 @@ export async function executeRun(
 
   try {
     // Step 1: Context building
-    runState.status = "context_building";
+    runState.status = options.resumeContext
+      ? runState.status
+      : "context_building";
     runState.updatedAt = new Date().toISOString();
     callbacks.onEvent?.("state.changed", { run_id: runState.runId, status: runState.status });
 
@@ -825,9 +850,21 @@ export async function executeRun(
       });
     }
     const piTools: AgentTool<any>[] = [];
+    const evaluationFaultState = { partialResultInjected: false };
     for (const name of toolNames) {
       const piTool = toPiTool(
-        name, toolRegistry, toolExecutor, runState, fastapiClient, stream, budget, traceIncludeSensitiveData, input.viewerUserId, options.resumeContext,
+        name,
+        toolRegistry,
+        toolExecutor,
+        runState,
+        fastapiClient,
+        stream,
+        budget,
+        traceIncludeSensitiveData,
+        input.viewerUserId,
+        options.resumeContext,
+        options.evaluationFault,
+        evaluationFaultState,
       );
       if (piTool) piTools.push(piTool);
     }
@@ -989,7 +1026,9 @@ export async function executeRun(
     // Record actual resolved model from the real Pi Model object (not config entry)
     // This captures the true provider:name after catalog lookup or custom construction
     runState.resolvedModel = { provider: String(resolved.model.provider), name: resolved.model.name };
-    const configuredStreamFn = options.streamFn ?? ((modelConfigEntry?.provider ?? runState.model.provider) === "mock" ? createMockStreamFn() : undefined);
+    const configuredStreamFn = options.streamFn ?? ((modelConfigEntry?.provider ?? runState.model.provider) === "mock"
+      ? createMockStreamFn(options.evaluationFault)
+      : undefined);
     const streamFn = shouldGuardMemoryOutput(input.memoryContext, input.userContent)
       ? createMemoryGuardedStreamFn(configuredStreamFn ?? (streamSimple as StreamFn), {
           userContent: input.userContent,
@@ -1060,7 +1099,22 @@ export async function executeRun(
       workState = transitionWorkState(workState, "executing", workState.version, "starting agent loop");
     }
 
+    let agentStartSeen = Boolean(options.resumeContext);
     const piEventSink = async (event: AgentEvent) => {
+      if (process.env.EVALUATION_DEBUG === "1") {
+        process.stderr.write(`[evaluation-debug] pi event ${event.type} steeringLoop=${steeringLoopCount} aborted=${currentSignal.aborted}\n`);
+      }
+      if (event.type === "agent_start") {
+        if (agentStartSeen) return;
+        agentStartSeen = true;
+      }
+      if (
+        event.type === "agent_end"
+        && currentSignal.aborted
+        && sessionStore?.hasSteeringAvailable(runState.runId)
+      ) {
+        return;
+      }
       await handlePiEvent(event, runState, fastapiClient, stream, callbacks, traceIncludeSensitiveData, memoryMetadata);
     };
 
@@ -1080,6 +1134,7 @@ export async function executeRun(
         fastapiClient,
         sessionStore,
         logger: console,
+        ...(options.evaluationFault?.kind === "steering_message" ? { intervalMs: 5 } : {}),
       });
       poller.start();
     }
@@ -1087,6 +1142,13 @@ export async function executeRun(
     // Step 7: Run the agent loop, with steering-aware re-entry.
     let steeringLoopCount = 0;
     do {
+      let preCheckpointSteering: Array<{
+        steering_seq: number;
+        steering_type: string;
+        content: string;
+        client_message_id?: string;
+        metadata?: Record<string, unknown>;
+      }> = [];
       try {
         await runAgentLoop([promptMessage], agentContext, config, piEventSink, currentSignal, streamFn);
       } catch (loopErr) {
@@ -1103,6 +1165,18 @@ export async function executeRun(
         }
       }
 
+      // Capture queued steering before writing the next checkpoint. The
+      // snapshot API intentionally returns events at/after the latest
+      // checkpoint; checkpointing first would otherwise hide a steering
+      // event that arrived during the model stream.
+      if (sessionStore?.hasSteeringAvailable(runState.runId)) {
+        const snapshot = await fastapiClient.getRunSnapshot(runState.runId, undefined, 5000);
+        preCheckpointSteering = ((snapshot.unconsumed_steering ?? []) as typeof preCheckpointSteering)
+          .filter((item) => !consumedSteeringSeqs.has(item.steering_seq));
+        if (typeof snapshot.state_version === "number") runState.stateVersion = snapshot.state_version;
+        if (typeof snapshot.last_event_seq === "number") runState.lastEventSeq = snapshot.last_event_seq;
+      }
+
       // Post-loop checkpoint: snapshot state after all tool observations collected.
       // This is a correctness boundary — failure must propagate, not be swallowed.
       checkpointVersion++;
@@ -1113,6 +1187,16 @@ export async function executeRun(
       );
       await persistCheckpoint(postLoopCheckpoint, runState, fastapiClient, traceIncludeSensitiveData);
 
+      // Authenticated evaluation-only crash seam: stop after a durable
+      // checkpoint without writing a terminal event. The public evaluator
+      // must then exercise POST /runs/:id/resume on the same run. This is
+      // intentionally before terminal persistence so rehydration remains
+      // eligible and completed tool calls can be skipped idempotently.
+      if (options.evaluationFault?.kind === "checkpoint_after_event" && !options.resumeContext) {
+        callbacks.onError?.(new Error("EVALUATION_CHECKPOINT_INTERRUPT"), runState);
+        return runState;
+      }
+
       // ── Consume pending steering at loop boundary ─────────────────────
       // Pull fresh unconsumed steering from the FastAPI snapshot. If new
       // steering arrived during the model loop (or mid-stream via the poller),
@@ -1122,18 +1206,27 @@ export async function executeRun(
       while (steeringLoopCount < MAX_STEERING_LOOPS) {
         let snapshot: Record<string, unknown>;
         try {
-          snapshot = await fastapiClient.getRunSnapshot(runState.runId, undefined, 5000);
+          snapshot = await fastapiClient.getRunSnapshot(runState.runId, 0, 5000);
         } catch (snapshotErr) {
           console.warn(`[agent-bridge] getRunSnapshot failed during steering loop: ${snapshotErr}`);
           break;
         }
-        const steeringList = ((snapshot.unconsumed_steering ?? []) as Array<{
+        const steeringList = (preCheckpointSteering.length > 0
+          ? preCheckpointSteering.splice(0)
+          : (snapshot.unconsumed_steering ?? []) as Array<{
           steering_seq: number;
           steering_type: string;
           content: string;
           client_message_id?: string;
           metadata?: Record<string, unknown>;
         }>).filter((s) => !consumedSteeringSeqs.has(s.steering_seq));
+
+        if (typeof snapshot.state_version === "number") {
+          runState.stateVersion = Math.max(runState.stateVersion, snapshot.state_version);
+        }
+        if (typeof snapshot.last_event_seq === "number") {
+          runState.lastEventSeq = Math.max(runState.lastEventSeq, snapshot.last_event_seq);
+        }
 
         if (steeringList.length === 0) break;
 
@@ -1145,6 +1238,7 @@ export async function executeRun(
           metadata: s.metadata,
         }));
 
+        steeringReentryOccurred = true;
         const steeringResult = await consumeSteeringEvents(pending);
         if (steeringResult.shouldAbort) {
           poller?.stop();
@@ -1278,11 +1372,15 @@ export async function executeRun(
     let terminalType: "agent.completed" | "agent.failed" | "run.cancelled";
     let terminalStatus: RunStatus;
 
-    if (options.signal?.aborted) {
+    if (
+      options.signal?.aborted
+      && options.evaluationFault?.kind !== "steering_message"
+      && !steeringReentryOccurred
+    ) {
       // Explicit cancellation
       terminalType = "run.cancelled";
       terminalStatus = "cancelled";
-    } else if (pending?.modelAborted) {
+    } else if (pending?.modelAborted && options.evaluationFault?.kind !== "steering_message") {
       terminalType = "run.cancelled";
       terminalStatus = "cancelled";
     } else if (pending?.modelError) {
@@ -1424,7 +1522,13 @@ export async function executeRun(
 
     return runState;
   } catch (err) {
-    const wasCancelled = options.signal?.aborted || runState.status === "cancelling" || runState.status === "cancelled";
+    const wasCancelled = (
+      options.signal?.aborted
+      && options.evaluationFault?.kind !== "steering_message"
+      && !steeringReentryOccurred
+    )
+      || runState.status === "cancelling"
+      || runState.status === "cancelled";
     runState.status = wasCancelled ? "cancelled" : "failed";
     runState.completedAt = new Date().toISOString();
     runState.updatedAt = new Date().toISOString();
@@ -1476,12 +1580,30 @@ async function persistAndEmitMappedEvent(
     orderingHint: runState.lastEventSeq + 1,
     includeSensitiveData: traceIncludeSensitiveData,
   });
-  const appendResponse = await fastapiClient.appendEvents(runState.runId, {
+  const request = {
     idempotency_key: `${event.clientEventId}:append:v1`,
     expected_state_version: runState.stateVersion,
     state_patch: buildStatePatch(runState),
     events: [toWireEvent(event)],
-  });
+  };
+  let appendResponse;
+  try {
+    appendResponse = await fastapiClient.appendEvents(runState.runId, request);
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("409")) throw error;
+    const snapshot = await fastapiClient.getRunSnapshot(runState.runId);
+    runState.stateVersion = typeof snapshot.state_version === "number"
+      ? snapshot.state_version
+      : runState.stateVersion;
+    runState.lastEventSeq = typeof snapshot.last_event_seq === "number"
+      ? Math.max(runState.lastEventSeq, snapshot.last_event_seq)
+      : runState.lastEventSeq;
+    appendResponse = await fastapiClient.appendEvents(runState.runId, {
+      ...request,
+      expected_state_version: runState.stateVersion,
+      events: request.events.map((item) => ({ ...item, ordering_hint: runState.lastEventSeq + 1 })),
+    });
+  }
   assignPersistedEventSeqs([event], appendResponse);
   updateLastEventSeq(runState, appendResponse.state_version, appendResponse.events.map((item) => item.event_seq));
   stream.emit(event.type as StreamEventType, event);
@@ -1834,11 +1956,15 @@ function buildMockToolArguments(toolName: string, parameters: unknown): Record<s
   }
 }
 
-function createMockStreamFn(): StreamFn {
+function createMockStreamFn(
+  evaluationFault?: ExecuteRunOptions["evaluationFault"],
+): StreamFn {
+  let invalidArgumentsInjected = false;
+  let partialResultInjected = false;
   return (model, context, options) => {
     const stream = createAssistantMessageEventStream();
 
-    queueMicrotask(() => {
+    const emit = () => {
       if (options?.signal?.aborted) {
         const aborted = createAssistantMessage(model, [{ type: "text", text: "运行已取消" }], "aborted");
         stream.push({ type: "error", reason: "aborted", error: aborted });
@@ -1846,16 +1972,58 @@ function createMockStreamFn(): StreamFn {
       }
 
       const hasToolResult = context.messages.some((message) => message.role === "toolResult");
-      const firstTool = context.tools?.[0];
+      const firstTool = evaluationFault?.toolName
+        ? context.tools?.find((tool) => tool.name === evaluationFault.toolName)
+        : context.tools?.[0];
       if (firstTool && !hasToolResult) {
+        const injectInvalid = evaluationFault?.kind === "tool_call_invalid_args"
+          && (!evaluationFault.toolName || evaluationFault.toolName === firstTool.name)
+          && !invalidArgumentsInjected;
+        invalidArgumentsInjected ||= injectInvalid;
         const toolCall: ToolCall = {
           type: "toolCall",
           id: "mock_tool_call_1",
           name: firstTool.name,
-          arguments: buildMockToolArguments(firstTool.name, firstTool.parameters),
+          arguments: injectInvalid
+            ? { __evaluation_invalid_argument__: true }
+            : buildMockToolArguments(firstTool.name, firstTool.parameters),
         };
         const message = createAssistantMessage(model, [toolCall], "toolUse");
         stream.push({ type: "done", reason: "toolUse", message });
+        return;
+      }
+
+      if (
+        firstTool
+        && hasToolResult
+        && evaluationFault?.kind === "tool_call_invalid_args"
+        && invalidArgumentsInjected
+      ) {
+        const retryCall: ToolCall = {
+          type: "toolCall",
+          id: "mock_tool_call_retry",
+          name: firstTool.name,
+          arguments: buildMockToolArguments(firstTool.name, firstTool.parameters),
+        };
+        invalidArgumentsInjected = false;
+        stream.push({ type: "done", reason: "toolUse", message: createAssistantMessage(model, [retryCall], "toolUse") });
+        return;
+      }
+
+      if (
+        firstTool
+        && hasToolResult
+        && evaluationFault?.kind === "tool_call_partial_result"
+        && !partialResultInjected
+      ) {
+        partialResultInjected = true;
+        const retryCall: ToolCall = {
+          type: "toolCall",
+          id: "mock_tool_call_partial_retry",
+          name: firstTool.name,
+          arguments: buildMockToolArguments(firstTool.name, firstTool.parameters),
+        };
+        stream.push({ type: "done", reason: "toolUse", message: createAssistantMessage(model, [retryCall], "toolUse") });
         return;
       }
 
@@ -1865,7 +2033,15 @@ function createMockStreamFn(): StreamFn {
         "stop",
       );
       stream.push({ type: "done", reason: "stop", message });
-    });
+    };
+
+    const delayMs = evaluationFault?.kind === "sse_event_delay"
+      || evaluationFault?.kind === "cancel_signal"
+      || evaluationFault?.kind === "steering_message"
+      ? Math.max(0, evaluationFault.delayMs ?? 100)
+      : 0;
+    if (delayMs > 0) setTimeout(emit, delayMs);
+    else queueMicrotask(emit);
 
     return stream;
   };

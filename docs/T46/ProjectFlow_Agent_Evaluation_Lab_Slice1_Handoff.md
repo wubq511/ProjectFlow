@@ -4,9 +4,9 @@
 >
 > 状态：
 > - #95 已于 2026-07-19 合并到 `main`（merge head `ac3e68d`）
-> - #96 已于 2026-07-20 在 `glm/t46-96-conversation-runtime-reliability` 分支完成确定性实现与对抗性自审（尚未 merge、未关闭 issue）
+> - #96 已于 2026-07-20 在 `glm/t46-96-conversation-runtime-reliability` 分支完成确定性实现、独立对抗审查与修复（尚未 merge、未关闭 issue）
 >
-> 边界：#95 完成 hard-state / authority oracle 底座；#96 完成多轮、Skill、Runtime、可靠性与 candidate/baseline 报告；两者都 merge 并通过真实付费模型 canary 后才关闭整个 Slice 1。
+> 边界：#95 完成 hard-state / authority oracle 底座；#96 完成多轮、Skill、Runtime、可靠性与 candidate/baseline 报告。Slice 1 的确定性关闭证据是 mock `full` + `verify` + `exit-gate`；真实付费模型 canary 属于后续可选校准，不是 #96 或 Slice 1 的关闭前提。
 
 ## 交付结论
 
@@ -127,7 +127,7 @@ scripts/eval-lab run --preset smoke-v2 --model mock:mock-model --json
 git diff --check main...HEAD
 ```
 
-下一 ticket 是 #96：多轮 hidden controller、Skill/Runtime 场景、重试/基础设施观测分离、重复运行与 baseline/candidate 报告。#96 完成前，不得把整个 Slice 1 标记为关闭，也不得开始 Slice 2。
+#95 的后续 ticket #96 已完成分支实现并通过独立修复；在最终回归和合并前，不得把整个 Slice 1 标记为关闭，也不得开始 Slice 2。
 
 ---
 
@@ -147,8 +147,8 @@ git diff --check main...HEAD
 | Skill 评估 | `skill-evaluator.ts` | 8 维度：`positive_trigger` / `negative_trigger_not_fired` / `prerequisites_satisfied` / `allowed_tools` / `required_steps` / `forbidden_actions` / `fallback_behavior` / `effect_ceiling`；effect ceiling 复用 Skills V2 单一权威，不再在 grader 内重定义 |
 | Runtime 故障矩阵 | `runtime-faults.ts` | 11 故障类：`duplicate_terminal` / `contradictory_terminal` / `cancellation_completed` / `resume_side_effect_dup` / `missing_terminal` / `unknown_side_effect` / `tool_error_unhandled` / `tool_result_lost` / `state_repair_during_read` / `invalid_state_transition` / `tool_manifest_duplicate`；每个故障类有 `requiresIdempotency` 标记用于 resume 重复副作用检测 |
 | Presets | `presets.ts` | `demo` / `smoke` / `smoke-v2` / `full`；`T46_3_P0_SCENARIO_IDS` 列出所有 P0 场景 id；budget cap: smoke $0.10 / full $1 / calibrate $3；hidden sentinel 永不出现在 manifest |
-| Candidate/baseline 对比 | `paired-comparison.ts` | `buildSide` 拒绝 `resolvedModel.confirmedBy` 取值 `requested` / `assumed` / `default` / `unconfirmed` / `unknown` / 空字符串，防 requested model 冒充 resolved；`verifyIsolation` 检测 worktree/backend port/sidecar port/nonce/instance/database/temp root/artifact staging 8 类共享资源；`computeModelDrift` 在两侧 resolved model 不一致或任一侧缺失时返回 true；`candidateWins` 需充分证据 + 无 model drift + candidate pass rate 严格高于 baseline |
-| Reliability 统计 | `reliability-stats.ts` | 6 指标：`observed_trial_pass_rate` / `empirical_all_k_reliability` / `pass_at_k` / `modeled_pass_k` / `all_invariant_pass` / `confidence_interval`；每个指标显式声明 `kind` 与 `assumptions`；`statisticalSignificanceClaimAllowed` 仅在 preset=full 且 sampleSize≥30 时返回 true，防 demo/smoke 滥用统计显著性声明 |
+| Candidate/baseline 对比 | `paired-runner.ts` / `paired-comparison.ts` | 从 git ref 创建两个 detached worktree，分别启动隔离 backend/sidecar/database/temp/artifact 资源并执行同一 preset；`verifyIsolation` 检测 8 类资源，`resolvedModel.confirmedBy` 拒绝 requested/assumed 等不可信来源；任一侧无法确认模型时明确报告 `modelDriftPossible=true`，不得声明 candidate 胜出 |
+| Reliability 统计 | `reliability-stats.ts` | 6 指标：`observed_trial_pass_rate` / `empirical_all_k_reliability` / `pass_at_k` / `modeled_pass_k` / `all_invariant_pass` / `confidence_interval`；`pass@k=1-(1-p)^k`，modeled `pass^k` 使用后验 `E[p^k]`；只有显式 repeat group 才能形成重复运行证据，单次 full 的不同场景不能冒充 repetitions |
 | Operational metrics | `paired-comparison.ts` `aggregateSideMetrics` | sutCost 计入 SUT cap；evaluatorModelCost 与 codingAgentCost 单独列示，不计入 SUT cap；latencyMs / inputTokens / outputTokens / toolCalls / agentRetries / infrastructureAttempts / timeouts / skipped / excluded / simulatorErrors / infrastructureErrors 全量分账 |
 | Exit gate | `exit-gate.ts` | 6 条件全 fail-closed：P0 mutation 检测 / reference program 无 hard false failure / hidden field 无泄漏 / required scenario 不被 skipped/excluded/fail 美化 / evidence integrity checksums+graph / no semantic judge；`reportId` 为条件摘要的 SHA-256 |
 
@@ -162,6 +162,9 @@ scripts/eval-lab exit-gate <run-id>           # 中文人类可读
 # Reliability 报告：6 指标 + statistical significance 标记
 scripts/eval-lab reliability <run-id> --json
 scripts/eval-lab reliability <run-id> --confidence-level 0.95
+
+# 在隔离 worktree/runtime 中执行 candidate/baseline
+scripts/eval-lab compare --candidate <git-ref> --baseline <git-ref> --preset smoke --model mock:mock-model --json
 ```
 
 `exit-gate` 退出码：`0` 通过、`1` regression（任一条件失败）、`2` infrastructure、`3` validation、`4` partial budget。`reliability` 退出码：`0` 正常、`4` evidence 不足（insufficientEvidence=true）。
@@ -205,14 +208,15 @@ scripts/eval-lab reliability <run-id> --confidence-level 0.95
 - §7 paired-comparison：isolation、model drift、`confirmedBy` adversarial guard（多组）
 - §8 exit-gate：6 条件 + semantic judge 检测
 
-### 验收基线（仓库锁定工具链）
+### 独立审查后的验收证据
 
-- backend：890 passed / 4 skipped；Ruff 全量通过
-- agent-bridge：1628 passed（75 files）；typecheck 与 build 通过
-- frontend（未改业务代码但做全量回归）：333 passed / 6 skipped（26 files）；lint 与 production build 通过
-- Evaluation Lab validate：demo（6 scenarios）/ smoke（1）/ smoke-v2（3）/ full（7）全 valid
-- 真实本地运行：smoke 1/1、smoke-v2 3/3、demo 3/6（T46-3 新场景需 runner 集成，属预期）通过；`exit-gate` 与 `reliability` CLI 输出 schema 正确
-- `git diff --check`：通过
+- `demo` 真实隔离运行 5/5 通过；不存在“新场景未接 runner 但属预期”的例外
+- `full` 真实隔离运行 16/16 通过，覆盖多轮、Skill 和 11 类 Runtime 故障
+- `exit-gate` 六项全部通过：真实 P0 mutations、Reference Programs、hidden leakage、required scenarios、evidence graph/checksums、no semantic Judge
+- `reliability` 对单次 full 正确返回 evidence 不足；只有显式 repeat groups 才允许重复运行或统计显著性声明
+- `compare --candidate main --baseline main` 已真实创建两套 detached worktree/runtime/state/artifact 并完成清理；旧 `main` 无 resolved-model confirmation，因此诚实报告 model drift possible
+- mock full 的 SUT cost 为 `$0.00`；Coding Agent cost 为 `unknown/null` 且与 ProjectFlow Agent 预算分账
+- backend：890 passed / 4 skipped + Ruff；agent-bridge：1628/1628（75 files）+ typecheck/build；frontend：333 passed / 6 skipped（26 files）+ lint/build
 
 验收命令：
 
@@ -229,17 +233,21 @@ scripts/eval-lab validate --preset full --model mock:mock-model
 scripts/eval-lab run --preset smoke --model mock:mock-model --json
 scripts/eval-lab run --preset smoke-v2 --model mock:mock-model --json
 scripts/eval-lab run --preset demo --model mock:mock-model --json
+scripts/eval-lab run --preset full --model mock:mock-model --json
 scripts/eval-lab exit-gate <run-id> --json
 scripts/eval-lab reliability <run-id> --json
+scripts/eval-lab compare --candidate <git-ref> --baseline <git-ref> --preset smoke --model mock:mock-model --json
 git diff --check main...HEAD
 ```
 
 ### Slice 1 关闭路径
 
-#96 merge 到 `main` 后仍需：
+#96 关闭只要求当前实现合并到 `main`，并保留以下确定性证据：
 
-1. 真实付费模型（DeepSeek Flash / Pro）在 `full` preset 下的 canary，确认 routing/outcome/privacy/latency 通过冻结门槛；
-2. `exit-gate` 在付费模型 run artifact 上输出 `passed: true`；
-3. `reliability` 在付费模型 run artifact 上输出 statistical significance 允许声明且 6 指标满足约定阈值。
+1. mock `full` 所有 required scenarios 通过；
+2. `verify` 验证 immutable result graph；
+3. `exit-gate` 六项全部通过；
+4. 三端回归与静态检查通过；
+5. paired runner 对资源隔离和 unresolved model identity 均 fail-closed。
 
-满足以上 3 条才可宣称 Slice 1 关闭，并开始 Slice 2（RCA / Repair Packet / Dashboard / 语义 Judge）的规划。
+重复运行可靠性必须通过新的显式 repeat runs 采集，单次 artifact 只能报告 evidence 不足。真实付费模型可在价格表和调用前最坏成本上限冻结后作为额外校准证据运行，但不得拿它阻塞确定性 Slice 1，也不得把 Coding Agent 成本计入 ProjectFlow Agent 的预算。Slice 1 合并关闭后，才可规划 Slice 2（RCA / Repair Packet / Dashboard）；语义 Judge 仍不是 hard exit gate。

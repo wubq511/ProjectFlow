@@ -43,6 +43,27 @@ export async function handleRunSnapshot(
         }];
       })
       : [];
+    const terminalEvents = Array.isArray(snapshot.recent_events)
+      ? snapshot.recent_events.flatMap((event) => {
+          if (!event || typeof event !== "object") return [];
+          const record = event as Record<string, unknown>;
+          if (!["agent.completed", "agent.failed", "run.completed", "run.failed", "run.cancelled"].includes(String(record.type))) return [];
+          const payload = record.payload && typeof record.payload === "object"
+            ? record.payload as Record<string, unknown>
+            : {};
+          const verifier = payload._verifier && typeof payload._verifier === "object"
+            ? payload._verifier as Record<string, unknown>
+            : {};
+          return [{
+            type: record.type,
+            verifier_passed: verifier.passed,
+            verifier_summary: verifier.summary,
+            ...(process.env.APP_ENV === "evaluation" && typeof payload.error === "string"
+              ? { evaluation_error: payload.error }
+              : {}),
+          }];
+        })
+      : [];
     sendJson(res, 200, {
       run_id: snapshot.run_id,
       status: snapshot.status,
@@ -59,6 +80,7 @@ export async function handleRunSnapshot(
         reason: workState.reason,
       } } : null,
       recent_events: recentEvents,
+      terminal_events: terminalEvents,
       unconsumed_steering: Array.isArray(snapshot.unconsumed_steering) ? snapshot.unconsumed_steering : [],
       consumed_steering: Array.isArray(snapshot.consumed_steering) ? snapshot.consumed_steering : [],
     });

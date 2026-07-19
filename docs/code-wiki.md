@@ -59,7 +59,7 @@ ProjectFlow/
 │   │   ├── tools/             # registry.ts, fastapi-client.ts, projectflow-tools.ts, register-defaults.ts, mock-tools.ts, result-normalizer.ts
 │   │   ├── policy/            # policy-engine.ts, budget.ts, boundaries
 │   │   ├── events/            # event-mapper.ts, stream.ts, trace-envelope.ts
-│   │   ├── evaluation/        # T43 public seam + T46 Slice 0 lab + Issue #95 hard-domain contracts/DAG/graders/reference/evidence + Issue #96 multi-turn/skill/runtime/reliability (user-controller, simulator-error, attempt-ledger, skill-evaluator, runtime-faults, presets, paired-comparison, reliability-stats, exit-gate, contract-v3)
+│   │   ├── evaluation/        # T43 public seam + T46 Slice 0 lab + Issue #95 hard-domain contracts/DAG/graders/reference/evidence + Issue #96 multi-turn/skill/runtime/reliability（含真实隔离 paired-runner、paired-comparison、reliability-stats、exit-gate）
 │   │   ├── skills/            # skill-index.ts, skill-loader.ts, skill-selector.ts
 │   │   ├── types/             # run-state.ts, tool-manifest.ts, tool-result.ts, wire.ts, runtime-event.ts
 │   │   └── utils/             # 工具函数

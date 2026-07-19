@@ -11,7 +11,7 @@ export async function handleHealth(
   req: IncomingMessage,
   res: ServerResponse,
   _params: Record<string, string>,
-  _ctx: RunContext,
+  ctx: RunContext,
 ): Promise<void> {
   const appEnv = process.env.APP_ENV;
   if (appEnv === "evaluation") {
@@ -28,7 +28,14 @@ export async function handleHealth(
     uptime_s: Math.floor(process.uptime()),
     app_env: appEnv,
     ...(appEnv === "evaluation"
-      ? { evaluation_instance_id: process.env.EVALUATION_INSTANCE_ID }
+      ? {
+          evaluation_instance_id: process.env.EVALUATION_INSTANCE_ID,
+          resolved_model: {
+            provider: ctx.config.defaultModelProvider,
+            name: ctx.config.defaultModelName,
+            confirmed_by: "sidecar_health",
+          },
+        }
       : {}),
   });
 }

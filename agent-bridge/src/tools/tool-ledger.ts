@@ -167,7 +167,7 @@ export async function persistCheckpoint(
     },
   );
 
-  const appendResponse = await fastapiClient.appendEvents(runState.runId, {
+  const request = {
     idempotency_key: `${event.clientEventId}:checkpoint:v1`,
     expected_state_version: runState.stateVersion,
     events: [{
@@ -176,7 +176,25 @@ export async function persistCheckpoint(
       ordering_hint: runState.lastEventSeq + 1,
       payload: event.payload,
     }],
-  });
+  };
+  let appendResponse;
+  try {
+    appendResponse = await fastapiClient.appendEvents(runState.runId, request);
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("409")) throw error;
+    const snapshot = await fastapiClient.getRunSnapshot(runState.runId);
+    runState.stateVersion = typeof snapshot.state_version === "number"
+      ? snapshot.state_version
+      : runState.stateVersion;
+    runState.lastEventSeq = typeof snapshot.last_event_seq === "number"
+      ? Math.max(runState.lastEventSeq, snapshot.last_event_seq)
+      : runState.lastEventSeq;
+    appendResponse = await fastapiClient.appendEvents(runState.runId, {
+      ...request,
+      expected_state_version: runState.stateVersion,
+      events: request.events.map((item) => ({ ...item, ordering_hint: runState.lastEventSeq + 1 })),
+    });
+  }
 
   if (appendResponse.events.length > 0) {
     const maxSeq = Math.max(...appendResponse.events.map((e) => e.event_seq));

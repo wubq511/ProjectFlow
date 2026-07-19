@@ -366,13 +366,13 @@ describe("mutation: skill-evaluator effect ceiling", () => {
 // ---------------------------------------------------------------------------
 
 describe("mutation: runtime-faults duplicate terminal detection", () => {
-  it("baseline: no duplicate terminal passes", () => {
+  it("baseline: injected duplicate terminal is detected and fails closed", () => {
     const fault = findFault("fault-duplicate-terminal")!;
     const result = evaluateFaultBehavior({
       fault,
       finalStatus: "failed",
       sideEffectCount: 0,
-      hadDuplicateTerminal: false,
+      hadDuplicateTerminal: true,
       hadContradictoryTerminal: false,
       idempotencyPreserved: true,
       agentRetriesObserved: 0,
@@ -382,13 +382,13 @@ describe("mutation: runtime-faults duplicate terminal detection", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("mutation: duplicate terminal is detected and fails", () => {
+  it("mutation: injected duplicate terminal is not detected", () => {
     const fault = findFault("fault-duplicate-terminal")!;
     const result = evaluateFaultBehavior({
       fault,
       finalStatus: "failed",
       sideEffectCount: 0,
-      hadDuplicateTerminal: true,
+      hadDuplicateTerminal: false,
       hadContradictoryTerminal: false,
       idempotencyPreserved: true,
       agentRetriesObserved: 0,

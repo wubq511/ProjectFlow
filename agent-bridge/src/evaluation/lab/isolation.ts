@@ -61,9 +61,25 @@ export class IsolatedProcessPair {
   public sidecarPort!: number;
   public sidecarUrl!: string;
   public backendUrl!: string;
+  public resolvedModel: { provider: string; name: string; confirmedBy: string } | null = null;
 
   private backendProcess: ChildProcess | null = null;
   private sidecarProcess: ChildProcess | null = null;
+  private diagnosticBuffer = "";
+
+  private captureDiagnostics(process: ChildProcess, label: string): void {
+    const append = (chunk: unknown) => {
+      const value = String(chunk);
+      if (label === "backend" && !value.includes("ERROR")) return;
+      this.diagnosticBuffer = `${this.diagnosticBuffer}${label}: ${value}`.slice(-32_768);
+    };
+    process.stdout?.on("data", append);
+    process.stderr?.on("data", append);
+  }
+
+  diagnosticTail(): string {
+    return this.diagnosticBuffer;
+  }
 
   async start(projectRoot: string, model = "mock:mock-model"): Promise<void> {
     this.nonce = randomBytes(16).toString("hex");
@@ -131,7 +147,7 @@ export class IsolatedProcessPair {
           EVALUATION_INSTANCE_ID: this.instanceId,
           EVALUATION_TEMP_ROOT: this.tempRoot,
         },
-        stdio: "ignore",
+        stdio: ["ignore", "pipe", "pipe"],
       }
     );
 
@@ -159,24 +175,46 @@ export class IsolatedProcessPair {
           EVALUATION_TEMP_ROOT: this.tempRoot,
           MODEL_CONFIGS_PATH: isolatedModelConfigsPath,
           DOTENV_PATH: join(this.tempRoot, ".env"),
+          ...(process.env.EVALUATION_DEBUG === "1" ? { EVALUATION_DEBUG: "1" } : {}),
         },
-        stdio: "ignore",
+        stdio: ["ignore", "pipe", "pipe"],
       }
     );
+    this.captureDiagnostics(this.backendProcess, "backend");
+    this.captureDiagnostics(this.sidecarProcess, "sidecar");
 
     // Wait for both to be healthy
     try {
-      await Promise.all([
+      const [, sidecarHealth] = await Promise.all([
         this.waitHealth(`${this.backendUrl}/api/health`, "projectflow-backend"),
         this.waitHealth(`${this.sidecarUrl}/health`, "agent-bridge"),
       ]);
+      const resolved = sidecarHealth.resolved_model;
+      if (resolved && typeof resolved === "object") {
+        const value = resolved as Record<string, unknown>;
+        if (
+          typeof value.provider === "string"
+          && typeof value.name === "string"
+          && value.confirmed_by === "sidecar_health"
+        ) {
+          this.resolvedModel = {
+            provider: value.provider,
+            name: value.name,
+            confirmedBy: "sidecar_health",
+          };
+        }
+      }
     } catch (err) {
       await this.destroy();
       throw err;
     }
   }
 
-  private async waitHealth(url: string, expectedService: string, timeoutMs = 15000): Promise<void> {
+  private async waitHealth(
+    url: string,
+    expectedService: string,
+    timeoutMs = 15000,
+  ): Promise<Record<string, unknown>> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       if (
@@ -195,7 +233,7 @@ export class IsolatedProcessPair {
         if (res.ok) {
           const data = await res.json() as any;
           if (isExpectedEvaluationIdentity(data, expectedService, this.instanceId)) {
-            return;
+            return data as Record<string, unknown>;
           }
         }
       } catch {

@@ -19,6 +19,7 @@ import {
   computeReliabilityReport,
   formatReliabilityReport,
 } from "./reliability-stats.js";
+import { runPairedComparison } from "./paired-runner.js";
 
 const EXIT = {
   passed: 0,
@@ -56,6 +57,7 @@ function usage(): void {
       verify: "scripts/eval-lab verify <run-id>",
       "exit-gate": "scripts/eval-lab exit-gate <run-id> [--json]",
       "reliability": "scripts/eval-lab reliability <run-id> [--confidence-level 0.95]",
+      "compare": "scripts/eval-lab compare --candidate <git-ref> --baseline <git-ref> [--preset smoke|demo|full] [--model mock:mock-model] [--json]",
     },
     exitCodes: EXIT,
   });
@@ -206,37 +208,12 @@ async function main(): Promise<void> {
     }
     const store = await verifiedStore(projectRoot, args[0]!);
     const artifact = await store.readVerifiedArtifact();
-    // §1 P0 mutations: detected when the hard grader mutation suite is
-    // invoked separately. For an exit-gate evaluation against a single
-    // run artifact, we treat each hard-gate pass as a "mutation detected"
-    // proxy. The full mutation suite is verified by the mutation test
-    // harness, not by the run artifact.
-    const p0Mutations = artifact.grades
-      .filter((g) => T46_3_P0_SCENARIO_IDS.includes(g.scenarioId))
-      .map((g) => ({
-        mutationId: `p0-${g.scenarioId}`,
-        detected: g.passed,
-        targets: "hard-graders",
-      }));
-    // §2 Reference programs: assume zero false hard failures when all
-    // hard grades that have a hardGrader block pass. A dedicated
-    // reference-program run is the authoritative source; for the
-    // exit-gate command we surface the artifact's own hard grade
-    // outcomes as a proxy.
-    const referencePrograms = artifact.grades
-      .filter((g) => g.hardGrade)
-      .map((g) => ({
-        programId: g.scenarioId,
-        hardFalseFailures: g.passed ? 0 : 1,
-      }));
-    // §3 Hidden-field leakage tests: pass when no hard grade fails on
-    // the hiddenFieldLeakage grader.
-    const hiddenFieldLeakageTests = artifact.grades
-      .filter((g) => g.hardGrade)
-      .map((g) => ({
-        testName: g.scenarioId,
-        passed: g.hardGrade!.graders.hiddenFieldLeakage,
-      }));
+    const acceptance = artifact.v3?.acceptanceEvidence;
+    if (!acceptance) {
+      throw new EvaluationValidationError(
+        "artifact 缺少真实 Slice 1 acceptanceEvidence；请先运行 full preset，禁止用普通 grade 代替 mutation/reference 证据",
+      );
+    }
     // §4 Required scenarios not skipped/excluded: the artifact's
     // observations cover the P0 scenarios AND each observed P0 scenario's
     // hard grade must pass. A scenario that ran but failed its hard grade
@@ -265,12 +242,12 @@ async function main(): Promise<void> {
     };
     // §6 No semantic Judge: this CLI never invokes an LLM grader.
     const report = evaluateExitGate({
-      p0Mutations,
-      referencePrograms,
-      hiddenFieldLeakageTests,
+      p0Mutations: acceptance.p0Mutations,
+      referencePrograms: acceptance.referencePrograms,
+      hiddenFieldLeakageTests: acceptance.hiddenFieldLeakageTests,
       requiredScenarios,
       evidenceIntegrity,
-      semanticJudgeUsed: false,
+      semanticJudgeUsed: acceptance.semanticJudgeUsed,
     });
     if (parsedArgsHasFlag(args, "--json")) {
       output({ event: "exit_gate", ...report });
@@ -288,12 +265,10 @@ async function main(): Promise<void> {
     const confidenceLevel = parseConfidenceLevel(args);
     const store = await verifiedStore(projectRoot, args[0]!);
     const artifact = await store.readVerifiedArtifact();
-    const trials = artifact.grades.map((g) => ({
-      scenarioId: g.scenarioId,
-      passed: g.passed,
-      excluded: false,
-      allInvariantsPassed: g.hardGrade?.passed ?? g.passed,
-    }));
+    const trials = artifact.v3?.reliabilityTrials;
+    if (!trials) {
+      throw new EvaluationValidationError("artifact 缺少 reliabilityTrials，不能从最终 grades 反推重复试验或排除项");
+    }
     const presetName = artifact.preset;
     const report = computeReliabilityReport(trials, {
       preset: presetName as "demo" | "smoke" | "smoke-v2" | "full",
@@ -305,6 +280,43 @@ async function main(): Promise<void> {
       process.stdout.write(formatReliabilityReport(report) + "\n");
     }
     process.exit(report.insufficientEvidence ? EXIT.partialBudget : EXIT.passed);
+    return;
+  }
+
+  if (command === "compare") {
+    const valueFor = (flag: string): string => {
+      const index = args.indexOf(flag);
+      const value = index >= 0 ? args[index + 1] : undefined;
+      if (!value || value.startsWith("--")) throw new EvaluationValidationError(`${flag} 需要一个值`);
+      return value;
+    };
+    const candidateRef = valueFor("--candidate");
+    const baselineRef = valueFor("--baseline");
+    const parsed = parseArgs(
+      args.filter((value, index) =>
+        value !== "--candidate" && value !== "--baseline"
+        && args[index - 1] !== "--candidate" && args[index - 1] !== "--baseline"),
+      true,
+    );
+    const preset = SLICE_0_PRESETS[parsed.preset]!;
+    const result = await runPairedComparison({
+      projectRoot,
+      candidateRef,
+      baselineRef,
+      preset: parsed.preset,
+      model: parsed.model,
+      scenarios: preset.scenarios,
+      budget: preset.budget,
+    });
+    output({
+      event: "paired_comparison",
+      candidateRef,
+      baselineRef,
+      result: result.result,
+      artifactPath: result.artifactPath,
+      sha256: result.sha256,
+    });
+    process.exit(result.result.candidatePassRate < result.result.baselinePassRate ? EXIT.regression : EXIT.passed);
     return;
   }
 

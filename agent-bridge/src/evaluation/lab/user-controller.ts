@@ -162,6 +162,13 @@ export class UserController {
     // §4 Choose the next action deterministically.
     const action = this.chooseAction(transition);
 
+    if (!this.facts.allowedActions.includes(action.kind)) {
+      this.state.terminal = true;
+      this.state.simulatorError = "forbidden_action";
+      this.state.outcome = "simulator_error";
+      return this.terminalResult(`控制器动作 ${action.kind} 不在 allowedActions 中`);
+    }
+
     // §5 Render the user message (optional LLM phrasing).
     let userMessage = "";
     if (action.kind === "send_message") {
