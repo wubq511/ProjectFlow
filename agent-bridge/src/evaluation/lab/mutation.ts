@@ -283,8 +283,6 @@ export function mutateLeakMemoryToAdversary(
         related_risk_id_present: false,
         valid_until_present: false,
         content_visible: true,
-        content: "leaked content",
-        rationale: "leaked rationale",
         created_at: "2026-01-01T00:00:00Z",
       });
       return cloned;

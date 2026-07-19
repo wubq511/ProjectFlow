@@ -23,7 +23,11 @@ from sqlmodel import Session
 from app.core.database import get_session
 from app.core.security import require_evaluation_evidence_access
 from app.schemas.evaluation_evidence import EvaluationEvidenceSnapshot
-from app.services.evaluation_evidence_service import build_evidence_snapshot
+from app.services.evaluation_evidence_service import (
+    EvaluationEvidenceNotFoundError,
+    EvaluationEvidenceRequestError,
+    build_evidence_snapshot,
+)
 
 router = APIRouter(
     prefix="/internal/evaluation",
@@ -37,10 +41,14 @@ def read_evaluation_evidence(
     workspace_id: str = Query(..., description="目标工作区 ID"),
     viewer_user_id: str = Query(..., description="执行查看的 viewer 用户 ID"),
     project_id: str | None = Query(None, description="目标项目 ID；省略则取工作区内最新项目"),
-    conversation_id: str | None = Query(None, description="关联会话 ID（仅用于快照标记）"),
+    conversation_id: str | None = Query(None, description="viewer 可见且与 run 匹配的关联会话 ID"),
     run_id: str | None = Query(
         None,
         description="关联 AgentRunV2 ID；提供后才会返回 trajectory/side_effect/metric/context_receipt facts",
+    ),
+    hidden_token_probe: list[str] = Query(
+        default=[],
+        description="隐藏字段探针，格式为 length:sha256；只返回命中布尔值",
     ),
     session: Session = Depends(get_session),
 ) -> EvaluationEvidenceSnapshot:
@@ -56,9 +64,11 @@ def read_evaluation_evidence(
             project_id=project_id,
             conversation_id=conversation_id,
             run_id=run_id,
+            hidden_token_probes=hidden_token_probe,
         )
-    except ValueError as exc:
-        msg = str(exc)
-        if "不存在" in msg or "不是" in msg or "成员" in msg:
-            raise HTTPException(status_code=404, detail="工作区或项目不存在") from exc
-        raise HTTPException(status_code=400, detail=msg) from exc
+    except EvaluationEvidenceNotFoundError as exc:
+        # Keep scope failures indistinguishable from missing resources so this
+        # narrow evidence seam cannot be used to enumerate cross-project data.
+        raise HTTPException(status_code=404, detail="评测证据不存在") from exc
+    except EvaluationEvidenceRequestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

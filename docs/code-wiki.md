@@ -59,12 +59,12 @@ ProjectFlow/
 │   │   ├── tools/             # registry.ts, fastapi-client.ts, projectflow-tools.ts, register-defaults.ts, mock-tools.ts, result-normalizer.ts
 │   │   ├── policy/            # policy-engine.ts, budget.ts, boundaries
 │   │   ├── events/            # event-mapper.ts, stream.ts, trace-envelope.ts
-│   │   ├── evaluation/        # T43 public-seam scenarios + T46 Slice 0 lab contracts/runner/artifacts/CLI + Slice 1 contract-v2/hard-graders/oracle/reference-program/mutation/evidence-client
+│   │   ├── evaluation/        # T43 public seam + T46 Slice 0 lab + Issue #95 hard-domain contracts/DAG/graders/reference/evidence
 │   │   ├── skills/            # skill-index.ts, skill-loader.ts, skill-selector.ts
 │   │   ├── types/             # run-state.ts, tool-manifest.ts, tool-result.ts, wire.ts, runtime-event.ts
 │   │   └── utils/             # 工具函数
 │   ├── skills/                # 6 SKILL.md files
-│   └── tests/unit/            # 66 test files (T46 Slice 1 adds hard-graders-mutation/hard-grader-validation/hard-grader-fixtures/oracle-independence/reference-program/slice-0-regression)
+│   └── tests/unit/            # 包含 Issue #95 mutation/validation/oracle/reference/public confirm-reject isolated E2E
 ├── frontend/
 │   ├── src/
 │   │   ├── app/               # Next.js 页面路由（不写业务逻辑）

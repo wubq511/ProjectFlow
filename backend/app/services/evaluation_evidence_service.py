@@ -10,17 +10,17 @@ Hard contract:
   the same authorization predicates used by public read surfaces
   (``memory_service.can_view_memory`` and the conversation visibility SQL).
   The snapshot cannot bypass viewer visibility.
-- Subject-and-owner ProjectMemory content is included only when the viewer is
-  authorized; otherwise only structural facts are returned. This lets graders
-  prove that a non-authorized viewer cannot read private memory content while
-  still observing that the memory exists.
+- ProjectMemory content/rationale is never returned. Authorization controls
+  only which normalized structural facts are present.
 - No raw payload values, no input/output snapshot blobs, no trace payloads,
   no absolute local paths, no secrets. Only normalized facts.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -47,6 +47,7 @@ from app.schemas.evaluation_evidence import (
     ConversationFacts,
     EventFacts,
     EvaluationEvidenceSnapshot,
+    HiddenFieldProbeFacts,
     MemberFacts,
     MemoryFacts,
     MetricFacts,
@@ -62,6 +63,45 @@ from app.services.memory_service import (
     get_workspace_member_ids,
     validate_viewer,
 )
+
+
+class EvaluationEvidenceRequestError(ValueError):
+    """The caller supplied an invalid evidence request."""
+
+
+class EvaluationEvidenceNotFoundError(ValueError):
+    """The requested viewer-scoped evidence does not exist or is not visible."""
+
+
+_HIDDEN_PROBE_PATTERN = re.compile(r"^(?P<length>[1-9][0-9]{0,2}):(?P<digest>[0-9a-f]{64})$")
+_MAX_HIDDEN_PROBES = 16
+
+
+def _parse_hidden_token_probes(values: list[str]) -> list[tuple[int, str]]:
+    if len(values) > _MAX_HIDDEN_PROBES:
+        raise EvaluationEvidenceRequestError("隐藏字段探针数量超过上限")
+    probes: list[tuple[int, str]] = []
+    for value in values:
+        match = _HIDDEN_PROBE_PATTERN.fullmatch(value)
+        if match is None:
+            raise EvaluationEvidenceRequestError("隐藏字段探针格式无效")
+        length = int(match.group("length"))
+        if length > 256:
+            raise EvaluationEvidenceRequestError("隐藏字段探针长度超过上限")
+        probes.append((length, match.group("digest")))
+    return probes
+
+
+def _contains_hidden_probe(text: str, probes: list[tuple[int, str]]) -> bool:
+    for length, expected_digest in probes:
+        if len(text) < length:
+            continue
+        for start in range(0, len(text) - length + 1):
+            candidate = text[start : start + length]
+            digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+            if digest == expected_digest:
+                return True
+    return False
 
 
 def _iso(value: datetime | None) -> str:
@@ -118,7 +158,9 @@ def _build_state_facts(
     ]
 
     task_rows = session.exec(
-        select(Task).where(Task.project_id == project.id)
+        select(Task)
+        .where(Task.project_id == project.id)
+        .order_by(Task.stage_id, Task.order_index, Task.id)
     ).all()
     tasks = [
         TaskFacts(
@@ -134,7 +176,13 @@ def _build_state_facts(
     ]
 
     assignment_rows = session.exec(
-        select(AssignmentProposal).where(AssignmentProposal.project_id == project.id)
+        select(AssignmentProposal)
+        .where(AssignmentProposal.project_id == project.id)
+        .order_by(
+            AssignmentProposal.stage_id,
+            AssignmentProposal.task_id,
+            AssignmentProposal.id,
+        )
     ).all()
     assignments = [
         AssignmentProposalFacts(
@@ -171,7 +219,7 @@ def _build_proposal_facts(session: Session, project_id: str) -> list[ProposalFac
     rows = session.exec(
         select(AgentProposal)
         .where(AgentProposal.project_id == project_id)
-        .order_by(AgentProposal.created_at)
+        .order_by(AgentProposal.created_at, AgentProposal.id)
     ).all()
     return [
         ProposalFacts(
@@ -192,7 +240,7 @@ def _build_event_facts(session: Session, project_id: str) -> list[EventFacts]:
     rows = session.exec(
         select(AgentEvent)
         .where(AgentEvent.project_id == project_id)
-        .order_by(AgentEvent.created_at)
+        .order_by(AgentEvent.created_at, AgentEvent.id)
     ).all()
     return [
         EventFacts(
@@ -226,7 +274,9 @@ def _build_memory_facts(
     """
     member_ids = get_workspace_member_ids(session, project.workspace_id)
     all_memories = session.exec(
-        select(ProjectMemory).where(ProjectMemory.project_id == project.id)
+        select(ProjectMemory)
+        .where(ProjectMemory.project_id == project.id)
+        .order_by(ProjectMemory.created_at, ProjectMemory.id)
     ).all()
 
     facts: list[MemoryFacts] = []
@@ -258,8 +308,6 @@ def _build_memory_facts(
             related_risk_id_present=mem.related_risk_id is not None,
             valid_until_present=mem.valid_until is not None,
             content_visible=content_visible,
-            content=mem.content if content_visible else None,
-            rationale=mem.rationale if content_visible else None,
             created_at=_iso(mem.created_at),
         ))
     return facts
@@ -289,7 +337,7 @@ def _build_conversation_facts(
                 )
             ),
         )
-        .order_by(AgentConversation.updated_at)
+        .order_by(AgentConversation.updated_at, AgentConversation.id)
     ).all()
     if not rows:
         return []
@@ -316,20 +364,30 @@ def _build_conversation_facts(
 
 
 def _build_trajectory_facts(
-    session: Session, *, run_id: str | None, project_id: str
+    session: Session, *, run: AgentRunV2 | None
 ) -> list[TrajectoryFacts]:
     """Return runtime event types/seqs/timestamps. No payload or trace content."""
-    if not run_id:
+    if run is None:
         return []
     rows = session.exec(
         select(AgentRunEvent)
-        .where(AgentRunEvent.run_id == run_id)
+        .where(
+            AgentRunEvent.run_id == run.id,
+            AgentRunEvent.workspace_id == run.workspace_id,
+            AgentRunEvent.project_id == run.project_id,
+        )
         .order_by(AgentRunEvent.event_seq)
     ).all()
     return [
         TrajectoryFacts(
             event_type=e.type if isinstance(e.type, str) else e.type.value,
             event_seq=e.event_seq,
+            tool_name=(
+                e.get_payload().get("tool_name")
+                if isinstance(e.get_payload(), dict)
+                and isinstance(e.get_payload().get("tool_name"), str)
+                else None
+            ),
             created_at=_iso(e.created_at),
         )
         for e in rows
@@ -337,11 +395,8 @@ def _build_trajectory_facts(
 
 
 def _build_side_effect_facts(
-    session: Session, *, run_id: str | None
+    *, run: AgentRunV2 | None
 ) -> list[SideEffectFacts]:
-    if not run_id:
-        return []
-    run = session.get(AgentRunV2, run_id)
     if run is None:
         return []
     side_effects = run.get_side_effects()
@@ -359,11 +414,8 @@ def _build_side_effect_facts(
 
 
 def _build_metric_facts(
-    session: Session, *, run_id: str | None
+    *, run: AgentRunV2 | None
 ) -> MetricFacts | None:
-    if not run_id:
-        return None
-    run = session.get(AgentRunV2, run_id)
     if run is None:
         return None
     return MetricFacts(
@@ -381,7 +433,7 @@ def _build_metric_facts(
 
 
 def _build_context_receipt_facts(
-    session: Session, *, run_id: str | None
+    session: Session, *, run: AgentRunV2 | None
 ) -> ContextReceiptFacts | None:
     """Redacted summary of what the run consumed from context sources.
 
@@ -389,11 +441,15 @@ def _build_context_receipt_facts(
     event payloads. Only structural identifiers are exposed; no memory content,
     no hidden prompts, no chain-of-thought.
     """
-    if not run_id:
+    if run is None:
         return None
     rows = session.exec(
         select(AgentRunEvent)
-        .where(AgentRunEvent.run_id == run_id)
+        .where(
+            AgentRunEvent.run_id == run.id,
+            AgentRunEvent.workspace_id == run.workspace_id,
+            AgentRunEvent.project_id == run.project_id,
+        )
         .order_by(AgentRunEvent.event_seq)
     ).all()
     if not rows:
@@ -445,6 +501,92 @@ def _build_context_receipt_facts(
     )
 
 
+def _build_hidden_field_probe_facts(
+    session: Session,
+    *,
+    run: AgentRunV2 | None,
+    probes: list[tuple[int, str]],
+) -> HiddenFieldProbeFacts | None:
+    if run is None or not probes:
+        return None
+    message_texts: list[str] = []
+    if run.user_message_id:
+        message = session.get(AgentMessage, run.user_message_id)
+        if message is not None and message.conversation_id == run.conversation_id:
+            message_texts.append(message.content)
+    else:
+        message_texts.extend(
+            message.content
+            for message in session.exec(
+                select(AgentMessage).where(
+                    AgentMessage.conversation_id == run.conversation_id
+                )
+            ).all()
+        )
+
+    events = session.exec(
+        select(AgentRunEvent)
+        .where(
+            AgentRunEvent.run_id == run.id,
+            AgentRunEvent.workspace_id == run.workspace_id,
+            AgentRunEvent.project_id == run.project_id,
+        )
+        .order_by(AgentRunEvent.event_seq)
+    ).all()
+    return HiddenFieldProbeFacts(
+        request_body_match=any(
+            _contains_hidden_probe(text, probes) for text in message_texts
+        ),
+        context_receipt_match=any(
+            _contains_hidden_probe(event.payload, probes) for event in events
+        ),
+        trace_match=any(_contains_hidden_probe(event.trace, probes) for event in events),
+    )
+
+
+def _resolve_visible_conversation(
+    session: Session,
+    *,
+    conversation_id: str | None,
+    project_id: str,
+    viewer_user_id: str,
+) -> AgentConversation | None:
+    if conversation_id is None:
+        return None
+    conversation = session.get(AgentConversation, conversation_id)
+    if conversation is None or conversation.project_id != project_id:
+        raise EvaluationEvidenceNotFoundError("对话不存在")
+    if (
+        conversation.visibility == "private"
+        and conversation.creator_user_id != viewer_user_id
+    ):
+        raise EvaluationEvidenceNotFoundError("对话不存在")
+    return conversation
+
+
+def _resolve_scoped_run(
+    session: Session,
+    *,
+    run_id: str | None,
+    workspace_id: str,
+    project_id: str,
+    viewer_user_id: str,
+    conversation: AgentConversation | None,
+) -> AgentRunV2 | None:
+    if run_id is None:
+        return None
+    run = session.get(AgentRunV2, run_id)
+    if (
+        run is None
+        or run.workspace_id != workspace_id
+        or run.project_id != project_id
+        or run.viewer_user_id != viewer_user_id
+        or (conversation is not None and run.conversation_id != conversation.id)
+    ):
+        raise EvaluationEvidenceNotFoundError("运行证据不存在")
+    return run
+
+
 def build_evidence_snapshot(
     session: Session,
     *,
@@ -453,6 +595,7 @@ def build_evidence_snapshot(
     project_id: str | None = None,
     conversation_id: str | None = None,
     run_id: str | None = None,
+    hidden_token_probes: list[str] | None = None,
 ) -> EvaluationEvidenceSnapshot:
     """Build a normalized, viewer-scoped evidence snapshot.
 
@@ -466,7 +609,7 @@ def build_evidence_snapshot(
     """
     workspace = session.get(Workspace, workspace_id)
     if workspace is None:
-        raise ValueError("工作区不存在")
+        raise EvaluationEvidenceNotFoundError("工作区不存在")
 
     # Resolve target project: explicit project_id wins, otherwise the most
     # recently created project in the workspace (same convention as the
@@ -474,7 +617,7 @@ def build_evidence_snapshot(
     if project_id:
         project = session.get(Project, project_id)
         if project is None or project.workspace_id != workspace_id:
-            raise ValueError("项目不存在")
+            raise EvaluationEvidenceNotFoundError("项目不存在")
     else:
         project = session.exec(
             select(Project)
@@ -482,20 +625,41 @@ def build_evidence_snapshot(
             .order_by(Project.created_at.desc())
         ).first()
         if project is None:
-            raise ValueError("工作区中不存在项目")
+            raise EvaluationEvidenceNotFoundError("工作区中不存在项目")
 
     # validate_viewer enforces that the viewer is a workspace member of the
     # project's workspace. This is the same predicate used by the public
     # memories and conversations endpoints.
-    project, _ = validate_viewer(
-        session, project_id=project.id, viewer_user_id=viewer_user_id
+    try:
+        project, _ = validate_viewer(
+            session, project_id=project.id, viewer_user_id=viewer_user_id
+        )
+    except ValueError as exc:
+        if not viewer_user_id or not viewer_user_id.strip():
+            raise EvaluationEvidenceRequestError("viewer_user_id 不能为空") from exc
+        raise EvaluationEvidenceNotFoundError("项目不存在") from exc
+
+    conversation = _resolve_visible_conversation(
+        session,
+        conversation_id=conversation_id,
+        project_id=project.id,
+        viewer_user_id=viewer_user_id,
     )
+    run = _resolve_scoped_run(
+        session,
+        run_id=run_id,
+        workspace_id=workspace_id,
+        project_id=project.id,
+        viewer_user_id=viewer_user_id,
+        conversation=conversation,
+    )
+    parsed_hidden_probes = _parse_hidden_token_probes(hidden_token_probes or [])
 
     # Members
     membership_rows = session.exec(
         select(WorkspaceMembership).where(
             WorkspaceMembership.workspace_id == workspace_id
-        )
+        ).order_by(WorkspaceMembership.user_id)
     ).all()
     member_ids = [m.user_id for m in membership_rows]
     users_by_id: dict[str, User] = {
@@ -519,12 +683,15 @@ def build_evidence_snapshot(
     conversation_facts = _build_conversation_facts(
         session, project=project, viewer_user_id=viewer_user_id
     )
-    trajectory_facts = _build_trajectory_facts(
-        session, run_id=run_id, project_id=project.id
+    trajectory_facts = _build_trajectory_facts(session, run=run)
+    side_effect_facts = _build_side_effect_facts(run=run)
+    metric_facts = _build_metric_facts(run=run)
+    context_receipt_facts = _build_context_receipt_facts(session, run=run)
+    hidden_field_probe_facts = _build_hidden_field_probe_facts(
+        session,
+        run=run,
+        probes=parsed_hidden_probes,
     )
-    side_effect_facts = _build_side_effect_facts(session, run_id=run_id)
-    metric_facts = _build_metric_facts(session, run_id=run_id)
-    context_receipt_facts = _build_context_receipt_facts(session, run_id=run_id)
 
     return EvaluationEvidenceSnapshot(
         snapshot_id=str(uuid.uuid4()),
@@ -543,4 +710,5 @@ def build_evidence_snapshot(
         side_effect_facts=side_effect_facts,
         metric_facts=metric_facts,
         context_receipt_facts=context_receipt_facts,
+        hidden_field_probe_facts=hidden_field_probe_facts,
     )

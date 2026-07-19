@@ -9,9 +9,8 @@ Design constraints (see docs/T46/ProjectFlow_Agent_Evaluation_Lab_Spec.md):
 - Viewer-sensitive collections (conversations, ProjectMemory) are filtered by
   the same authorization predicate used by the public read surfaces, so the
   snapshot cannot bypass viewer visibility.
-- Subject-and-owner ProjectMemory content is included only when the viewer is
-  authorized; otherwise only structural facts (memory_type, scope, status,
-  visibility, presence flags) are returned.
+- ProjectMemory content/rationale is never returned; viewer authorization only
+  controls which normalized structural facts are present.
 - No absolute local paths, no secrets, no hidden goal text, no unrelated raw
   IDs, no input/output snapshot blobs, no payload values, no trace payloads.
 - schema_version is independent from the artifact schema version: it tracks the
@@ -106,8 +105,6 @@ class MemoryFacts(BaseModel):
     related_risk_id_present: bool
     valid_until_present: bool
     content_visible: bool
-    content: str | None = None
-    rationale: str | None = None
     created_at: str
 
 
@@ -124,6 +121,7 @@ class ConversationFacts(BaseModel):
 class TrajectoryFacts(BaseModel):
     event_type: str
     event_seq: int
+    tool_name: str | None = None
     created_at: str
 
 
@@ -159,6 +157,18 @@ class ContextReceiptFacts(BaseModel):
     tool_manifest_names: list[str] = Field(default_factory=list)
 
 
+class HiddenFieldProbeFacts(BaseModel):
+    """Boolean-only matches over raw run surfaces.
+
+    Probe tokens are supplied as length + SHA-256 digests. The endpoint never
+    receives or returns the hidden token itself.
+    """
+
+    request_body_match: bool = False
+    context_receipt_match: bool = False
+    trace_match: bool = False
+
+
 class EvaluationEvidenceSnapshot(BaseModel):
     schema_version: int = EVALUATION_EVIDENCE_SCHEMA_VERSION
     snapshot_id: str
@@ -177,3 +187,4 @@ class EvaluationEvidenceSnapshot(BaseModel):
     side_effect_facts: list[SideEffectFacts] = Field(default_factory=list)
     metric_facts: MetricFacts | None = None
     context_receipt_facts: ContextReceiptFacts | None = None
+    hidden_field_probe_facts: HiddenFieldProbeFacts | None = None

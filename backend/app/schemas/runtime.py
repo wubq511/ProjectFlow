@@ -350,6 +350,7 @@ class ToolResultAppendItem(BaseModel):
     tool_call_id: str
     tool_name: str
     tool_version: int = 1
+    effect_type: ToolEffectType | None = None
     result: ProjectFlowToolResult
 
 

@@ -33,6 +33,7 @@ import {
   HIDDEN_TOKEN,
   PRIMARY_VIEWER_ID,
   PROJECT_ID,
+  toolDag,
   WORKSPACE_ID,
 } from "./hard-grader-fixtures.js";
 
@@ -110,11 +111,14 @@ function buildConfig(overrides: Partial<Parameters<typeof executeReferenceRun>[1
  */
 function buildMockFetch(options: {
   conversationId?: string;
+  beforeSnapshot?: EvidenceSnapshot;
   snapshot?: EvidenceSnapshot;
   sseEvents?: Array<{ event: string; data: Record<string, unknown> }>;
 } = {}): typeof fetch {
   const conversationId = options.conversationId ?? "conv-new-001";
   const snapshot = options.snapshot ?? buildSnapshot();
+  const beforeSnapshot = options.beforeSnapshot ?? snapshot;
+  let evidenceCalls = 0;
   const sseEvents = options.sseEvents ?? [
     {
       event: "status",
@@ -158,7 +162,8 @@ function buildMockFetch(options: {
     }
     // Step 5: evidence snapshot
     if (url.includes("/internal/evaluation/evidence") && method === "GET") {
-      return jsonResponse(snapshot);
+      evidenceCalls += 1;
+      return jsonResponse(evidenceCalls === 1 ? beforeSnapshot : snapshot);
     }
     return jsonResponse({ error: "unexpected call" }, 404);
   }) as typeof fetch;
@@ -181,12 +186,12 @@ describe("runReferenceProgram — oracle independence guard", () => {
     ).rejects.toThrow(/stateConstraints/);
   });
 
-  it("throws when expectedMilestoneSubset equals oracle.milestoneDag.milestones", async () => {
+  it("throws when expectedMilestoneSubset equals oracle milestone matchers", async () => {
     const oracle = buildOracle({
-      milestoneDag: { mode: "subset", milestones: ["a", "b"] },
+      milestoneDag: toolDag("subset", ["a", "b"]),
     });
     const reference = buildReference({
-      expectedMilestoneSubset: ["a", "b"],
+      expectedMilestoneSubset: ["tool:a", "tool:b"],
     });
     await expect(
       runReferenceProgram(reference, oracle, buildConfig({ fetchFn: buildMockFetch() })),
@@ -331,22 +336,19 @@ describe("runReferenceProgram — zero false hard failure property", () => {
   });
 
   it("detects a state mutation in a read-only reference scenario", async () => {
-    // The reference's primary snapshot has a different project_status than
-    // the before snapshot. Since beforeSnapshot is null in runReferenceProgram,
-    // the readOnlyStatePurity grader fails closed (missing before snapshot).
-    const snapshot = buildSnapshot();
-    const fetchFn = buildMockFetch({ snapshot });
+    const beforeSnapshot = buildSnapshot();
+    const snapshot = buildSnapshot({
+      state_facts: {
+        ...beforeSnapshot.state_facts,
+        project_status: "completed",
+      },
+    });
+    const fetchFn = buildMockFetch({ beforeSnapshot, snapshot });
     const result = await runReferenceProgram(
       buildReference(),
       buildOracle(),
       buildConfig({ fetchFn }),
     );
-    // beforeSnapshot is null in runReferenceProgram, so readOnlyStatePurity
-    // fails closed (missing before snapshot). This is intentional — the
-    // reference program executor does not fetch a before snapshot by default.
-    // The reference's "zero false hard failure" property requires the oracle
-    // to NOT declare readOnlyStatePurity when running via runReferenceProgram,
-    // OR for the caller to provide a before snapshot separately.
     expect(result.hardGrade.graders.readOnlyStatePurity).toBe(false);
   });
 });

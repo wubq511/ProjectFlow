@@ -16,6 +16,7 @@ Covers Issue #95 acceptance criteria for the normalized evidence snapshot:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 
@@ -310,6 +311,7 @@ def _seed_run(client: TestClient, ids: dict[str, str]) -> str:
         payload=json.dumps({
             "selected_skills": ["project-intake"],
             "used_memory_ids": [ids["team_memory_id"]],
+            "hidden_context": "context sentinel",
         }),
     )
     event_2 = AgentRunEvent(
@@ -522,7 +524,7 @@ def test_evidence_snapshot_filters_private_conversations_by_viewer(
     assert ids["private_conv_b_id"] not in conv_ids
 
 
-def test_evidence_snapshot_filters_subject_and_owner_memory_content(
+def test_evidence_snapshot_filters_subject_and_owner_memory_visibility(
     monkeypatch, tmp_path, client
 ):
     """subject_and_owner memory content must only be visible to subject/owner.
@@ -537,8 +539,8 @@ def test_evidence_snapshot_filters_subject_and_owner_memory_content(
     _write_marker(temp_root)
     ids = _seed_fixture(client)
 
-    # Owner views: sees both team memory (full content) and private memory
-    # (full content, because owner is in subject/owner pair)
+    # Owner views: sees both structural memory facts, but the normalized
+    # evidence seam never returns raw content or rationale.
     response = client.get(
         "/internal/evaluation/evidence",
         headers=_evaluation_headers(),
@@ -549,11 +551,14 @@ def test_evidence_snapshot_filters_subject_and_owner_memory_content(
     assert ids["team_memory_id"] in mem_by_id
     assert ids["private_memory_id"] in mem_by_id
     assert mem_by_id[ids["team_memory_id"]]["content_visible"] is True
-    assert mem_by_id[ids["team_memory_id"]]["content"] == "团队可见的项目计划摘要"
     assert mem_by_id[ids["private_memory_id"]]["content_visible"] is True
-    assert mem_by_id[ids["private_memory_id"]]["content"] == "小林本周仅可投入 8 小时"
+    assert "content" not in mem_by_id[ids["team_memory_id"]]
+    assert "rationale" not in mem_by_id[ids["team_memory_id"]]
+    assert "content" not in mem_by_id[ids["private_memory_id"]]
+    assert "rationale" not in mem_by_id[ids["private_memory_id"]]
 
-    # Member (subject) views: sees both memories with full content
+    # Member (subject) sees the private memory structural fact, still without
+    # raw private text.
     response = client.get(
         "/internal/evaluation/evidence",
         headers=_evaluation_headers(),
@@ -564,7 +569,7 @@ def test_evidence_snapshot_filters_subject_and_owner_memory_content(
     assert ids["team_memory_id"] in mem_by_id
     assert ids["private_memory_id"] in mem_by_id
     assert mem_by_id[ids["private_memory_id"]]["content_visible"] is True
-    assert mem_by_id[ids["private_memory_id"]]["content"] == "小林本周仅可投入 8 小时"
+    assert "content" not in mem_by_id[ids["private_memory_id"]]
 
 
 def test_evidence_snapshot_omits_invisible_memory_rather_than_redacting(
@@ -786,13 +791,18 @@ def test_evidence_snapshot_includes_run_scoped_facts_with_run_id(
     data = response.json()
     assert data["run_id"] == run_id
 
-    # Trajectory facts: only event_type/seq/created_at, no payload content
+    # Trajectory facts: normalized type/seq/tool only, no payload content
     traj = data["trajectory_facts"]
     assert len(traj) == 3
     types = {t["event_type"] for t in traj}
     assert types == {"run.started", "tool.started", "run.completed"}
     for t in traj:
-        assert set(t.keys()) == {"event_type", "event_seq", "created_at"}
+        assert set(t.keys()) == {
+            "event_type", "event_seq", "tool_name", "created_at"
+        }
+    assert next(t for t in traj if t["event_type"] == "tool.started")[
+        "tool_name"
+    ] == "create_risk"
 
     # Side effect facts: only structural fields
     se = data["side_effect_facts"]
@@ -821,11 +831,66 @@ def test_evidence_snapshot_includes_run_scoped_facts_with_run_id(
     assert set(cr.keys()) == {"memory_ids_used", "skill_names", "tool_manifest_names"}
 
 
-def test_evidence_snapshot_with_unknown_run_id_returns_empty_run_facts(
+def test_hidden_field_probes_cover_request_context_and_trace_without_echoing_tokens(
     monkeypatch, tmp_path, client
 ):
-    """If run_id is provided but does not exist, run-scoped facts must be
-    empty/null (not 404) — the snapshot still returns state/proposal/etc."""
+    temp_root = os.path.realpath(str(tmp_path))
+    _configure_evaluation_env(monkeypatch, temp_root)
+    _write_marker(temp_root)
+    ids = _seed_fixture(client)
+    run_id = _seed_run(client, ids)
+    tokens = ["团队会话首条消息", "context sentinel", "should not leak"]
+    params = [
+        ("workspace_id", ids["workspace_id"]),
+        ("viewer_user_id", ids["owner_id"]),
+        ("run_id", run_id),
+        *[
+            (
+                "hidden_token_probe",
+                f"{len(token)}:{hashlib.sha256(token.encode()).hexdigest()}",
+            )
+            for token in tokens
+        ],
+    ]
+    response = client.get(
+        "/internal/evaluation/evidence",
+        headers=_evaluation_headers(),
+        params=params,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["hidden_field_probe_facts"] == {
+        "request_body_match": True,
+        "context_receipt_match": True,
+        "trace_match": True,
+    }
+    serialized = response.text
+    assert all(token not in serialized for token in tokens)
+
+
+def test_hidden_field_probe_rejects_malformed_commitment(
+    monkeypatch, tmp_path, client
+):
+    temp_root = os.path.realpath(str(tmp_path))
+    _configure_evaluation_env(monkeypatch, temp_root)
+    _write_marker(temp_root)
+    ids = _seed_fixture(client)
+    response = client.get(
+        "/internal/evaluation/evidence",
+        headers=_evaluation_headers(),
+        params={
+            "workspace_id": ids["workspace_id"],
+            "viewer_user_id": ids["owner_id"],
+            "hidden_token_probe": "raw-secret",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_evidence_snapshot_with_unknown_run_id_fails_closed(
+    monkeypatch, tmp_path, client
+):
+    """An explicit unknown run ID must not degrade to unscoped state evidence."""
     temp_root = os.path.realpath(str(tmp_path))
     _configure_evaluation_env(monkeypatch, temp_root)
     _write_marker(temp_root)
@@ -840,15 +905,89 @@ def test_evidence_snapshot_with_unknown_run_id_returns_empty_run_facts(
             "run_id": "nonexistent-run-id",
         },
     )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["run_id"] == "nonexistent-run-id"
-    assert data["trajectory_facts"] == []
-    assert data["side_effect_facts"] == []
-    assert data["metric_facts"] is None
-    assert data["context_receipt_facts"] is None
-    # State/proposal/event/memory/conversation facts are still present
-    assert data["state_facts"]["workspace_id"] == ids["workspace_id"]
+    assert response.status_code == 404
+
+
+def test_evidence_snapshot_rejects_run_from_another_viewer(
+    monkeypatch, tmp_path, client
+):
+    temp_root = os.path.realpath(str(tmp_path))
+    _configure_evaluation_env(monkeypatch, temp_root)
+    _write_marker(temp_root)
+    ids = _seed_fixture(client)
+    run_id = _seed_run(client, ids)
+
+    response = client.get(
+        "/internal/evaluation/evidence",
+        headers=_evaluation_headers(),
+        params={
+            "workspace_id": ids["workspace_id"],
+            "project_id": ids["project_id"],
+            "viewer_user_id": ids["member_id"],
+            "run_id": run_id,
+        },
+    )
+    assert response.status_code == 404
+
+
+def test_evidence_snapshot_rejects_run_from_another_project(
+    monkeypatch, tmp_path, client
+):
+    temp_root = os.path.realpath(str(tmp_path))
+    _configure_evaluation_env(monkeypatch, temp_root)
+    _write_marker(temp_root)
+    ids = _seed_fixture(client)
+    run_id = _seed_run(client, ids)
+    other_project = client.post(
+        "/api/projects",
+        json={
+            "workspace_id": ids["workspace_id"],
+            "name": "另一个项目",
+            "idea": "用于验证运行证据隔离",
+            "deadline": "2026-08-30",
+            "deliverables": "隔离验证",
+            "created_by": ids["owner_id"],
+        },
+    ).json()
+
+    response = client.get(
+        "/internal/evaluation/evidence",
+        headers=_evaluation_headers(),
+        params={
+            "workspace_id": ids["workspace_id"],
+            "project_id": other_project["id"],
+            "viewer_user_id": ids["owner_id"],
+            "run_id": run_id,
+        },
+    )
+    assert response.status_code == 404
+
+
+def test_evidence_snapshot_rejects_mismatched_conversation_and_run(
+    monkeypatch, tmp_path, client
+):
+    temp_root = os.path.realpath(str(tmp_path))
+    _configure_evaluation_env(monkeypatch, temp_root)
+    _write_marker(temp_root)
+    ids = _seed_fixture(client)
+    run_id = _seed_run(client, ids)
+    other_conversation = client.post(
+        f"/api/projects/{ids['project_id']}/agent-conversations",
+        json={"viewer_user_id": ids["owner_id"]},
+    ).json()
+
+    response = client.get(
+        "/internal/evaluation/evidence",
+        headers=_evaluation_headers(),
+        params={
+            "workspace_id": ids["workspace_id"],
+            "project_id": ids["project_id"],
+            "viewer_user_id": ids["owner_id"],
+            "conversation_id": other_conversation["id"],
+            "run_id": run_id,
+        },
+    )
+    assert response.status_code == 404
 
 
 def test_evidence_snapshot_context_receipt_parses_nested_memory_field(

@@ -140,6 +140,7 @@ export interface WireToolResultAppendItem {
   tool_call_id: string;
   tool_name: string;
   tool_version: number;
+  effect_type?: string;
   result: WireProjectFlowToolResult;
 }
 

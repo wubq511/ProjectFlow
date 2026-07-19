@@ -497,6 +497,12 @@ class AgentRuntimeService:
             side_effects.append({
                 "tool_call_id": tool_result_item.tool_call_id,
                 "status": tool_result_item.result.side_effect_status.value,
+                "tool_name": tool_result_item.tool_name,
+                "effect_type": (
+                    tool_result_item.effect_type.value
+                    if tool_result_item.effect_type is not None
+                    else None
+                ),
             })
             run.set_side_effects(side_effects)
 

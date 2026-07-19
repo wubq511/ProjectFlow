@@ -4,13 +4,13 @@ Status: current as of 2026-07-19.
 
 ## Latest Architecture Handoff
 
-### 2026-07-19 — T46 Evaluation Lab Slice 1 ProjectFlow Hard-Domain Evaluation
+### 2026-07-19 — T46 Issue #95 Slice 1 Hard-Domain Foundation
 
-GitHub Issue #95 is implemented on branch `glm/t46-95-hard-oracles` (not yet merged to `main`). Slice 1 extends the Slice 0 trusted isolation foundation with ProjectFlow-aware deterministic hard evaluation: a normalized read-only viewer-scoped evidence snapshot endpoint (`GET /internal/evaluation/evidence`), Scenario Contract V2 (`HardGraderContract` / `EvidenceSnapshot` / `ReferenceProgram` / `HardGrade`), 15 deterministic hard graders across four dimensions (Outcome, Authority & Safety, Trajectory, Privacy), oracle/reference independence enforcement, composable mutation primitives with suite validation, and a `smoke-v2` preset that opts in to V2 grading while preserving Slice 0 behavior for scenarios without a `hardGrader` block.
+GitHub Issue #95 is implemented on branch `glm/t46-95-hard-oracles` (not yet merged to `main`). It is the Slice 1 hard-domain foundation, not the whole Slice 1: Issue #96 still owns multi-turn, Skill/Runtime reliability and baseline/candidate reporting. #95 adds a scoped read-only evidence seam, true event/tool Milestone DAGs, 15 deterministic hard graders, full-oracle Reference Programs, mutation validation, evaluator-only hidden-field commitments, and an isolated `smoke-v2` that exercises answer-only plus public Proposal confirm/reject.
 
 Hard graders are pure functions: they do not import runtime/router/verifier/业务 service code, do not call LLMs, and do not mutate inputs. A hard-gate failure in any dimension cannot be offset by another dimension — `HardGrade.passed` is the AND of all four. The evidence endpoint is not a second behavior entry point: it is read-only, viewer-scoped (reusing the same `can_view_*` predicates as public read paths), normalized (no raw payloads, no input/output snapshot blobs, no trace payloads, no absolute paths, no secrets), and run-scoped (trajectory/side_effect/metric/context_receipt facts are returned only when `run_id` is provided).
 
-A post-implementation adversarial review identified and fixed 1 CRITICAL + 3 HIGH + 4 MEDIUM/LOW issues: C-01 runner not propagating `run_id` to `fetchEvidenceSnapshot` (causing empty run-scoped facts), H-01 `superset` DAG order check reversed, H-02 `effect_type: null` skipping prohibited-tool check, H-03 hidden-field leakage not scanned in adversary/before/repeats snapshots, M-01 `fail_closed` mode without allowlist silently skipping, M-03 raw-ID leakage only checking before snapshot, M-04 backend context_receipt not parsing nested `_memory.used_memory_ids`, L-01 UUID regex only matching v1–v5. 12 regression tests were added covering all fixes. M-02 (`SideEffectFacts` missing `event_seq`) was deferred with a documented limitation in `contract-v2.ts` — it requires a backend schema field addition and is reserved for the next hard-domain suite.
+Independent adversarial review then fixed additional release blockers: cross-project/viewer run evidence access; final-status-only Proposal grading; the linear tool-list masquerading as a DAG; fail-open missing/duplicate terminal events; adversary binding to the primary private run; raw hidden tokens in manifests and missing request/context/trace probes; incomplete Reference inputs; unstable fact ordering; Memory raw content exposure; and missing persisted tool/effect metadata. The public confirm/reject and all three Reference paths now pass in real isolated backend/sidecar tests.
 
 **Operator/Coding Agent commands:**
 
@@ -27,7 +27,7 @@ scripts/eval-lab verify <run-id>
 
 **Key files:** `agent-bridge/src/evaluation/lab/contract-v2.ts`, `agent-bridge/src/evaluation/lab/hard-graders.ts`, `agent-bridge/src/evaluation/lab/oracle.ts`, `agent-bridge/src/evaluation/lab/reference-program.ts`, `agent-bridge/src/evaluation/lab/mutation.ts`, `agent-bridge/src/evaluation/lab/evidence-client.ts`, `backend/app/api/routes_evaluation_evidence.py`, `backend/app/schemas/evaluation_evidence.py`, `backend/app/services/evaluation_evidence_service.py`, and `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice1_Handoff.md`.
 
-**Verification:** backend 885 passed / 4 skipped (including 19 `test_evaluation_evidence.py` tests) plus Ruff; agent-bridge 1323 passed across 65 files (3 pre-existing Node 26 vs locked 24.15.0 environment failures) plus typecheck/build; frontend 333 passed / 6 skipped across 26 files (unchanged). 12 new regression tests cover the adversarial review fixes. `git diff --check` clean.
+**Verification:** backend 890 passed / 4 skipped plus Ruff; agent-bridge 1335 passed across 65 files plus typecheck/build; frontend 333 passed / 6 skipped across 26 files plus lint/build; `smoke-v2` passed 3/3 and all three real isolated Reference paths passed under their complete oracles. The earlier claim of three Node-version failures was not reproducible with the pinned repository toolchain.
 
 ### 2026-07-17 — T46 Evaluation Lab Slice 0 Trustworthy Minimum Loop
 
@@ -1219,7 +1219,7 @@ All 6 remediation slices (R1–R6, R8) completed. R7 (optional vector) remains s
 
 ## Verification Baseline
 
-Latest deterministic verification baseline after T46 Slice 1 implementation on 2026-07-19 (branch `glm/t46-95-hard-oracles`):
+Latest deterministic verification baseline after Issue #95 adversarial remediation on 2026-07-19 (branch `glm/t46-95-hard-oracles`):
 
 ```bash
 cd backend
@@ -1236,12 +1236,11 @@ npm audit --omit=dev
 
 Results:
 
-- Backend: 885 tests passed, 4 skipped (including 19 `test_evaluation_evidence.py` tests); Ruff passed.
-- Agent-bridge: 1323 tests passed across 65 files (3 pre-existing Node 26 vs locked 24.15.0 environment failures, not introduced by Slice 1); typecheck/build passed.
+- Backend: 890 tests passed, 4 skipped (including 24 `test_evaluation_evidence.py` tests); Ruff passed.
+- Agent-bridge: 1335 tests passed across 65 files; typecheck/build passed.
 - Frontend tests: 333 passed, 6 skipped across 26 files (unchanged).
 - Frontend lint and production build passed.
-- Frontend build passed.
-- Frontend production dependency audit reported 0 vulnerabilities.
+- `smoke-v2` passed 3/3 isolated public-seam scenarios; all 3 Reference Programs produced zero false hard failures under complete oracles.
 
 ## Current Implementation Surface
 
@@ -1427,7 +1426,7 @@ Verification: backend 218/218 tests pass; frontend 24/24 tests pass; frontend li
 
 ## Next Work
 
-T41-T45, T46 Evaluation Lab Slice 0 (merged), T46 Evaluation Lab Slice 1 (branch `glm/t46-95-hard-oracles`, not yet merged), and the repeated post-T44 production canary are complete. The next Evaluation Lab dependency is Slice 2 (Diagnosis and Repair Handoff): evidence-state diagnosis, isolated fault injection, bounded counterfactual experiments, issue clustering, immutable Repair Packets, stale detection and candidate regression staging. Dashboard, semantic Judge, automatic RCA and Repair Packet work remain blocked on their earlier slice gates. Flash remains the default; Pro is an explicit quality escalation rather than automatic same-provider fallback.
+T41-T45 and T46 Slice 0 are merged. Issue #95 is complete on `glm/t46-95-hard-oracles` but not yet merged. The next Evaluation Lab ticket is #96; only after #96 satisfies the Slice 1 exit gate may work advance to Slice 2 Diagnosis and Repair Handoff. Dashboard, semantic Judge and automatic RCA/Repair Packet remain blocked. Flash remains the default; Pro is an explicit quality escalation.
 
 The main accepted limitation is free-text member constraints: `constraint_respected` proves that the Agent supplied review evidence, not that the proposed assignment is semantically compliant. A stronger guarantee requires a structured constraint model and deterministic task/constraint matching. A second bounded optimization candidate is a compact workspace read view: one post-fix Pro risk observation still paged a large `get_workspace_state` result, although it remained within the latency gate. Post-MVP backlog also includes auth, deployment, collaboration permissions and broader UI hardening.
 

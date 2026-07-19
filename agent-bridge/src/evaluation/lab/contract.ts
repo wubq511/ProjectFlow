@@ -30,6 +30,14 @@ export interface ScenarioContract {
       maxOutputTokens: number;
     };
     maxRequestCount: number;
+    /** Optional evaluator-owned public human action performed only after the
+     * Agent run. It is never included in the SUT request body. */
+    humanAction?: {
+      action: "confirm" | "reject";
+      proposalType: "clarify" | "plan" | "breakdown" | "replan";
+      actorUserId: string;
+      reason?: string;
+    };
   };
   /**
    * T46-2 (Issue #95): optional V2 hard grader block. When present, the

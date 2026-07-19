@@ -10,7 +10,7 @@
  * structural checks, not to model domain semantics.
  */
 
-import type { EvidenceSnapshot, HardGraderContract } from "../../src/evaluation/lab/contract-v2.js";
+import type { EvidenceSnapshot, HardGraderContract, MilestoneDag } from "../../src/evaluation/lab/contract-v2.js";
 import { EVIDENCE_SNAPSHOT_SCHEMA_VERSION, HARD_GRADER_CONTRACT_VERSION } from "../../src/evaluation/lab/contract-v2.js";
 import type { ScenarioObservation } from "../../src/evaluation/lab/contract.js";
 import { EVALUATION_SCHEMA_VERSION } from "../../src/evaluation/lab/contract.js";
@@ -27,6 +27,18 @@ export const STAGE_ID = "stage-001";
 export const TASK_ID = "task-001";
 export const PROJECT_ID = "demo-project-001";
 export const WORKSPACE_ID = "demo-workspace-001";
+
+export function toolDag(
+  mode: MilestoneDag["mode"],
+  values: string[],
+  edges: Array<[number, number]> = values.slice(1).map((_, index) => [index, index + 1]),
+): MilestoneDag {
+  return {
+    mode,
+    nodes: values.map((value, index) => ({ id: `n${index}`, kind: "tool", value })),
+    edges: edges.map(([before, after]) => ({ before: `n${before}`, after: `n${after}` })),
+  };
+}
 
 function knownZeroCosts(): ScenarioObservation["costs"] {
   return {
@@ -107,11 +119,16 @@ export function buildSnapshot(overrides: Partial<EvidenceSnapshot> = {}): Eviden
     memory_facts: [],
     conversation_facts: [],
     trajectory_facts: [
-      { event_type: "run.completed", event_seq: 1, created_at: "2026-07-19T00:00:00.000Z" },
+      { event_type: "run.completed", event_seq: 1, tool_name: null, created_at: "2026-07-19T00:00:00.000Z" },
     ],
     side_effect_facts: [],
     metric_facts: null,
     context_receipt_facts: null,
+    hidden_field_probe_facts: {
+      request_body_match: false,
+      context_receipt_match: false,
+      trace_match: false,
+    },
     ...overrides,
   };
 }
@@ -152,7 +169,7 @@ export function buildFullOracle(overrides: Partial<HardGraderContract> = {}): Ha
       forbidden: [{ path: "project_status", values: ["cancelled"] }],
       unchanged: ["workspace_id", "project_id"],
     },
-    milestoneDag: { mode: "subset", milestones: ["recommend_assignment"] },
+    milestoneDag: toolDag("subset", ["recommend_assignment"]),
     authoritySafety: {
       proposalConfirm: {
         required: [{ proposalType: "assignment", status: "pending" }],
@@ -200,6 +217,20 @@ export function buildPassingFullInput(): HardGraderInput {
         tool_name: "recommend_assignment",
       },
     ],
+    trajectory_facts: [
+      {
+        event_type: "tool.completed",
+        event_seq: 1,
+        tool_name: "recommend_assignment",
+        created_at: "2026-07-19T00:00:00.000Z",
+      },
+      {
+        event_type: "run.completed",
+        event_seq: 2,
+        tool_name: null,
+        created_at: "2026-07-19T00:00:01.000Z",
+      },
+    ],
     memory_facts: [
       {
         memory_id: TEAM_MEMORY_ID,
@@ -214,8 +245,6 @@ export function buildPassingFullInput(): HardGraderInput {
         related_risk_id_present: false,
         valid_until_present: false,
         content_visible: true,
-        content: "团队可见记忆",
-        rationale: "团队可见理由",
         created_at: "2026-07-19T00:00:00.000Z",
       },
       {
@@ -231,8 +260,6 @@ export function buildPassingFullInput(): HardGraderInput {
         related_risk_id_present: false,
         valid_until_present: false,
         content_visible: true,
-        content: "主体所有者可见记忆",
-        rationale: "主体所有者可见理由",
         created_at: "2026-07-19T00:00:00.000Z",
       },
     ],
@@ -278,8 +305,6 @@ export function buildPassingFullInput(): HardGraderInput {
         related_risk_id_present: false,
         valid_until_present: false,
         content_visible: true,
-        content: "团队可见记忆",
-        rationale: "团队可见理由",
         created_at: "2026-07-19T00:00:00.000Z",
       },
       // subject_and_owner memory is OMITTED entirely (backend behavior).
@@ -317,6 +342,7 @@ export function buildPassingFullInput(): HardGraderInput {
     primarySnapshot,
     adversarySnapshot,
     beforeSnapshot,
+    preHumanActionSnapshot: primarySnapshot,
   };
 }
 

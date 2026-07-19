@@ -49,24 +49,39 @@ export interface StateAssertion {
   values: Array<string | number | boolean | null>;
 }
 
+export interface MilestoneNode {
+  /** Stable contract-local identity used by edges. */
+  id: string;
+  /** Match either a persisted runtime event type or the tool carried by it. */
+  kind: "event" | "tool";
+  value: string;
+}
+
+export interface MilestoneEdge {
+  before: string;
+  after: string;
+}
+
 /**
- * Milestone DAG constraint on the trajectory.
+ * Partial-order milestone constraint over the persisted run trajectory.
  *
- * - `strict`: trajectory milestones (event_types from trajectory_facts and
- *   tool_names from side_effect_facts, interleaved in event_seq order) must
- *   EXACTLY equal `milestones` in the declared order. No extras, no missing,
- *   no reordering.
- * - `unordered`: all declared milestones must appear; order ignored.
- *   Trajectory may include extras (they are not constrained).
- * - `subset`: declared milestones must appear in the declared relative order
- *   (subsequence). Trajectory may include additional milestones between them.
- * - `superset`: declared milestones are an upper bound. Trajectory must
- *   contain only milestones from the declared set, in the declared relative
- *   order. No extras outside the set are allowed.
+ * `nodes` declare observable event/tool milestones and `edges` declare only
+ * the causal ordering that matters. This avoids forcing an Agent to copy a
+ * single reference trajectory.
+ *
+ * - `strict`: every declared node appears exactly once, no undeclared
+ *   event/tool milestone appears, and all edges hold.
+ * - `unordered`: every declared node appears; ordering and extra milestones
+ *   are ignored.
+ * - `subset`: every declared node appears, extras are allowed, and all edges
+ *   hold (the declared DAG is a required subset of the actual trajectory).
+ * - `superset`: every actual milestone must be declared, declared nodes may
+ *   be absent, and every edge whose endpoints are present must hold.
  */
 export interface MilestoneDag {
   mode: "strict" | "unordered" | "subset" | "superset";
-  milestones: string[];
+  nodes: MilestoneNode[];
+  edges: MilestoneEdge[];
 }
 
 export interface ProposalConfirmConstraint {
@@ -114,6 +129,10 @@ export interface PrivacyConstraint {
    * primarySnapshot (any serialized field), or the portable artifact
    * (observation + grade serialized). */
   hiddenFieldTokens?: string[];
+  /** SHA-256 commitments stored in portable manifests instead of raw hidden
+   * tokens. Runtime scenario contracts use hiddenFieldTokens; artifacts use
+   * this field so resume integrity remains verifiable without disclosure. */
+  hiddenFieldTokenDigests?: string[];
 }
 
 export interface IdempotencyConstraint {
@@ -258,8 +277,6 @@ export interface MemoryFacts {
   related_risk_id_present: boolean;
   valid_until_present: boolean;
   content_visible: boolean;
-  content: string | null;
-  rationale: string | null;
   created_at: string;
 }
 
@@ -276,6 +293,7 @@ export interface ConversationFacts {
 export interface TrajectoryFacts {
   event_type: string;
   event_seq: number;
+  tool_name: string | null;
   created_at: string;
 }
 
@@ -305,6 +323,12 @@ export interface ContextReceiptFacts {
   tool_manifest_names: string[];
 }
 
+export interface HiddenFieldProbeFacts {
+  request_body_match: boolean;
+  context_receipt_match: boolean;
+  trace_match: boolean;
+}
+
 export interface EvidenceSnapshot {
   schema_version: typeof EVIDENCE_SNAPSHOT_SCHEMA_VERSION;
   snapshot_id: string;
@@ -323,6 +347,7 @@ export interface EvidenceSnapshot {
   side_effect_facts: SideEffectFacts[];
   metric_facts: MetricFacts | null;
   context_receipt_facts: ContextReceiptFacts | null;
+  hidden_field_probe_facts: HiddenFieldProbeFacts | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -393,6 +418,14 @@ export interface ReferenceProgram {
   /** Optional expected milestones the reference trajectory should include.
    * Used only for sanity checks; the oracle's milestoneDag is independent. */
   expectedMilestoneSubset?: string[];
+  /** Optional public confirmation/rejection used only to prove that the
+   * human-action seam can reach and expose the declared state. */
+  humanAction?: {
+    action: "confirm" | "reject";
+    proposalType: "clarify" | "plan" | "breakdown" | "replan";
+    actorUserId: string;
+    reason?: string;
+  };
 }
 
 export interface ReferenceProgramResult {

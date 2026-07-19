@@ -242,6 +242,7 @@ function toPiTool(
             tool_call_id: toolCallId,
             tool_name: toolName,
             tool_version: manifest.version,
+            effect_type: manifest.effects.effectType,
             result: toWireToolResult(normalized),
           }],
         });

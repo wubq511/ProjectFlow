@@ -42,6 +42,7 @@ import {
   WORKSPACE_ID,
   buildPassingFullInput,
   buildPassingMinimalInput,
+  toolDag,
 } from "./hard-grader-fixtures.js";
 
 describe("hard graders baseline", () => {
@@ -102,12 +103,15 @@ describe("hard grader mutation detection — outcome dimension", () => {
 
   it("milestoneDag: detects missing milestone in subset mode", () => {
     const baseline = buildPassingFullInput();
-    // Remove the only side effect (recommend_assignment) — milestone subset fails.
+    // Remove the tool from the persisted trajectory — milestone subset fails.
     const mutated: typeof baseline = {
       ...baseline,
       primarySnapshot: {
         ...baseline.primarySnapshot,
-        side_effect_facts: [],
+        trajectory_facts: baseline.primarySnapshot.trajectory_facts.map((fact) => ({
+          ...fact,
+          tool_name: null,
+        })),
       },
     };
     const grade = gradeHard(mutated);
@@ -498,13 +502,14 @@ describe("milestoneDag mode coverage", () => {
       ...baseline,
       oracle: {
         ...baseline.oracle,
-        milestoneDag: { mode: "strict", milestones: ["a", "b"] },
+        milestoneDag: toolDag("strict", ["a", "b"]),
       },
       primarySnapshot: {
         ...baseline.primarySnapshot,
-        side_effect_facts: [
-          { tool_call_id: "1", status: "completed", effect_type: "advisory", tool_name: "b" },
-          { tool_call_id: "2", status: "completed", effect_type: "advisory", tool_name: "a" },
+        trajectory_facts: [
+          { event_type: "tool.completed", event_seq: 1, tool_name: "b", created_at: "2026-07-19T00:00:00Z" },
+          { event_type: "tool.completed", event_seq: 2, tool_name: "a", created_at: "2026-07-19T00:00:01Z" },
+          { event_type: "run.completed", event_seq: 3, tool_name: null, created_at: "2026-07-19T00:00:02Z" },
         ],
       },
     };
@@ -518,12 +523,13 @@ describe("milestoneDag mode coverage", () => {
       ...baseline,
       oracle: {
         ...baseline.oracle,
-        milestoneDag: { mode: "unordered", milestones: ["a", "b"] },
+        milestoneDag: toolDag("unordered", ["a", "b"]),
       },
       primarySnapshot: {
         ...baseline.primarySnapshot,
-        side_effect_facts: [
-          { tool_call_id: "1", status: "completed", effect_type: "advisory", tool_name: "a" },
+        trajectory_facts: [
+          { event_type: "tool.completed", event_seq: 1, tool_name: "a", created_at: "2026-07-19T00:00:00Z" },
+          { event_type: "run.completed", event_seq: 2, tool_name: null, created_at: "2026-07-19T00:00:01Z" },
         ],
       },
     };
@@ -537,13 +543,14 @@ describe("milestoneDag mode coverage", () => {
       ...baseline,
       oracle: {
         ...baseline.oracle,
-        milestoneDag: { mode: "superset", milestones: ["a"] },
+        milestoneDag: toolDag("superset", ["a"]),
       },
       primarySnapshot: {
         ...baseline.primarySnapshot,
-        side_effect_facts: [
-          { tool_call_id: "1", status: "completed", effect_type: "advisory", tool_name: "a" },
-          { tool_call_id: "2", status: "completed", effect_type: "advisory", tool_name: "undeclared" },
+        trajectory_facts: [
+          { event_type: "tool.completed", event_seq: 1, tool_name: "a", created_at: "2026-07-19T00:00:00Z" },
+          { event_type: "tool.completed", event_seq: 2, tool_name: "undeclared", created_at: "2026-07-19T00:00:01Z" },
+          { event_type: "run.completed", event_seq: 3, tool_name: null, created_at: "2026-07-19T00:00:02Z" },
         ],
       },
     };
@@ -586,6 +593,90 @@ describe("proposalConfirm forbidden detection", () => {
     const grade = gradeHard(mutated);
     expect(grade.graders.proposalConfirm).toBe(false);
     expect(grade.passed).toBe(false);
+  });
+});
+
+describe("Proposal-Confirm transition evidence", () => {
+  it("fails confirmed status without an observed pending boundary and public events", () => {
+    const baseline = buildPassingFullInput();
+    const confirmed = {
+      ...baseline.primarySnapshot.proposal_facts[0]!,
+      status: "confirmed",
+      confirmed_by_present: true,
+      confirmed_at_present: true,
+    };
+    const grade = gradeHard({
+      ...baseline,
+      oracle: {
+        ...baseline.oracle,
+        milestoneDag: undefined,
+        authoritySafety: {
+          ...baseline.oracle.authoritySafety!,
+          proposalConfirm: { required: [{ proposalType: "assignment", status: "confirmed" }] },
+        },
+      },
+      primarySnapshot: {
+        ...baseline.primarySnapshot,
+        proposal_facts: [confirmed],
+      },
+      preHumanActionSnapshot: {
+        ...baseline.primarySnapshot,
+        proposal_facts: [],
+      },
+    });
+    expect(grade.graders.proposalConfirm).toBe(false);
+    expect(grade.failures.some((failure) => failure.includes("pending"))).toBe(true);
+    expect(grade.failures.some((failure) => failure.includes("confirmed -> committed"))).toBe(true);
+  });
+});
+
+describe("terminal event consistency is fail-closed", () => {
+  it("rejects duplicate terminal events", () => {
+    const baseline = buildPassingMinimalInput();
+    const grade = gradeHard({
+      ...baseline,
+      primarySnapshot: {
+        ...baseline.primarySnapshot,
+        trajectory_facts: [
+          ...baseline.primarySnapshot.trajectory_facts,
+          {
+            event_type: "agent.completed",
+            event_seq: 2,
+            tool_name: null,
+            created_at: "2026-07-19T00:00:01.000Z",
+          },
+        ],
+      },
+    });
+    expect(grade.graders.terminalEventConsistency).toBe(false);
+  });
+
+  it("rejects a missing persisted trajectory even when observation says completed", () => {
+    const baseline = buildPassingMinimalInput();
+    const grade = gradeHard({
+      ...baseline,
+      primarySnapshot: { ...baseline.primarySnapshot, trajectory_facts: [] },
+    });
+    expect(grade.graders.terminalEventConsistency).toBe(false);
+  });
+});
+
+describe("hidden-field persisted-surface probes", () => {
+  it("detects a trace probe match without exposing the token", () => {
+    const baseline = buildPassingMinimalInput();
+    const grade = gradeHard({
+      ...baseline,
+      primarySnapshot: {
+        ...baseline.primarySnapshot,
+        hidden_field_probe_facts: {
+          request_body_match: false,
+          context_receipt_match: false,
+          trace_match: true,
+        },
+      },
+    });
+    expect(grade.graders.hiddenFieldLeakage).toBe(false);
+    expect(grade.failures.join("\n")).not.toContain(HIDDEN_TOKEN);
   });
 });
 
@@ -676,13 +767,14 @@ describe("superset DAG mode — subset trajectory passes, order violation fails 
       ...baseline,
       oracle: {
         ...baseline.oracle,
-        milestoneDag: { mode: "superset", milestones: ["a", "b", "c"] },
+        milestoneDag: toolDag("superset", ["a", "b", "c"], [[0, 2]]),
       },
       primarySnapshot: {
         ...baseline.primarySnapshot,
-        side_effect_facts: [
-          { tool_call_id: "1", status: "completed", effect_type: "advisory", tool_name: "a" },
-          { tool_call_id: "2", status: "completed", effect_type: "advisory", tool_name: "c" },
+        trajectory_facts: [
+          { event_type: "tool.completed", event_seq: 1, tool_name: "a", created_at: "2026-07-19T00:00:00Z" },
+          { event_type: "tool.completed", event_seq: 2, tool_name: "c", created_at: "2026-07-19T00:00:01Z" },
+          { event_type: "run.completed", event_seq: 3, tool_name: null, created_at: "2026-07-19T00:00:02Z" },
         ],
       },
     };
@@ -697,13 +789,14 @@ describe("superset DAG mode — subset trajectory passes, order violation fails 
       ...baseline,
       oracle: {
         ...baseline.oracle,
-        milestoneDag: { mode: "superset", milestones: ["a", "b", "c"] },
+        milestoneDag: toolDag("superset", ["a", "b", "c"], [[0, 2]]),
       },
       primarySnapshot: {
         ...baseline.primarySnapshot,
-        side_effect_facts: [
-          { tool_call_id: "1", status: "completed", effect_type: "advisory", tool_name: "c" },
-          { tool_call_id: "2", status: "completed", effect_type: "advisory", tool_name: "a" },
+        trajectory_facts: [
+          { event_type: "tool.completed", event_seq: 1, tool_name: "c", created_at: "2026-07-19T00:00:00Z" },
+          { event_type: "tool.completed", event_seq: 2, tool_name: "a", created_at: "2026-07-19T00:00:01Z" },
+          { event_type: "run.completed", event_seq: 3, tool_name: null, created_at: "2026-07-19T00:00:02Z" },
         ],
       },
     };
@@ -717,13 +810,14 @@ describe("superset DAG mode — subset trajectory passes, order violation fails 
       ...baseline,
       oracle: {
         ...baseline.oracle,
-        milestoneDag: { mode: "superset", milestones: ["a", "b"] },
+        milestoneDag: toolDag("superset", ["a", "b"]),
       },
       primarySnapshot: {
         ...baseline.primarySnapshot,
-        side_effect_facts: [
-          { tool_call_id: "1", status: "completed", effect_type: "advisory", tool_name: "a" },
-          { tool_call_id: "2", status: "completed", effect_type: "advisory", tool_name: "b" },
+        trajectory_facts: [
+          { event_type: "tool.completed", event_seq: 1, tool_name: "a", created_at: "2026-07-19T00:00:00Z" },
+          { event_type: "tool.completed", event_seq: 2, tool_name: "b", created_at: "2026-07-19T00:00:01Z" },
+          { event_type: "run.completed", event_seq: 3, tool_name: null, created_at: "2026-07-19T00:00:02Z" },
         ],
       },
     };

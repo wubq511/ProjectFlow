@@ -29,6 +29,7 @@ import {
   EVIDENCE_SNAPSHOT_SCHEMA_VERSION,
   type EvidenceSnapshot,
 } from "./contract-v2.js";
+import { createHash } from "node:crypto";
 
 export interface EvidenceClientConfig {
   backendBaseUrl: string;
@@ -48,6 +49,7 @@ export interface EvidenceRequest {
   projectId?: string;
   conversationId?: string;
   runId?: string;
+  hiddenFieldTokens?: string[];
 }
 
 const REDACTED_ERROR = "评估证据快照获取失败";
@@ -68,6 +70,10 @@ function buildUrl(base: string, req: EvidenceRequest): string {
   if (req.projectId) url.searchParams.set("project_id", req.projectId);
   if (req.conversationId) url.searchParams.set("conversation_id", req.conversationId);
   if (req.runId) url.searchParams.set("run_id", req.runId);
+  for (const token of req.hiddenFieldTokens ?? []) {
+    const digest = createHash("sha256").update(token, "utf8").digest("hex");
+    url.searchParams.append("hidden_token_probe", `${Array.from(token).length}:${digest}`);
+  }
   return url.toString();
 }
 
@@ -125,4 +131,3 @@ export async function fetchEvidenceSnapshot(
 
   return payload as EvidenceSnapshot;
 }
-

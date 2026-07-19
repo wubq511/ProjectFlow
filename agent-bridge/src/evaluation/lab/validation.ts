@@ -95,6 +95,33 @@ function validateScenario(scenario: ScenarioContract): ValidationIssue[] {
       add("scenario_regex", `场景 ${scenario.scenarioId} 包含无效的 forbiddenOutputPatterns 正则`);
     }
   }
+  if (scenario.hidden.humanAction) {
+    const action = scenario.hidden.humanAction;
+    if (!(["confirm", "reject"] as string[]).includes(action.action)) {
+      add("scenario_human_action", `场景 ${scenario.scenarioId} 的 humanAction.action 无效`);
+    }
+    if (!(["clarify", "plan", "breakdown", "replan"] as string[]).includes(action.proposalType)) {
+      add("scenario_human_proposal_type", `场景 ${scenario.scenarioId} 的 humanAction.proposalType 无效`);
+    }
+    if (!action.actorUserId?.trim()) {
+      add("scenario_human_actor", `场景 ${scenario.scenarioId} 的 humanAction.actorUserId 不能为空`);
+    }
+    if (action.action === "reject" && !action.reason?.trim()) {
+      add("scenario_human_reject_reason", `场景 ${scenario.scenarioId} 的 reject humanAction 必须提供 reason`);
+    }
+    if (!scenario.hardGrader) {
+      add("scenario_human_hard_grader", `场景 ${scenario.scenarioId} 声明 humanAction 时必须声明 hardGrader`);
+    } else {
+      const expectedStatus = action.action === "confirm" ? "confirmed" : "rejected";
+      const required = scenario.hardGrader.authoritySafety?.proposalConfirm?.required ?? [];
+      if (!required.some((item) => item.proposalType === action.proposalType && item.status === expectedStatus)) {
+        add(
+          "scenario_human_oracle",
+          `场景 ${scenario.scenarioId} 的 humanAction 必须有匹配的 proposalConfirm.required oracle`,
+        );
+      }
+    }
+  }
   // T46-2: validate the optional hardGrader block (fail-closed on
   // invalid or contradictory contracts).
   const hardGraderErrors = validateHardGrader(scenario);
@@ -172,6 +199,11 @@ function validateHardGrader(scenario: ScenarioContract): ValidationIssue[] {
         }
       }
     }
+    for (const effectType of authority.allowedSideEffectTypes ?? []) {
+      if (typeof effectType !== "string" || !effectType.trim()) {
+        add("hard_grader_allowed_effects", `场景 ${scenario.scenarioId} 的 allowedSideEffectTypes 包含空值`);
+      }
+    }
     // fail_closed mode requires a non-empty allowedSideEffectTypes list.
     // Otherwise the grader would have no allowlist to check against and
     // would silently skip, contradicting the explicit "fail_closed" intent.
@@ -204,6 +236,9 @@ function validateHardGrader(scenario: ScenarioContract): ValidationIssue[] {
           add("hard_grader_hidden_tokens", `场景 ${scenario.scenarioId} 的 privacy.hiddenFieldTokens 包含空 token`);
         }
       }
+    }
+    if (priv.hiddenFieldTokens && priv.hiddenFieldTokenDigests) {
+      add("hard_grader_hidden_token_forms", `场景 ${scenario.scenarioId} 不能同时声明 hiddenFieldTokens 与 hiddenFieldTokenDigests`);
     }
   }
 
@@ -282,15 +317,66 @@ function validateMilestoneDag(
   if (!["strict", "unordered", "subset", "superset"].includes(dag.mode)) {
     add("hard_grader_dag_mode", `场景 ${scenarioId} 的 milestoneDag.mode 无效: ${dag.mode as string}`);
   }
-  if (!Array.isArray(dag.milestones) || dag.milestones.length === 0) {
-    add("hard_grader_dag_milestones", `场景 ${scenarioId} 的 milestoneDag.milestones 不能为空`);
+  if (!Array.isArray(dag.nodes) || dag.nodes.length === 0) {
+    add("hard_grader_dag_nodes", `场景 ${scenarioId} 的 milestoneDag.nodes 不能为空`);
     return;
   }
-  for (let i = 0; i < dag.milestones.length; i++) {
-    const m = dag.milestones[i];
-    if (typeof m !== "string" || !m.trim()) {
-      add("hard_grader_dag_milestone", `场景 ${scenarioId} 的 milestoneDag.milestones[${i}] 不能为空`);
+  const ids = new Set<string>();
+  const matchers = new Set<string>();
+  for (let i = 0; i < dag.nodes.length; i++) {
+    const node = dag.nodes[i];
+    if (!node || typeof node.id !== "string" || !node.id.trim()) {
+      add("hard_grader_dag_node", `场景 ${scenarioId} 的 milestoneDag.nodes[${i}].id 不能为空`);
+      continue;
     }
+    if (ids.has(node.id)) {
+      add("hard_grader_dag_duplicate_node", `场景 ${scenarioId} 的 milestoneDag node ID 重复: ${node.id}`);
+    }
+    ids.add(node.id);
+    if (!(["event", "tool"] as string[]).includes(node.kind)) {
+      add("hard_grader_dag_node_kind", `场景 ${scenarioId} 的 milestoneDag.nodes[${i}].kind 无效`);
+    }
+    if (typeof node.value !== "string" || !node.value.trim()) {
+      add("hard_grader_dag_node_value", `场景 ${scenarioId} 的 milestoneDag.nodes[${i}].value 不能为空`);
+    }
+    const matcher = `${node.kind}:${node.value}`;
+    if (matchers.has(matcher)) {
+      add("hard_grader_dag_duplicate_matcher", `场景 ${scenarioId} 的 milestoneDag matcher 重复: ${matcher}`);
+    }
+    matchers.add(matcher);
+  }
+  if (!Array.isArray(dag.edges)) {
+    add("hard_grader_dag_edges", `场景 ${scenarioId} 的 milestoneDag.edges 必须为数组`);
+    return;
+  }
+  const adjacency = new Map<string, string[]>();
+  for (const id of ids) adjacency.set(id, []);
+  for (const edge of dag.edges ?? []) {
+    if (!ids.has(edge.before) || !ids.has(edge.after)) {
+      add("hard_grader_dag_edge_node", `场景 ${scenarioId} 的 milestoneDag edge 引用未知节点: ${edge.before} -> ${edge.after}`);
+      continue;
+    }
+    if (edge.before === edge.after) {
+      add("hard_grader_dag_self_edge", `场景 ${scenarioId} 的 milestoneDag 不允许自环: ${edge.before}`);
+      continue;
+    }
+    adjacency.get(edge.before)?.push(edge.after);
+  }
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const hasCycle = (id: string): boolean => {
+    if (visiting.has(id)) return true;
+    if (visited.has(id)) return false;
+    visiting.add(id);
+    for (const next of adjacency.get(id) ?? []) {
+      if (hasCycle(next)) return true;
+    }
+    visiting.delete(id);
+    visited.add(id);
+    return false;
+  };
+  if ([...ids].some((id) => hasCycle(id))) {
+    add("hard_grader_dag_cycle", `场景 ${scenarioId} 的 milestoneDag 包含环`);
   }
 }
 

@@ -94,19 +94,21 @@ export function assertOracleIndependence(
   }
 
   // Check 3: ReferenceProgram.expectedMilestoneSubset must not equal the
-  // oracle's milestoneDag.milestones exactly. Equality would mean the
+  // oracle's milestone matchers exactly. Equality would mean the
   // reference has copied the oracle's trajectory constraint verbatim,
   // collapsing the two into a single source of truth.
   if (
     reference.expectedMilestoneSubset
     && oracle.milestoneDag
-    && Array.isArray(oracle.milestoneDag.milestones)
+    && Array.isArray(oracle.milestoneDag.nodes)
   ) {
     const refSet = JSON.stringify(reference.expectedMilestoneSubset);
-    const oracleSet = JSON.stringify(oracle.milestoneDag.milestones);
+    const oracleSet = JSON.stringify(
+      oracle.milestoneDag.nodes.map((node) => `${node.kind}:${node.value}`),
+    );
     if (refSet === oracleSet) {
       throw new Error(
-        "oracle 不独立: ReferenceProgram.expectedMilestoneSubset 与 oracle.milestoneDag.milestones 完全相同",
+        "oracle 不独立: ReferenceProgram.expectedMilestoneSubset 与 oracle.milestoneDag nodes 完全相同",
       );
     }
   }

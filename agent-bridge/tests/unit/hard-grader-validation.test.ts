@@ -33,6 +33,7 @@ import {
   SMOKE_V2_BUDGET,
   SMOKE_V2_SCENARIOS,
 } from "../../src/evaluation/lab/presets.js";
+import { toolDag } from "./hard-grader-fixtures.js";
 
 const projectRoot = resolve(import.meta.dirname ?? process.cwd(), "../../../");
 
@@ -115,7 +116,7 @@ describe("hardGrader validation — valid contracts", () => {
         forbidden: [{ path: "project_status", values: ["cancelled"] }],
         unchanged: ["workspace_id"],
       },
-      milestoneDag: { mode: "subset", milestones: ["recommend_assignment"] },
+      milestoneDag: toolDag("subset", ["recommend_assignment"]),
       authoritySafety: {
         proposalConfirm: {
           required: [{ proposalType: "assignment", status: "pending" }],
@@ -208,26 +209,44 @@ describe("hardGrader validation — fail-closed on invalid contracts", () => {
 
   it("rejects an invalid milestoneDag mode", async () => {
     const hg = buildHardGrader({
-      milestoneDag: { mode: "invalid" as unknown as "strict", milestones: ["a"] },
+      milestoneDag: { ...toolDag("strict", ["a"]), mode: "invalid" as unknown as "strict" },
     });
     const result = await validate(hg);
     expect(hasError("hard_grader_dag_mode", result)).toBe(true);
   });
 
-  it("rejects an empty milestones list", async () => {
+  it("rejects an empty nodes list", async () => {
     const hg = buildHardGrader({
-      milestoneDag: { mode: "strict", milestones: [] },
+      milestoneDag: { mode: "strict", nodes: [], edges: [] },
     });
     const result = await validate(hg);
-    expect(hasError("hard_grader_dag_milestones", result)).toBe(true);
+    expect(hasError("hard_grader_dag_nodes", result)).toBe(true);
   });
 
-  it("rejects an empty milestone entry", async () => {
+  it("rejects an empty milestone value", async () => {
     const hg = buildHardGrader({
-      milestoneDag: { mode: "strict", milestones: [""] },
+      milestoneDag: { mode: "strict", nodes: [{ id: "n0", kind: "tool", value: "" }], edges: [] },
     });
     const result = await validate(hg);
-    expect(hasError("hard_grader_dag_milestone", result)).toBe(true);
+    expect(hasError("hard_grader_dag_node_value", result)).toBe(true);
+  });
+
+  it("rejects edges with unknown nodes and cycles", async () => {
+    const unknown = buildHardGrader({
+      milestoneDag: {
+        ...toolDag("subset", ["a"]),
+        edges: [{ before: "n0", after: "missing" }],
+      },
+    });
+    expect(hasError("hard_grader_dag_edge_node", await validate(unknown))).toBe(true);
+
+    const cyclic = buildHardGrader({
+      milestoneDag: {
+        ...toolDag("subset", ["a", "b"]),
+        edges: [{ before: "n0", after: "n1" }, { before: "n1", after: "n0" }],
+      },
+    });
+    expect(hasError("hard_grader_dag_cycle", await validate(cyclic))).toBe(true);
   });
 
   it("rejects privacy constraints requiring an adversary when adversaryUserId is missing", async () => {
@@ -404,5 +423,40 @@ describe("hardGrader validation — Slice 0 bypass", () => {
   it("scenarios without hardGrader do not produce hard_grader_* errors", async () => {
     const result = await validate();
     expectHardGraderValid(result);
+  });
+});
+
+describe("human-action validation", () => {
+  it("rejects a human action without a hard grader", async () => {
+    const scenario = buildScenario();
+    scenario.hidden.humanAction = {
+      action: "confirm",
+      proposalType: "plan",
+      actorUserId: "demo-user-001",
+    };
+    const result = await validateEvaluationConfig({
+      projectRoot,
+      model: "mock:mock-model",
+      scenarios: [scenario],
+      budget: buildBudget(),
+    });
+    expect(hasError("scenario_human_hard_grader", result)).toBe(true);
+  });
+
+  it("rejects a human action without a matching Proposal-Confirm oracle", async () => {
+    const scenario = buildScenario(buildHardGrader());
+    scenario.hidden.humanAction = {
+      action: "reject",
+      proposalType: "plan",
+      actorUserId: "demo-user-001",
+      reason: "不接受",
+    };
+    const result = await validateEvaluationConfig({
+      projectRoot,
+      model: "mock:mock-model",
+      scenarios: [scenario],
+      budget: buildBudget(),
+    });
+    expect(hasError("scenario_human_oracle", result)).toBe(true);
   });
 });

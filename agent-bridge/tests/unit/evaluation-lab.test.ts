@@ -17,8 +17,12 @@ import {
 import {
   SLICE_0_SMOKE_BUDGET,
   SLICE_0_SMOKE_SCENARIOS,
+  SMOKE_V2_BUDGET,
+  SMOKE_V2_REFERENCE_PROGRAMS,
+  SMOKE_V2_SCENARIOS,
 } from "../../src/evaluation/lab/presets.js";
 import { buildBudgetCheckpoint, runEvaluation } from "../../src/evaluation/lab/runner.js";
+import { runReferenceProgram } from "../../src/evaluation/lab/reference-program.js";
 import { buildProvenance, validateEvaluationConfig } from "../../src/evaluation/lab/validation.js";
 import { findEvaluatorBudgetFailure, readEvaluatorBudget } from "../../src/server/routes/start-run-stream.js";
 
@@ -521,5 +525,59 @@ describe("Evaluation Lab immutable end-to-end loop", () => {
     await writeFile(observationPath, JSON.stringify(observation), "utf-8");
     const store = new EvaluationArtifactStore(projectRoot, runId, tmpdir());
     await expect(store.readVerifiedArtifact()).rejects.toThrow(/哈希校验失败/);
+  }, 35_000);
+
+  it("runs Slice 1 public behavior plus confirm/reject seams without leaking hidden fields", async () => {
+    const runId = `hard_domain_${Date.now()}`;
+    const runDir = join(projectRoot, "agent-bridge", "artifacts", runId);
+    createdRunDirs.push(runDir);
+    const report = await runEvaluation({
+      projectRoot,
+      runId,
+      preset: "smoke-v2",
+      model: "mock:mock-model",
+      scenarios: SMOKE_V2_SCENARIOS,
+      budget: SMOKE_V2_BUDGET,
+      resume: false,
+    });
+    expect(report.status).toBe("completed");
+    expect(report.summary).toMatchObject({ passedCount: 3, failedCount: 0, passRate: 1 });
+    expect(report.grades.every((grade) => grade.hardGrade?.passed === true)).toBe(true);
+    const manifest = await readFile(join(runDir, "manifest.json"), "utf-8");
+    expect(manifest).not.toContain("HIDDEN_GOAL_TOKEN_T46_2_DO_NOT_LEAK");
+    expect(manifest).toContain("hiddenFieldTokenDigests");
+    expect(await readFile(join(runDir, "report.json"), "utf-8"))
+      .not.toContain("HIDDEN_GOAL_TOKEN_T46_2_DO_NOT_LEAK");
+  }, 35_000);
+
+  it("runs a real isolated reference path with zero false hard failures", async () => {
+    const pair = new IsolatedProcessPair();
+    await pair.start(projectRoot, "mock:mock-model");
+    try {
+      for (const scenario of SMOKE_V2_SCENARIOS) {
+        if (!scenario.hardGrader) throw new Error("smoke-v2 oracle missing");
+        const reference = SMOKE_V2_REFERENCE_PROGRAMS[scenario.scenarioId];
+        if (!reference) throw new Error(`smoke-v2 reference missing: ${scenario.scenarioId}`);
+        const result = await runReferenceProgram(reference, scenario.hardGrader, {
+          backendBaseUrl: pair.backendUrl,
+          sidecarBaseUrl: pair.sidecarUrl,
+          adminToken: pair.adminToken,
+          internalServiceToken: pair.internalServiceToken,
+          evaluationNonce: pair.nonce,
+          evaluationInstanceId: pair.instanceId,
+          workspaceId: "demo-workspace-001",
+          projectId: "demo-project-001",
+          model: "mock:mock-model",
+          maxLatencyMs: scenario.hidden.maxLatencyMs,
+          maxInputTokens: scenario.hidden.tokenBudget.maxInputTokens,
+          maxOutputTokens: scenario.hidden.tokenBudget.maxOutputTokens,
+          maxRequestCount: scenario.hidden.maxRequestCount,
+          maxSutCostUsd: 0.10,
+        });
+        expect(result.passed, result.hardGrade.failures.join("\n")).toBe(true);
+      }
+    } finally {
+      await pair.destroy();
+    }
   }, 35_000);
 });

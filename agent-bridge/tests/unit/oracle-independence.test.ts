@@ -30,6 +30,7 @@ import {
   type ReferenceProgram,
 } from "../../src/evaluation/lab/contract-v2.js";
 import { SMOKE_V2_REFERENCE_PROGRAMS, SMOKE_V2_SCENARIOS } from "../../src/evaluation/lab/presets.js";
+import { toolDag } from "./hard-grader-fixtures.js";
 
 function buildOracle(overrides: Partial<HardGraderContract> = {}): HardGraderContract {
   return {
@@ -81,7 +82,7 @@ describe("assertOracleIndependence — structural coupling rejection", () => {
 
   it("rejects a reference program that embeds milestoneDag", () => {
     const reference = buildReference() as ReferenceProgram & { milestoneDag?: unknown };
-    reference.milestoneDag = { mode: "strict", milestones: [] };
+    reference.milestoneDag = { mode: "strict", nodes: [], edges: [] };
     expect(() => assertOracleIndependence(buildOracle(), reference)).toThrow(/milestoneDag/);
   });
 
@@ -101,19 +102,19 @@ describe("assertOracleIndependence — structural coupling rejection", () => {
     expect(() => assertOracleIndependence(buildOracle(), reference)).not.toThrow();
   });
 
-  it("rejects a reference program whose expectedMilestoneSubset equals the oracle's milestoneDag.milestones", () => {
+  it("rejects a reference program whose expectedMilestoneSubset equals the oracle's milestone matchers", () => {
     const oracle = buildOracle({
-      milestoneDag: { mode: "subset", milestones: ["a", "b", "c"] },
+      milestoneDag: toolDag("subset", ["a", "b", "c"]),
     });
     const reference = buildReference({
-      expectedMilestoneSubset: ["a", "b", "c"],
+      expectedMilestoneSubset: ["tool:a", "tool:b", "tool:c"],
     });
     expect(() => assertOracleIndependence(oracle, reference)).toThrow(/expectedMilestoneSubset/);
   });
 
   it("accepts a reference program whose expectedMilestoneSubset differs from the oracle's milestones", () => {
     const oracle = buildOracle({
-      milestoneDag: { mode: "subset", milestones: ["a", "b", "c"] },
+      milestoneDag: toolDag("subset", ["a", "b", "c"]),
     });
     const reference = buildReference({
       expectedMilestoneSubset: ["a"],

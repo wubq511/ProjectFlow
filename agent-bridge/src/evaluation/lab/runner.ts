@@ -22,7 +22,7 @@ import { fetchEvidenceSnapshot } from "./evidence-client.js";
 import { gradeHard } from "./hard-graders.js";
 import { attachHardGrade, gradeObservation } from "./grader.js";
 import { IsolatedProcessPair } from "./isolation.js";
-import { buildProvenance, validateEvaluationConfig } from "./validation.js";
+import { buildProvenance, sha256, validateEvaluationConfig } from "./validation.js";
 
 const DEFAULT_WORKSPACE_ID = "demo-workspace-001";
 const DEFAULT_PROJECT_ID = "demo-project-001";
@@ -52,6 +52,21 @@ function knownZeroCost(source: CostLedgerEntry["source"] = "versioned_price_esti
 
 function externalCodingAgentCost(): CostLedgerEntry {
   return { amountUsd: null, source: "unknown", countedAgainstSutCap: false };
+}
+
+/** Portable artifacts keep only commitments to evaluator-owned hidden
+ * sentinels. Raw tokens remain in memory for grading and are never written. */
+export function sanitizeScenariosForArtifact(scenarios: ScenarioContract[]): ScenarioContract[] {
+  return scenarios.map((scenario) => {
+    const clone = structuredClone(scenario);
+    const privacy = clone.hardGrader?.privacy;
+    const tokens = privacy?.hiddenFieldTokens;
+    if (privacy && tokens?.length) {
+      privacy.hiddenFieldTokenDigests = tokens.map((token) => sha256(token));
+      delete privacy.hiddenFieldTokens;
+    }
+    return clone;
+  });
 }
 
 function sumKnownCosts(entries: CostLedgerEntry[], countedAgainstSutCap: boolean): CostLedgerEntry {
@@ -175,6 +190,7 @@ async function gradeHardForScenario(
   pair: IsolatedProcessPair,
   conversationId: string,
   beforeSnapshot: EvidenceSnapshot | null,
+  preHumanActionSnapshot: EvidenceSnapshot | null,
 ): Promise<import("./contract-v2.js").HardGrade | null> {
   const hg = scenario.hardGrader;
   if (!hg) return null;
@@ -192,6 +208,7 @@ async function gradeHardForScenario(
       projectId: DEFAULT_PROJECT_ID,
       conversationId,
       runId: observation.runId,
+      hiddenFieldTokens: hg.privacy?.hiddenFieldTokens,
     },
   );
 
@@ -208,8 +225,10 @@ async function gradeHardForScenario(
         workspaceId: DEFAULT_WORKSPACE_ID,
         viewerUserId: hg.viewer.adversaryUserId,
         projectId: DEFAULT_PROJECT_ID,
-        conversationId,
-        runId: observation.runId,
+        // A run and its private conversation are owned by the primary
+        // viewer. The adversary snapshot intentionally observes only its
+        // own viewer-scoped project facts; binding it to the primary run
+        // would either leak or (correctly) fail 404.
       },
     );
   }
@@ -220,7 +239,43 @@ async function gradeHardForScenario(
     primarySnapshot,
     adversarySnapshot,
     beforeSnapshot,
+    preHumanActionSnapshot,
   });
+}
+
+async function performHumanAction(
+  scenario: ScenarioContract,
+  pair: IsolatedProcessPair,
+  snapshot: EvidenceSnapshot,
+): Promise<void> {
+  const action = scenario.hidden.humanAction;
+  if (!action) return;
+  const pending = [...snapshot.proposal_facts]
+    .reverse()
+    .find((proposal) => proposal.proposal_type === action.proposalType && proposal.status === "pending");
+  if (!pending) {
+    throw new EvaluationInfrastructureError(
+      `公共人工操作失败: 未找到 pending ${action.proposalType} proposal`,
+    );
+  }
+  const body = action.action === "confirm"
+    ? { confirmed_by: action.actorUserId }
+    : { reason: action.reason };
+  const response = await fetch(
+    `${pair.backendUrl}/api/agent-proposals/${encodeURIComponent(pending.proposal_id)}/${action.action}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Evaluation-Nonce": pair.nonce,
+        "X-Evaluation-Instance-Id": pair.instanceId,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    throw new EvaluationInfrastructureError(`公共人工操作失败: HTTP ${response.status}`);
+  }
 }
 
 export async function runEvaluation(options: RunEvaluationOptions): Promise<EvaluationArtifact> {
@@ -247,7 +302,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
     preset: options.preset,
     model: options.model,
     createdAt: new Date().toISOString(),
-    scenarios: options.scenarios,
+    scenarios: sanitizeScenariosForArtifact(options.scenarios),
     budget: options.budget,
     provenance,
   };
@@ -418,6 +473,27 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
           };
           const grade = gradeObservation(scenario, observation, identity.workspaceState, afterState);
 
+          let preHumanActionSnapshot: EvidenceSnapshot | null = null;
+          if (scenario.hardGrader) {
+            preHumanActionSnapshot = await fetchEvidenceSnapshot(
+              {
+                backendBaseUrl: pair.backendUrl,
+                internalServiceToken: pair.internalServiceToken,
+                evaluationNonce: pair.nonce,
+                evaluationInstanceId: pair.instanceId,
+              },
+              {
+                workspaceId: DEFAULT_WORKSPACE_ID,
+                viewerUserId: scenario.hardGrader.viewer.primaryUserId,
+                projectId: DEFAULT_PROJECT_ID,
+                conversationId: identity.conversationId,
+                runId: observation.runId,
+                hiddenFieldTokens: scenario.hardGrader.privacy?.hiddenFieldTokens,
+              },
+            );
+            await performHumanAction(scenario, pair, preHumanActionSnapshot);
+          }
+
           // T46-2: run hard graders when the scenario declares a hardGrader block.
           const finalGrade = await gradeHardForScenario(
             scenario,
@@ -425,6 +501,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
             pair,
             identity.conversationId,
             beforeSnapshot,
+            preHumanActionSnapshot,
           ).then((hardGrade) => hardGrade ? attachHardGrade(grade, hardGrade) : grade);
 
           await store.publishCheckpoint(observation, finalGrade);

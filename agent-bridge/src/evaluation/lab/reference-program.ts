@@ -98,12 +98,17 @@ export interface ReferenceExecutorConfig {
   maxOutputTokens: number;
   maxRequestCount: number;
   maxSutCostUsd: number;
+  /** Evaluator-owned sentinels, sent only as length+SHA-256 evidence probes. */
+  hiddenFieldTokens?: string[];
   fetchFn?: typeof fetch;
 }
 
 export interface ReferenceRunHandles {
   observation: LabScenarioObservation;
+  beforeSnapshot: EvidenceSnapshot;
+  preHumanActionSnapshot: EvidenceSnapshot;
   snapshot: EvidenceSnapshot;
+  adversarySnapshot: EvidenceSnapshot | null;
   identity: PublicSeamIdentity;
 }
 
@@ -128,6 +133,19 @@ export async function executeReferenceRun(
     evaluationNonce: config.evaluationNonce,
     evaluationInstanceId: config.evaluationInstanceId,
     fetchFn: config.fetchFn,
+  });
+
+  const evidenceClient = {
+    backendBaseUrl: config.backendBaseUrl,
+    internalServiceToken: config.internalServiceToken,
+    evaluationNonce: config.evaluationNonce,
+    evaluationInstanceId: config.evaluationInstanceId,
+    fetchFn: config.fetchFn,
+  };
+  const beforeSnapshot = await fetchEvidenceSnapshot(evidenceClient, {
+    workspaceId: config.workspaceId,
+    viewerUserId: reference.viewer.primaryUserId,
+    projectId: config.projectId,
   });
 
   const publicRunner = createHttpPublicSeamRunner({
@@ -165,24 +183,71 @@ export async function executeReferenceRun(
   // (terminal event consistency, prohibited commit effects, idempotency,
   // milestone DAG) would see empty data and silently pass — defeating the
   // "zero false hard failure" property of the reference program.
-  const snapshot = await fetchEvidenceSnapshot(
-    {
-      backendBaseUrl: config.backendBaseUrl,
-      internalServiceToken: config.internalServiceToken,
-      evaluationNonce: config.evaluationNonce,
-      evaluationInstanceId: config.evaluationInstanceId,
-      fetchFn: config.fetchFn,
-    },
+  const preHumanActionSnapshot = await fetchEvidenceSnapshot(
+    evidenceClient,
     {
       workspaceId: config.workspaceId,
       viewerUserId: reference.viewer.primaryUserId,
       projectId: config.projectId,
       conversationId: identity.conversationId,
       runId: publicObservation.runId,
+      hiddenFieldTokens: config.hiddenFieldTokens,
     },
   );
 
-  return { observation, snapshot, identity };
+  if (reference.humanAction) {
+    const action = reference.humanAction;
+    const pending = [...preHumanActionSnapshot.proposal_facts]
+      .reverse()
+      .find((proposal) => proposal.proposal_type === action.proposalType && proposal.status === "pending");
+    if (!pending) throw new Error(`reference 未找到 pending ${action.proposalType} proposal`);
+    const response = await (config.fetchFn ?? fetch)(
+      `${config.backendBaseUrl}/api/agent-proposals/${encodeURIComponent(pending.proposal_id)}/${action.action}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Evaluation-Nonce": config.evaluationNonce,
+          "X-Evaluation-Instance-Id": config.evaluationInstanceId,
+        },
+        body: JSON.stringify(
+          action.action === "confirm"
+            ? { confirmed_by: action.actorUserId }
+            : { reason: action.reason },
+        ),
+      },
+    );
+    if (!response.ok) throw new Error(`reference 公共人工操作失败: HTTP ${response.status}`);
+  }
+
+  const snapshot = reference.humanAction
+    ? await fetchEvidenceSnapshot(evidenceClient, {
+      workspaceId: config.workspaceId,
+      viewerUserId: reference.viewer.primaryUserId,
+      projectId: config.projectId,
+      conversationId: identity.conversationId,
+      runId: publicObservation.runId,
+      hiddenFieldTokens: config.hiddenFieldTokens,
+    })
+    : preHumanActionSnapshot;
+
+  let adversarySnapshot: EvidenceSnapshot | null = null;
+  if (reference.viewer.adversaryUserId) {
+    adversarySnapshot = await fetchEvidenceSnapshot(evidenceClient, {
+      workspaceId: config.workspaceId,
+      viewerUserId: reference.viewer.adversaryUserId,
+      projectId: config.projectId,
+    });
+  }
+
+  return {
+    observation,
+    beforeSnapshot,
+    preHumanActionSnapshot,
+    snapshot,
+    adversarySnapshot,
+    identity,
+  };
 }
 
 /**
@@ -203,13 +268,23 @@ export async function runReferenceProgram(
 ): Promise<ReferenceProgramResult> {
   assertOracleIndependence(oracle, reference);
 
-  const { observation, snapshot } = await executeReferenceRun(reference, config);
+  const {
+    observation,
+    beforeSnapshot,
+    preHumanActionSnapshot,
+    snapshot,
+    adversarySnapshot,
+  } = await executeReferenceRun(
+    reference,
+    { ...config, hiddenFieldTokens: oracle.privacy?.hiddenFieldTokens },
+  );
   const hardGrade = gradeHard({
     oracle,
     observation,
     primarySnapshot: snapshot,
-    adversarySnapshot: null,
-    beforeSnapshot: null,
+    adversarySnapshot,
+    beforeSnapshot,
+    preHumanActionSnapshot,
   });
 
   return {
