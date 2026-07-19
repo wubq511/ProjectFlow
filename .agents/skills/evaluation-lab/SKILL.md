@@ -56,6 +56,17 @@ scripts/eval-lab reliability <run-id> --json
 scripts/eval-lab compare --candidate <git-ref> --baseline <git-ref> --preset smoke --model mock:mock-model --json
 ```
 
+Slice 2 (Issue #97) 的诊断与修复路径：先对失败 observation 运行 `diagnose` 生成 evidence-graded diagnosis；再运行 `rca-benchmark` 验证 RCA 准确率/反事实/false attribution/calibration 五个 gate；运行 `repair-packet` 生成 immutable Repair Packet 与 Coding Agent 修复 prompt；`fault-catalog` 单独校验 8 类 fault profile 的完整性。
+
+```bash
+scripts/eval-lab diagnose <run-id> --json
+scripts/eval-lab rca-benchmark <run-id> --json
+scripts/eval-lab repair-packet <run-id> --packet-id <optional-id> --json
+scripts/eval-lab fault-catalog --json
+```
+
+`diagnose` 对全 pass 的 run 返回 `diagnosis_skipped` (exit 0)；`repair-packet` 在没有 diagnosis 时返回 `repair_packets_empty` (exit 0)；`rca-benchmark` 通过 5 个 gate (`top1Accuracy ≥ 0.5`、`falseAttributionRate ≤ 0.3`、`confidenceCalibration ≥ 0.7`、`evidenceCompleteness ≥ 0.7`、`top3Recall - top1Accuracy ≤ 0.4`) 才返回 `passed: true`。Repair Packet 包含 schema version 1、fix/investigation gate、scrub (secrets / temp paths / hidden facts / hidden reasoning)、stale detection 和 candidate regression governance，不可绕过 frozen standards。
+
 ## 退出码
 
 - `0`：通过

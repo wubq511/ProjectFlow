@@ -140,10 +140,10 @@ npm run build
 npm audit --omit=dev
 ```
 
-Expected baseline as of 2026-07-17:
+Expected baseline as of 2026-07-20 (Issue #97 branch `glm/t46-97-rca-repair-packets`):
 
-- Backend tests pass: 866 passed, 4 skipped; Ruff passes.
-- Agent bridge tests pass: 1198 tests across 60 unit files; typecheck and build pass.
+- Backend tests pass: 890 passed, 4 skipped; Ruff passes.
+- Agent bridge tests pass: 1936 tests across 85 unit files; typecheck and build pass.
 - Frontend tests pass: 333 passed, 6 skipped across 26 files.
 - Frontend lint passes.
 - Frontend production build passes.
@@ -228,6 +228,31 @@ scripts/eval-lab compare --candidate <git-ref> --baseline <git-ref> --preset smo
 ```
 
 `exit-gate` exits `0` when all 6 conditions pass and `1` on any regression (P0 mutation not detected, reference hard false failure, hidden-field leakage, required scenario skipped/excluded/failed, evidence integrity missing, or semantic Judge detected). `reliability` exits `0` only when the artifact has enough explicit repeat evidence and `4` when evidence is insufficient. `compare` must never reuse either side's worktree, ports, nonce, instance identity, database, temp root, or artifact staging; missing resolved-model confirmation is reported as possible model drift. The mock `full` preset is the deterministic Slice 1 closure surface. Paid models are optional later calibration evidence and remain fail-closed until a frozen price table and pre-call worst-case estimate exist. See `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice1_Handoff.md` for the full trust model and closure evidence.
+
+### T46 Evaluation Lab Slice 2 Diagnosis & Repair (#97)
+
+Issue #97 (branch `glm/t46-97-rca-repair-packets`, 2026-07-20) turns trusted evaluation failures into evidence-graded diagnoses, evaluator-owned counterfactuals, a known-fault RCA benchmark, evidence-bound issue clustering, immutable Repair Packets, and copy-ready Coding Agent prompts. It is wired to the real artifact store and the Slice 1 hard grader surface — no fake completion.
+
+```bash
+# Diagnose every failed observation in a completed run.
+scripts/eval-lab diagnose <run-id> --json
+
+# Generate an immutable Repair Packet and Coding Agent prompt.
+scripts/eval-lab repair-packet <run-id> [--packet-id <id>] --json
+
+# Verify the RCA benchmark against the frozen known-fault suite.
+scripts/eval-lab rca-benchmark <run-id> --json
+
+# Validate that all 8 fault-profile categories are present and internally
+# consistent.
+scripts/eval-lab fault-catalog --json
+```
+
+`diagnose` returns `diagnosis_skipped` (exit `0`) when the run has no failed observations — that is the expected path for a fully-passing mock `full` run. `repair-packet` returns `repair_packets_empty` (exit `0`) when no diagnosis has been generated yet. `rca-benchmark` fails closed unless all five gates pass: `top1Accuracy ≥ 0.5`, `falseAttributionRate ≤ 0.3`, `confidenceCalibration ≥ 0.7`, `evidenceCompleteness ≥ 0.7`, `top3Recall − top1Accuracy ≤ 0.4`. Anti-gaming rules: `correct_attribution` samples only count toward `top3Recall` when their `top1` prediction is also correct (no top-3 spam), and confidence ceilings are enforced per sample class (`correct_attribution` → high, `confusable_neighbour` → medium, `unresolved_or_insufficient` → low). Frozen diagnosis statuses are `observed_failure | localized_hypothesis | intervention_supported | fault_injection_confirmed | unresolved`; `intervention_supported` cannot be promoted to `fault_injection_confirmed` without a fresh fault injection.
+
+Repair Packets use `REPAIR_PACKET_SCHEMA_VERSION = 1`. The `fix` packet type is only allowed when there is direct component evidence, intervention_supported, or fault_injection_confirmed, AND a falsifiable acceptance test, protected boundaries, verification commands and a valid code fingerprint are all present; otherwise the packet is `investigation`. Packets are scrubbed of secrets, absolute temp paths, raw hidden-fact markers (`__hidden__`/`__oracle__`/`__expected_cause__`) and model hidden reasoning (`<think>`/`<reasoning>`). Stale detection fail-closes when the commit or worktree SHA-256 differs. Candidate regressions are marked `candidate`/`unapproved` and cannot be auto-promoted to `approved`. The Coding Agent prompt forbids modifying `.env`, API keys, internal service tokens, frozen standards, graders, thresholds, P0 cases, privacy/authority boundaries; forbids auto push/merge/Issue close; and refuses to execute on a stale packet.
+
+Key files: `agent-bridge/src/evaluation/lab/diagnosis-contract.ts`, `agent-bridge/src/evaluation/lab/diagnosis-runner.ts`, `agent-bridge/src/evaluation/lab/fault-profiles.ts`, `agent-bridge/src/evaluation/lab/counterfactual.ts`, `agent-bridge/src/evaluation/lab/earliest-divergence.ts`, `agent-bridge/src/evaluation/lab/rca-benchmark.ts`, `agent-bridge/src/evaluation/lab/issue-clustering.ts`, `agent-bridge/src/evaluation/lab/repair-packet.ts`, `agent-bridge/src/evaluation/lab/repair-prompt.ts`, and `agent-bridge/src/evaluation/lab/cli.ts`.
 
 ### Conversation history smoke test
 

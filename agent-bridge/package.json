@@ -25,7 +25,11 @@
     "eval:validate": "tsx src/evaluation/lab/cli.ts validate",
     "eval:exit-gate": "tsx src/evaluation/lab/cli.ts exit-gate",
     "eval:reliability": "tsx src/evaluation/lab/cli.ts reliability",
-    "eval:compare": "tsx src/evaluation/lab/cli.ts compare"
+    "eval:compare": "tsx src/evaluation/lab/cli.ts compare",
+    "eval:diagnose": "tsx src/evaluation/lab/cli.ts diagnose",
+    "eval:repair-packet": "tsx src/evaluation/lab/cli.ts repair-packet",
+    "eval:rca-benchmark": "tsx src/evaluation/lab/cli.ts rca-benchmark",
+    "eval:fault-catalog": "tsx src/evaluation/lab/cli.ts fault-catalog"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.80.3",

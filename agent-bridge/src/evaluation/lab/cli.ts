@@ -20,6 +20,11 @@ import {
   formatReliabilityReport,
 } from "./reliability-stats.js";
 import { runPairedComparison } from "./paired-runner.js";
+// T46-4 (Issue #97) — diagnosis, clustering, repair packet, RCA benchmark.
+import { runDiagnosisPipeline, runBenchmarkPipeline } from "./diagnosis-runner.js";
+import { buildRepairPrompt } from "./repair-prompt.js";
+import { verifyFaultCatalog } from "./fault-profiles.js";
+import { verifyPacketInvariants } from "./repair-packet.js";
 
 const EXIT = {
   passed: 0,
@@ -58,6 +63,11 @@ function usage(): void {
       "exit-gate": "scripts/eval-lab exit-gate <run-id> [--json]",
       "reliability": "scripts/eval-lab reliability <run-id> [--confidence-level 0.95]",
       "compare": "scripts/eval-lab compare --candidate <git-ref> --baseline <git-ref> [--preset smoke|demo|full] [--model mock:mock-model] [--json]",
+      // T46-4 (Issue #97) — diagnosis, repair packet, RCA benchmark.
+      "diagnose": "scripts/eval-lab diagnose <run-id> [--json]",
+      "repair-packet": "scripts/eval-lab repair-packet <run-id> [--packet-id ID] [--json]",
+      "rca-benchmark": "scripts/eval-lab rca-benchmark <run-id> [--json]",
+      "fault-catalog": "scripts/eval-lab fault-catalog [--json]",
     },
     exitCodes: EXIT,
   });
@@ -320,6 +330,201 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "diagnose") {
+    if (args.length < 1) {
+      throw new EvaluationValidationError("diagnose 需要且只接受一个 run-id");
+    }
+    const runId = args[0]!;
+    const jsonFlag = parsedArgsHasFlag(args, "--json");
+    const store = await verifiedStore(projectRoot, runId);
+    // Read the artifact (must be a completed/verified run).
+    const artifact = await store.readVerifiedArtifact();
+    // Build diagnosis targets from failed observations.
+    const preset = SLICE_0_PRESETS[artifact.preset];
+    if (!preset) {
+      throw new EvaluationValidationError(
+        `artifact preset ${artifact.preset} 未在 SLICE_0_PRESETS 中找到`,
+      );
+    }
+    const scenarioById = new Map(preset.scenarios.map((s) => [s.scenarioId, s]));
+    const gradeByScenario = new Map(artifact.grades.map((g) => [g.scenarioId, g]));
+    const targets = artifact.observations
+      .map((observation): import("./diagnosis-runner.js").DiagnosisTarget | undefined => {
+        const scenario = scenarioById.get(observation.scenarioId);
+        const grade = gradeByScenario.get(observation.scenarioId);
+        if (!scenario || !grade) return undefined;
+        // Only diagnose failed observations.
+        if (grade.passed) return undefined;
+        return { scenario, observation, grade };
+      })
+      .filter((t): t is import("./diagnosis-runner.js").DiagnosisTarget => t !== undefined);
+    if (targets.length === 0) {
+      output({
+        event: "diagnosis_skipped",
+        runId,
+        reason: "没有失败的 observation 需要诊断",
+      });
+      process.exit(EXIT.passed);
+      return;
+    }
+    const result = await runDiagnosisPipeline(store, { runId, targets });
+    if (jsonFlag) {
+      output({
+        event: "diagnosis_completed",
+        runId,
+        diagnosisCount: result.diagnoses.length,
+        clusterCount: result.clusters.length,
+        packetCount: result.packets.length,
+        published: result.published,
+      });
+    } else {
+      process.stdout.write(
+        `诊断完成: ${result.diagnoses.length} 条诊断, ${result.clusters.length} 个 cluster, ${result.packets.length} 个 repair packet\n`,
+      );
+      for (const packet of result.packets) {
+        process.stdout.write(
+          `  - ${packet.packetId} [${packet.packetType}] status=${packet.causalStatus} confidence=${packet.confidence}\n`,
+        );
+      }
+    }
+    process.exit(EXIT.passed);
+    return;
+  }
+
+  if (command === "repair-packet") {
+    if (args.length < 1) {
+      throw new EvaluationValidationError("repair-packet 需要且只接受一个 run-id");
+    }
+    const runId = args[0]!;
+    const jsonFlag = parsedArgsHasFlag(args, "--json");
+    const packetIdFlag = parseOptionalValue(args, "--packet-id");
+    const store = await verifiedStore(projectRoot, runId);
+    if (packetIdFlag) {
+      // Read a single packet and generate its prompt.
+      const packet = await store.readRepairPacket(packetIdFlag) as import("./diagnosis-contract.js").RepairPacket;
+      // Verify packet invariants.
+      const violations = verifyPacketInvariants(packet);
+      if (violations.length > 0) {
+        throw new EvaluationValidationError(
+          `repair packet ${packetIdFlag} 不变式违反: ${violations.join("; ")}`,
+        );
+      }
+      const prompt = buildRepairPrompt({ packet });
+      if (jsonFlag) {
+        output({
+          event: "repair_packet_prompt",
+          runId,
+          packetId: packet.packetId,
+          packetType: packet.packetType,
+          causalStatus: packet.causalStatus,
+          confidence: packet.confidence,
+          staleState: packet.staleState,
+          integritySha256: packet.integritySha256,
+          prompt,
+        });
+      } else {
+        process.stdout.write(prompt + "\n");
+      }
+      process.exit(packet.staleState === "stale" ? EXIT.regression : EXIT.passed);
+      return;
+    }
+    // List all packets for the run.
+    const artifact = await store.readVerifiedArtifact();
+    const packetIds = (artifact as unknown as { repairPacketSummaries?: Array<{ packetId: string }> }).repairPacketSummaries?.map((p) => p.packetId) ?? [];
+    if (packetIds.length === 0) {
+      output({
+        event: "repair_packets_empty",
+        runId,
+        reason: "尚未生成 repair packet；请先运行 diagnose 命令",
+      });
+      process.exit(EXIT.passed);
+      return;
+    }
+    if (jsonFlag) {
+      output({
+        event: "repair_packets_list",
+        runId,
+        packetIds,
+      });
+    } else {
+      process.stdout.write(`Run ${runId} 包含 ${packetIds.length} 个 repair packet:\n`);
+      for (const id of packetIds) {
+        process.stdout.write(`  - ${id}\n`);
+      }
+    }
+    process.exit(EXIT.passed);
+    return;
+  }
+
+  if (command === "rca-benchmark") {
+    if (args.length < 1) {
+      throw new EvaluationValidationError("rca-benchmark 需要且只接受一个 run-id");
+    }
+    const runId = args[0]!;
+    const jsonFlag = parsedArgsHasFlag(args, "--json");
+    const store = await verifiedStore(projectRoot, runId);
+    const result = await runBenchmarkPipeline(store, { runId });
+    if (jsonFlag) {
+      output({
+        event: "rca_benchmark_completed",
+        runId,
+        reportId: result.report.reportId,
+        totalSamples: result.report.totalSamples,
+        top1Accuracy: result.report.top1Accuracy,
+        top3Recall: result.report.top3Recall,
+        falseAttributionRate: result.report.falseAttributionRate,
+        evidenceCompleteness: result.report.evidenceCompleteness,
+        confidenceCalibration: result.report.confidenceCalibration,
+        passed: result.report.passed,
+        failureReasons: result.report.failureReasons,
+        artifactPath: result.published.artifactPath,
+        sha256: result.published.sha256,
+      });
+    } else {
+      process.stdout.write(
+        `RCA Benchmark ${result.report.reportId} (${result.report.passed ? "PASS" : "FAIL"})\n` +
+        `  samples: ${result.report.totalSamples}\n` +
+        `  top1Accuracy: ${result.report.top1Accuracy.toFixed(2)}\n` +
+        `  top3Recall: ${result.report.top3Recall.toFixed(2)}\n` +
+        `  falseAttributionRate: ${result.report.falseAttributionRate.toFixed(2)}\n` +
+        `  evidenceCompleteness: ${result.report.evidenceCompleteness.toFixed(2)}\n` +
+        `  confidenceCalibration: ${result.report.confidenceCalibration.toFixed(2)}\n`,
+      );
+      if (!result.report.passed) {
+        for (const reason of result.report.failureReasons) {
+          process.stdout.write(`  - ${reason}\n`);
+        }
+      }
+    }
+    process.exit(result.report.passed ? EXIT.passed : EXIT.regression);
+    return;
+  }
+
+  if (command === "fault-catalog") {
+    const jsonFlag = parsedArgsHasFlag(args, "--json");
+    const verification = verifyFaultCatalog();
+    if (!verification.complete) {
+      output({
+        event: "fault_catalog_invalid",
+        missingCategories: verification.missingCategories,
+        duplicateProfileIds: verification.duplicateProfileIds,
+        oracleIndependenceViolations: verification.oracleIndependenceViolations,
+      });
+      process.exit(EXIT.validation);
+      return;
+    }
+    if (jsonFlag) {
+      output({
+        event: "fault_catalog_valid",
+        complete: verification.complete,
+      });
+    } else {
+      process.stdout.write("Fault catalog 验证通过\n");
+    }
+    process.exit(EXIT.passed);
+    return;
+  }
+
   if (command !== "run") {
     throw new EvaluationValidationError(`未知命令: ${command}`);
   }
@@ -404,4 +609,16 @@ function parseConfidenceLevel(args: string[]): number {
     throw new EvaluationValidationError("--confidence-level 必须在 (0, 1) 区间内");
   }
   return parsed;
+}
+
+/** T46-4 (Issue #97) — parse an optional flag with a value. Returns
+ *  undefined when the flag is absent. */
+function parseOptionalValue(args: string[], flag: string): string | undefined {
+  const index = args.indexOf(flag);
+  if (index < 0) return undefined;
+  const value = args[index + 1];
+  if (!value || value.startsWith("--")) {
+    throw new EvaluationValidationError(`${flag} 需要一个值`);
+  }
+  return value;
 }

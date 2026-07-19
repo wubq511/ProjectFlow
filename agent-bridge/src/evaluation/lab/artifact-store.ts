@@ -379,6 +379,116 @@ export class EvaluationArtifactStore {
     });
   }
 
+  /**
+   * Publish a V4 Repair Packet as an immutable artifact under
+   * `repair-packets/<packetId>.json`. The packet atomically enters the
+   * SHA-256 result graph (its hash is included in `integrity.json` via
+   * `evidenceEntries()`).
+   *
+   * Returns the artifact-relative path and SHA-256 of the published
+   * packet. Callers should record these in the diagnosis record's
+   * evidence references.
+   *
+   * Issue #97 §7: packets must atomically enter the SHA-256 result graph.
+   */
+  async publishRepairPacket(
+    packet: unknown,
+    packetId: string,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(packetId)) {
+      throw new EvaluationValidationError(`非法 repair packet ID: ${packetId}`);
+    }
+    const relativePath = `repair-packets/${packetId}.json`;
+    const hash = await this.stageAndPublish(relativePath, packet);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
+  /**
+   * Publish a V4 diagnosis record as an immutable artifact under
+   * `diagnoses/<diagnosisId>.json`. Diagnosis records enter the SHA-256
+   * result graph so they can be referenced by repair packets.
+   */
+  async publishDiagnosis(
+    diagnosis: unknown,
+    diagnosisId: string,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(diagnosisId)) {
+      throw new EvaluationValidationError(`非法 diagnosis ID: ${diagnosisId}`);
+    }
+    const relativePath = `diagnoses/${diagnosisId}.json`;
+    const hash = await this.stageAndPublish(relativePath, diagnosis);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
+  /**
+   * Publish a V4 issue cluster as an immutable artifact under
+   * `clusters/<clusterId>.json`.
+   */
+  async publishIssueCluster(
+    cluster: unknown,
+    clusterId: string,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(clusterId)) {
+      throw new EvaluationValidationError(`非法 cluster ID: ${clusterId}`);
+    }
+    const relativePath = `clusters/${clusterId}.json`;
+    const hash = await this.stageAndPublish(relativePath, cluster);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
+  /**
+   * Publish a V4 counterfactual record as an immutable artifact under
+   * `counterfactuals/<counterfactualId>.json`.
+   */
+  async publishCounterfactual(
+    record: unknown,
+    counterfactualId: string,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(counterfactualId)) {
+      throw new EvaluationValidationError(`非法 counterfactual ID: ${counterfactualId}`);
+    }
+    const relativePath = `counterfactuals/${counterfactualId}.json`;
+    const hash = await this.stageAndPublish(relativePath, record);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
+  /**
+   * Publish the V4 RCA benchmark report as an immutable artifact under
+   * `rca-benchmark.json`.
+   */
+  async publishRcaBenchmarkReport(
+    report: unknown,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    const relativePath = "rca-benchmark.json";
+    const hash = await this.stageAndPublish(relativePath, report);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
+  /**
+   * Read a published repair packet by ID. Verifies the SHA-256 against
+   * the integrity index when available.
+   */
+  async readRepairPacket(packetId: string): Promise<unknown> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(packetId)) {
+      throw new EvaluationValidationError(`非法 repair packet ID: ${packetId}`);
+    }
+    const relativePath = `repair-packets/${packetId}.json`;
+    const content = await readFile(this.finalPath(relativePath), "utf-8");
+    return JSON.parse(content);
+  }
+
+  /**
+   * Read a published diagnosis record by ID.
+   */
+  async readDiagnosis(diagnosisId: string): Promise<unknown> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(diagnosisId)) {
+      throw new EvaluationValidationError(`非法 diagnosis ID: ${diagnosisId}`);
+    }
+    const relativePath = `diagnoses/${diagnosisId}.json`;
+    const content = await readFile(this.finalPath(relativePath), "utf-8");
+    return JSON.parse(content);
+  }
+
   async writeStatus(
     status: EvaluationStatusRecord["status"],
     completedScenarioIds: string[],
@@ -401,11 +511,27 @@ export class EvaluationArtifactStore {
       entries[relativePath] = sha256(await readFile(this.finalPath(relativePath)));
     };
     await add("manifest.json");
-    for (const dir of ["observations", "grades", "checksums"] as const) {
+    // V4 directories (repair-packets, diagnoses, clusters, counterfactuals)
+    // are included in the SHA-256 result graph so that immutable V4
+    // artifacts are tamper-evident. Issue #97 §7.
+    for (const dir of [
+      "observations",
+      "grades",
+      "checksums",
+      "repair-packets",
+      "diagnoses",
+      "clusters",
+      "counterfactuals",
+    ] as const) {
       const files = await readdir(this.finalPath(dir)).catch((error) => (error as NodeJS.ErrnoException).code === "ENOENT" ? [] : Promise.reject(error));
       for (const file of files.filter((item) => item.endsWith(".json")).sort()) {
         await add(`${dir}/${file}`);
       }
+    }
+    // V4 RCA benchmark report (single file at run root).
+    const rcaBenchmarkPath = this.finalPath("rca-benchmark.json");
+    if (await pathExists(rcaBenchmarkPath)) {
+      await add("rca-benchmark.json");
     }
     return entries;
   }
