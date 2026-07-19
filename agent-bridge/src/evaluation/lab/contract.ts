@@ -31,6 +31,15 @@ export interface ScenarioContract {
     };
     maxRequestCount: number;
   };
+  /**
+   * T46-2 (Issue #95): optional V2 hard grader block. When present, the
+   * runner fetches an authenticated evidence snapshot and runs the
+   * deterministic hard graders. V1 scenarios (no `hardGrader`) bypass V2
+   * grading and retain Slice 0 behavior. The block's own `version` field
+   * tracks hard-grader schema evolution independently from the artifact
+   * schemaVersion above.
+   */
+  hardGrader?: import("./contract-v2.js").HardGraderContract;
 }
 
 export interface EvaluationBudget {
@@ -97,6 +106,14 @@ export interface ScenarioObservation {
     codingAgentCost: CostLedgerEntry;
   };
   output: string;
+  /**
+   * T46-2: Run ID observed from the SSE `status` event. Propagated to the
+   * evidence endpoint so run-scoped graders (trajectory_facts,
+   * side_effect_facts, metric_facts, context_receipt_facts) receive
+   * non-empty data. Absent when the public seam did not emit a `status`
+   * event with `run_id` — run-scoped graders then see empty/null facts.
+   */
+  runId?: string;
 }
 
 export interface Grade {
@@ -109,6 +126,13 @@ export interface Grade {
   privacyPassed: boolean;
   budgetPassed: boolean;
   failures: string[];
+  /**
+   * T46-2 (Issue #95): optional hard grader payload. Present only when the
+   * scenario contract declares a `hardGrader` block. When present, the
+   * overall `passed` flag is the AND of the Slice 0 gates and the hard
+   * grade — a hard-gate failure cannot be offset by other dimensions.
+   */
+  hardGrade?: import("./contract-v2.js").HardGrade;
 }
 
 export interface IntegrityIndex {

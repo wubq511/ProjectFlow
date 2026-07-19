@@ -26,7 +26,8 @@ export interface HttpPublicSeamRunnerOptions {
   fetchFn?: typeof fetch;
 }
 
-const UUID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i;
+// UUID v1-v8 pattern. Version nibble widened to [1-9a-f] to cover v6/v7/v8.
+const UUID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-9a-f][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i;
 
 function collectRawIds(value: unknown, ids: Set<string>): void {
   if (Array.isArray(value)) {
@@ -281,6 +282,11 @@ export function createHttpPublicSeamRunner(options: HttpPublicSeamRunnerOptions)
       requestCount,
       outputPolicyPassed,
       output: finalContent,
+      // T46-2: propagate the run_id observed in the SSE status event so the
+      // runner can pass it to fetchEvidenceSnapshot. Without this, run-scoped
+      // graders see empty trajectory_facts/side_effect_facts and cannot
+      // detect authority or trajectory violations.
+      runId: typeof status?.data.run_id === "string" ? status!.data.run_id : undefined,
     };
   };
 }

@@ -1,6 +1,6 @@
 # ProjectFlow CodeWiki
 
-> 最初基于 2026-06-02 代码库全量扫描生成；2026-07-17 同步 T46 Evaluation Lab Slice 0、锁定工具链和最新验证基线。
+> 最初基于 2026-06-02 代码库全量扫描生成；2026-07-19 同步 T46 Evaluation Lab Slice 0/1、锁定工具链和最新验证基线。
 
 ---
 
@@ -59,12 +59,12 @@ ProjectFlow/
 │   │   ├── tools/             # registry.ts, fastapi-client.ts, projectflow-tools.ts, register-defaults.ts, mock-tools.ts, result-normalizer.ts
 │   │   ├── policy/            # policy-engine.ts, budget.ts, boundaries
 │   │   ├── events/            # event-mapper.ts, stream.ts, trace-envelope.ts
-│   │   ├── evaluation/        # T43 public-seam scenarios + T46 lab contracts/runner/artifacts/CLI
+│   │   ├── evaluation/        # T43 public-seam scenarios + T46 Slice 0 lab contracts/runner/artifacts/CLI + Slice 1 contract-v2/hard-graders/oracle/reference-program/mutation/evidence-client
 │   │   ├── skills/            # skill-index.ts, skill-loader.ts, skill-selector.ts
 │   │   ├── types/             # run-state.ts, tool-manifest.ts, tool-result.ts, wire.ts, runtime-event.ts
 │   │   └── utils/             # 工具函数
 │   ├── skills/                # 6 SKILL.md files
-│   └── tests/unit/            # 60 test files, 1198 tests
+│   └── tests/unit/            # 66 test files (T46 Slice 1 adds hard-graders-mutation/hard-grader-validation/hard-grader-fixtures/oracle-independence/reference-program/slice-0-regression)
 ├── frontend/
 │   ├── src/
 │   │   ├── app/               # Next.js 页面路由（不写业务逻辑）
@@ -93,12 +93,12 @@ ProjectFlow/
 │   └── package.json
 ├── backend/
 │   ├── app/
-│   │   ├── main.py            # FastAPI 入口，21 个 router
+│   │   ├── main.py            # FastAPI 入口，27 个 router（含 T46 Slice 1 的 evaluation_evidence_router）
 │   │   ├── core/              # config, database, db_utils, security
 │   │   ├── models/            # 数据库模型（15 个实体 + 16 个 Enum）
-│   │   ├── schemas/           # API / Agent schema（22 个文件）
-│   │   ├── api/               # HTTP route（22 个路由文件）
-│   │   ├── services/          # 确定性业务逻辑（19 个 service）
+│   │   ├── schemas/           # API / Agent schema（28 个文件，含 T46 Slice 1 的 evaluation_evidence.py）
+│   │   ├── api/               # HTTP route（27 个路由文件，含 T46 Slice 1 的 routes_evaluation_evidence.py）
+│   │   ├── services/          # 确定性业务逻辑（26 个 service，含 T46 Slice 1 的 evaluation_evidence_service.py）
 │   │   ├── agent/             # Agent 编排和 LLM 调用
 │   │   │   ├── coordinator.py # Agent 入口，9 个公开方法
 │   │   │   ├── workflow.py    # 执行引擎：调 LLM → 解析 → 校验 → 重试 → fallback
@@ -107,7 +107,7 @@ ProjectFlow/
 │   │   │   ├── output_schemas.py # Agent 输出 Pydantic 校验模型
 │   │   │   └── modules/       # 9 个能力模块
 │   │   ├── seed/              # Demo 种子数据
-│   │   └── tests/             # pytest 测试（41 个 test_*.py 文件）
+│   │   └── tests/             # pytest 测试（42 个 test_*.py 文件，含 T46 Slice 1 的 test_evaluation_evidence.py）
 │   └── pyproject.toml
 └── .agents/                   # Skills 和 Plugins 配置
 ```
@@ -183,7 +183,7 @@ Stage 完成后 → 下一阶段 → 重新触发阶段性分工推荐
 
 #### [main.py](backend/app/main.py)
 
-FastAPI 应用组装：lifespan 初始化 DB → CORS 中间件（localhost:3000/3001）→ 全局异常处理器 → 挂载 21 个 router（prefix=/api）
+FastAPI 应用组装：lifespan 初始化 DB → CORS 中间件（localhost:3000/3001）→ 全局异常处理器 → 挂载 27 个 router（prefix=/api 或 /internal）
 
 #### [core/config.py](backend/app/core/config.py)
 

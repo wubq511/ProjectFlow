@@ -30,6 +30,7 @@ from app.api.routes_llm import router as llm_router
 from app.api.routes_uploads import router as uploads_router
 from app.api.routes_agent_runtime import router as agent_runtime_router
 from app.api.routes_agent_tools import router as agent_tools_router
+from app.api.routes_evaluation_evidence import router as evaluation_evidence_router
 from app.api.routes_memories import router as memories_router
 from app.core.database import create_db_and_tables
 
@@ -94,4 +95,5 @@ app.include_router(llm_router, prefix="/api")
 app.include_router(uploads_router, prefix="/api")
 app.include_router(agent_runtime_router)
 app.include_router(agent_tools_router)
+app.include_router(evaluation_evidence_router)
 app.include_router(memories_router, prefix="/api")

@@ -12,12 +12,15 @@ import type {
   ScenarioObservation,
 } from "./contract.js";
 import { EVALUATION_SCHEMA_VERSION } from "./contract.js";
+import type { EvidenceSnapshot } from "./contract-v2.js";
 import {
   EvaluationBudgetError,
   EvaluationInfrastructureError,
   EvaluationValidationError,
 } from "./errors.js";
-import { gradeObservation } from "./grader.js";
+import { fetchEvidenceSnapshot } from "./evidence-client.js";
+import { gradeHard } from "./hard-graders.js";
+import { attachHardGrade, gradeObservation } from "./grader.js";
 import { IsolatedProcessPair } from "./isolation.js";
 import { buildProvenance, validateEvaluationConfig } from "./validation.js";
 
@@ -145,6 +148,81 @@ export function buildBudgetCheckpoint(scenario: ScenarioContract, error: Evaluat
   return { observation, grade };
 }
 
+/**
+ * T46-2 (Issue #95) — Run hard graders for a scenario if it declares a
+ * `hardGrader` block.
+ *
+ * Fetches the primary (and optionally adversary) evidence snapshots after
+ * the Agent run, then calls {@link gradeHard}. Returns null when the
+ * scenario has no `hardGrader` block (Slice 0 scenarios bypass V2 grading).
+ *
+ * The observation's `runId` (captured from the SSE `status` event by the
+ * public seam runner) is propagated to `fetchEvidenceSnapshot`. Without it,
+ * the backend short-circuits run-scoped facts (trajectory_facts,
+ * side_effect_facts, metric_facts, context_receipt_facts) to empty/null,
+ * which would let authority and trajectory violations pass undetected.
+ *
+ * Idempotency repeats are NOT run here by default — the runner does not
+ * re-invoke the public seam automatically. Tests that need idempotency
+ * verification must call {@link gradeHard} directly with repeat data.
+ * The idempotency grader fails closed when `oracle.idempotency` is
+ * declared but no repeats are provided, which surfaces the missing
+ * evidence rather than silently skipping the check.
+ */
+async function gradeHardForScenario(
+  scenario: ScenarioContract,
+  observation: ScenarioObservation,
+  pair: IsolatedProcessPair,
+  conversationId: string,
+  beforeSnapshot: EvidenceSnapshot | null,
+): Promise<import("./contract-v2.js").HardGrade | null> {
+  const hg = scenario.hardGrader;
+  if (!hg) return null;
+
+  const primarySnapshot = await fetchEvidenceSnapshot(
+    {
+      backendBaseUrl: pair.backendUrl,
+      internalServiceToken: pair.internalServiceToken,
+      evaluationNonce: pair.nonce,
+      evaluationInstanceId: pair.instanceId,
+    },
+    {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      viewerUserId: hg.viewer.primaryUserId,
+      projectId: DEFAULT_PROJECT_ID,
+      conversationId,
+      runId: observation.runId,
+    },
+  );
+
+  let adversarySnapshot: EvidenceSnapshot | null = null;
+  if (hg.viewer.adversaryUserId) {
+    adversarySnapshot = await fetchEvidenceSnapshot(
+      {
+        backendBaseUrl: pair.backendUrl,
+        internalServiceToken: pair.internalServiceToken,
+        evaluationNonce: pair.nonce,
+        evaluationInstanceId: pair.instanceId,
+      },
+      {
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        viewerUserId: hg.viewer.adversaryUserId,
+        projectId: DEFAULT_PROJECT_ID,
+        conversationId,
+        runId: observation.runId,
+      },
+    );
+  }
+
+  return gradeHard({
+    oracle: hg,
+    observation,
+    primarySnapshot,
+    adversarySnapshot,
+    beforeSnapshot,
+  });
+}
+
 export async function runEvaluation(options: RunEvaluationOptions): Promise<EvaluationArtifact> {
   if (!SAFE_ID.test(options.runId)) {
     throw new EvaluationValidationError("运行 ID 只能包含字母、数字、下划线和连字符");
@@ -245,6 +323,32 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
           throw new EvaluationInfrastructureError(`评测夹具准备失败: ${(error as Error).message}`, { cause: error });
         }
 
+        // T46-2: fetch before-snapshot for hard graders that need it
+        // (read-only state purity, unchanged state constraints).
+        let beforeSnapshot: EvidenceSnapshot | null = null;
+        if (scenario.hardGrader) {
+          try {
+            beforeSnapshot = await fetchEvidenceSnapshot(
+              {
+                backendBaseUrl: pair.backendUrl,
+                internalServiceToken: pair.internalServiceToken,
+                evaluationNonce: pair.nonce,
+                evaluationInstanceId: pair.instanceId,
+              },
+              {
+                workspaceId: DEFAULT_WORKSPACE_ID,
+                viewerUserId: scenario.hardGrader.viewer.primaryUserId,
+                projectId: DEFAULT_PROJECT_ID,
+              },
+            );
+          } catch (error) {
+            throw new EvaluationInfrastructureError(
+              `获取 before 证据快照失败: ${(error as Error).message}`,
+              { cause: error },
+            );
+          }
+        }
+
         try {
           const publicRunner = createHttpPublicSeamRunner({
             baseUrl: pair.sidecarUrl,
@@ -308,12 +412,25 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
               codingAgentCost: externalCodingAgentCost(),
             },
             output: result.output ?? "",
+            // T46-2: propagate runId from the public seam observation so
+            // gradeHardForScenario can pass it to fetchEvidenceSnapshot.
+            ...(result.runId !== undefined ? { runId: result.runId } : {}),
           };
           const grade = gradeObservation(scenario, observation, identity.workspaceState, afterState);
-          await store.publishCheckpoint(observation, grade);
+
+          // T46-2: run hard graders when the scenario declares a hardGrader block.
+          const finalGrade = await gradeHardForScenario(
+            scenario,
+            observation,
+            pair,
+            identity.conversationId,
+            beforeSnapshot,
+          ).then((hardGrade) => hardGrade ? attachHardGrade(grade, hardGrade) : grade);
+
+          await store.publishCheckpoint(observation, finalGrade);
           observations.push(observation);
-          grades.push(grade);
-          options.onProgress?.(scenario.scenarioId, "completed", { observation, grade });
+          grades.push(finalGrade);
+          options.onProgress?.(scenario.scenarioId, "completed", { observation, grade: finalGrade });
           budgetStopMessage = findBudgetExhaustion(observations, options.budget, false);
           if (budgetStopMessage) break;
         } catch (error) {

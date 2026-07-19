@@ -182,6 +182,28 @@ scripts/eval-lab verify <run-id>
 
 Exit codes are `0` pass, `1` Agent regression, `2` infrastructure/integrity failure, `3` validation failure, and `4` budget exhaustion with partial evidence. Slice 0 intentionally rejects paid models until a frozen price table and pre-call worst-case estimate exist. The `$0.10` smoke ceiling applies only to the ProjectFlow Agent under test; external Coding Agent cost is recorded separately and excluded. Do not point the evaluator at a development or production database, and do not bypass its nonce/instance/path ownership checks. See `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice0_Handoff.md`.
 
+### T46 Evaluation Lab Slice 1 — V2 Hard Graders
+
+Slice 1 (Issue #95, branch `glm/t46-95-hard-oracles`) adds ProjectFlow-aware deterministic hard graders via the `smoke-v2` preset. Hard graders are pure functions over a normalized evidence snapshot — they do not call LLMs, do not import runtime/router/verifier/业务 service code, and do not mutate inputs. A hard-gate failure in any of the four dimensions (Outcome, Authority & Safety, Trajectory, Privacy) cannot be offset by another dimension.
+
+```bash
+scripts/eval-lab validate --preset smoke-v2 --model mock:mock-model
+scripts/eval-lab run --preset smoke-v2 --model mock:mock-model --json
+```
+
+The `smoke-v2` preset reuses the Slice 0 smoke prompt and adds a minimal `HardGraderContract`: `finalOutcome=completed`, `readOnlyStatePurity=true`, `forbidRawIdsInOutput=true`, and one hidden-field sentinel token. V2 grading is opt-in — scenarios without a `hardGrader` block retain Slice 0 behavior. The `HardGrade` is written to `grades/<scenario-id>.json` and participates in the final `passed` verdict (AND with the Slice 0 outcome grade).
+
+The backend exposes a normalized, read-only, viewer-scoped evidence endpoint used by the graders:
+
+```
+GET /internal/evaluation/evidence
+  ?workspace_id=...&viewer_user_id=...[&project_id=...][&conversation_id=...][&run_id=...]
+```
+
+Authentication requires BOTH the sidecar internal service token (`Authorization: Bearer ...`) AND the evaluator-owned instance identity (`X-Evaluation-Nonce` + `X-Evaluation-Instance-Id` + ownership marker + path containment), matching the Slice 0 destructive seed endpoint. The endpoint is read-only: it never mutates database state, never creates runs, never confirms proposals, and never modifies ProjectMemory. Viewer-sensitive collections (private conversations, `subject_and_owner` ProjectMemory) are filtered by the same authorization predicates used by public read endpoints. Run-scoped facts (`trajectory_facts`, `side_effect_facts`, `metric_facts`, `context_receipt_facts`) are returned only when `run_id` is provided.
+
+Slice 1 does not exercise multi-turn, Proposal-Confirm, or `subject_and_owner` privacy — those are reserved for the next hard-domain suite. Do not modify Proposal-Confirm, conversation privacy, or any existing Agent Runtime fact boundary. See `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice1_Handoff.md` for the full grader list, oracle/reference independence, mutation validation, and the post-implementation adversarial review remediation.
+
 ### Conversation history smoke test
 
 With a valid project member ID, verify the T45 lifecycle without exposing another member's transcript:

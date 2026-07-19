@@ -1,6 +1,8 @@
 import type { ScenarioContract, ScenarioObservation, Grade } from "./contract.js";
+import type { HardGrade } from "./contract-v2.js";
 
-const UUID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i;
+// UUID v1-v8 pattern. Version nibble widened to [1-9a-f] to cover v6/v7/v8.
+const UUID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-9a-f][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i;
 
 function collectRawIds(value: any, ids: Set<string>): void {
   if (Array.isArray(value)) {
@@ -166,5 +168,22 @@ export function gradeObservation(
     privacyPassed,
     budgetPassed,
     failures,
+  };
+}
+
+/**
+ * T46-2 (Issue #95 §4) — Attach a hard grade to a Slice 0 grade.
+ *
+ * The overall `passed` flag becomes the AND of the Slice 0 gates and the
+ * hard grade. A hard-gate failure cannot be offset by other dimensions.
+ * Hard-grade failures are appended to the Slice 0 failures list so callers
+ * that only inspect `failures` still see them.
+ */
+export function attachHardGrade(grade: Grade, hardGrade: HardGrade): Grade {
+  return {
+    ...grade,
+    passed: grade.passed && hardGrade.passed,
+    hardGrade,
+    failures: [...grade.failures, ...hardGrade.failures],
   };
 }

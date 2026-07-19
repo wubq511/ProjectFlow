@@ -12,6 +12,12 @@ import {
   type EvaluationProvenance,
   type ScenarioContract,
 } from "./contract.js";
+import {
+  HARD_GRADER_CONTRACT_VERSION,
+  type HardGraderContract,
+  type MilestoneDag,
+  type StateAssertion,
+} from "./contract-v2.js";
 
 const SAFE_ID = /^[a-zA-Z0-9_-]+$/;
 
@@ -89,7 +95,203 @@ function validateScenario(scenario: ScenarioContract): ValidationIssue[] {
       add("scenario_regex", `场景 ${scenario.scenarioId} 包含无效的 forbiddenOutputPatterns 正则`);
     }
   }
+  // T46-2: validate the optional hardGrader block (fail-closed on
+  // invalid or contradictory contracts).
+  const hardGraderErrors = validateHardGrader(scenario);
+  errors.push(...hardGraderErrors);
   return errors;
+}
+
+/**
+ * T46-2 (Issue #95 §2) — Validate the optional HardGraderContract block.
+ *
+ * Fail-closed: any invalid or contradictory constraint causes the scenario
+ * to be rejected. V1 scenarios (no `hardGrader`) bypass this check.
+ */
+function validateHardGrader(scenario: ScenarioContract): ValidationIssue[] {
+  const errors: ValidationIssue[] = [];
+  const add = (code: string, message: string) => errors.push({ code, message });
+  const hg = scenario.hardGrader;
+  if (!hg) return errors;
+
+  if (hg.version !== HARD_GRADER_CONTRACT_VERSION) {
+    add("hard_grader_version", `场景 ${scenario.scenarioId} 的 hardGrader.version 必须为 ${HARD_GRADER_CONTRACT_VERSION}`);
+    return errors;
+  }
+
+  // Viewer scope: primary user ID is required.
+  if (!hg.viewer || typeof hg.viewer.primaryUserId !== "string" || !hg.viewer.primaryUserId.trim()) {
+    add("hard_grader_viewer", `场景 ${scenario.scenarioId} 的 hardGrader.viewer.primaryUserId 不能为空`);
+  }
+
+  // Run expectations: if declared, finalStatus must be valid.
+  if (hg.run) {
+    if (!["completed", "failed"].includes(hg.run.finalStatus)) {
+      add("hard_grader_run_status", `场景 ${scenario.scenarioId} 的 hardGrader.run.finalStatus 无效`);
+    }
+    if (hg.run.maxSideEffects !== undefined) {
+      if (!Number.isInteger(hg.run.maxSideEffects) || hg.run.maxSideEffects < 0) {
+        add("hard_grader_max_side_effects", `场景 ${scenario.scenarioId} 的 hardGrader.run.maxSideEffects 必须为非负整数`);
+      }
+    }
+  }
+
+  // State constraints: validate path syntax and value shapes.
+  const sc = hg.stateConstraints;
+  if (sc) {
+    validateStateAssertions(sc.required, "required", scenario.scenarioId, add);
+    validateStateAssertions(sc.allowed, "allowed", scenario.scenarioId, add);
+    validateStateAssertions(sc.forbidden, "forbidden", scenario.scenarioId, add);
+    if (sc.unchanged) {
+      for (const path of sc.unchanged) {
+        if (typeof path !== "string" || !path.trim()) {
+          add("hard_grader_unchanged", `场景 ${scenario.scenarioId} 的 stateConstraints.unchanged 包含空路径`);
+        }
+      }
+    }
+    // Contradiction check: a path cannot be both required and forbidden
+    // with overlapping values.
+    detectStateContradictions(sc, scenario.scenarioId, add);
+  }
+
+  // Milestone DAG: validate mode and milestones list.
+  if (hg.milestoneDag) {
+    validateMilestoneDag(hg.milestoneDag, scenario.scenarioId, add);
+  }
+
+  // Authority & safety: validate optional sub-constraints.
+  const authority = hg.authoritySafety;
+  if (authority) {
+    if (authority.unknownSideEffects && !["fail_closed", "ignore"].includes(authority.unknownSideEffects)) {
+      add("hard_grader_unknown_side_effects", `场景 ${scenario.scenarioId} 的 authoritySafety.unknownSideEffects 无效`);
+    }
+    if (authority.prohibitedCommitEffectTools) {
+      for (const tool of authority.prohibitedCommitEffectTools) {
+        if (typeof tool !== "string" || !tool.trim()) {
+          add("hard_grader_prohibited_tools", `场景 ${scenario.scenarioId} 的 authoritySafety.prohibitedCommitEffectTools 包含空工具名`);
+        }
+      }
+    }
+    // fail_closed mode requires a non-empty allowedSideEffectTypes list.
+    // Otherwise the grader would have no allowlist to check against and
+    // would silently skip, contradicting the explicit "fail_closed" intent.
+    // See adversarial review finding M-01.
+    const mode = authority.unknownSideEffects ?? "fail_closed";
+    const hasAllowlist = Array.isArray(authority.allowedSideEffectTypes)
+      && authority.allowedSideEffectTypes.length > 0;
+    if (mode === "fail_closed" && !hasAllowlist) {
+      add(
+        "hard_grader_allowlist_required",
+        `场景 ${scenario.scenarioId} 的 authoritySafety.unknownSideEffects="fail_closed" 必须声明非空 allowedSideEffectTypes, 否则未知副作用 grader 无 allowlist 可校验会静默 skip (fail-open)`,
+      );
+    }
+  }
+
+  // Privacy: if adversary-only constraints are declared, adversaryUserId
+  // must be present.
+  const priv = hg.privacy;
+  if (priv) {
+    const needsAdversary =
+      priv.adversaryCannotSeeMemoryIds !== undefined
+      || priv.adversaryCannotSeeConversationIds !== undefined
+      || priv.subjectAndOwnerHiddenFromAdversary === true;
+    if (needsAdversary && !hg.viewer.adversaryUserId) {
+      add("hard_grader_adversary_missing", `场景 ${scenario.scenarioId} 的 privacy 约束需要 adversary, 但 viewer.adversaryUserId 未声明`);
+    }
+    if (priv.hiddenFieldTokens) {
+      for (const token of priv.hiddenFieldTokens) {
+        if (typeof token !== "string" || !token.trim()) {
+          add("hard_grader_hidden_tokens", `场景 ${scenario.scenarioId} 的 privacy.hiddenFieldTokens 包含空 token`);
+        }
+      }
+    }
+  }
+
+  // Read-only state purity: if true, requires a before snapshot at runtime.
+  // (The runner is responsible for providing one; validation only checks
+  // that the flag is a boolean.)
+  if (hg.readOnlyStatePurity !== undefined && typeof hg.readOnlyStatePurity !== "boolean") {
+    add("hard_grader_read_only", `场景 ${scenario.scenarioId} 的 hardGrader.readOnlyStatePurity 必须为 boolean`);
+  }
+
+  // Idempotency: repeats must be a positive integer.
+  if (hg.idempotency) {
+    if (!Number.isInteger(hg.idempotency.repeats) || hg.idempotency.repeats <= 0) {
+      add("hard_grader_idempotency", `场景 ${scenario.scenarioId} 的 hardGrader.idempotency.repeats 必须为正整数`);
+    }
+    if (
+      hg.idempotency.maxNewSideEffectsPerRepeat !== undefined
+      && (!Number.isInteger(hg.idempotency.maxNewSideEffectsPerRepeat) || hg.idempotency.maxNewSideEffectsPerRepeat < 0)
+    ) {
+      add("hard_grader_idempotency_max", `场景 ${scenario.scenarioId} 的 hardGrader.idempotency.maxNewSideEffectsPerRepeat 必须为非负整数`);
+    }
+  }
+
+  return errors;
+}
+
+function validateStateAssertions(
+  assertions: StateAssertion[] | undefined,
+  kind: string,
+  scenarioId: string,
+  add: (code: string, message: string) => void,
+): void {
+  if (!assertions) return;
+  for (let i = 0; i < assertions.length; i++) {
+    const a = assertions[i];
+    if (!a) {
+      add("hard_grader_state_assertion", `场景 ${scenarioId} 的 stateConstraints.${kind}[${i}] 缺失`);
+      continue;
+    }
+    if (typeof a.path !== "string" || !a.path.trim()) {
+      add("hard_grader_state_path", `场景 ${scenarioId} 的 stateConstraints.${kind}[${i}].path 不能为空`);
+    }
+    if (!Array.isArray(a.values) || a.values.length === 0) {
+      add("hard_grader_state_values", `场景 ${scenarioId} 的 stateConstraints.${kind}[${i}].values 不能为空`);
+    }
+  }
+}
+
+function detectStateContradictions(
+  sc: NonNullable<HardGraderContract["stateConstraints"]>,
+  scenarioId: string,
+  add: (code: string, message: string) => void,
+): void {
+  const required = sc.required ?? [];
+  const forbidden = sc.forbidden ?? [];
+  for (const req of required) {
+    for (const forb of forbidden) {
+      if (req.path !== forb.path) continue;
+      for (const v of req.values) {
+        if (forb.values.some((fv) => JSON.stringify(fv) === JSON.stringify(v))) {
+          add(
+            "hard_grader_state_contradiction",
+            `场景 ${scenarioId} 的 stateConstraints 在路径 ${req.path} 上同时 required 和 forbidden 同一值 ${JSON.stringify(v)}`,
+          );
+        }
+      }
+    }
+  }
+}
+
+function validateMilestoneDag(
+  dag: MilestoneDag,
+  scenarioId: string,
+  add: (code: string, message: string) => void,
+): void {
+  if (!["strict", "unordered", "subset", "superset"].includes(dag.mode)) {
+    add("hard_grader_dag_mode", `场景 ${scenarioId} 的 milestoneDag.mode 无效: ${dag.mode as string}`);
+  }
+  if (!Array.isArray(dag.milestones) || dag.milestones.length === 0) {
+    add("hard_grader_dag_milestones", `场景 ${scenarioId} 的 milestoneDag.milestones 不能为空`);
+    return;
+  }
+  for (let i = 0; i < dag.milestones.length; i++) {
+    const m = dag.milestones[i];
+    if (typeof m !== "string" || !m.trim()) {
+      add("hard_grader_dag_milestone", `场景 ${scenarioId} 的 milestoneDag.milestones[${i}] 不能为空`);
+    }
+  }
 }
 
 function validateBudget(budget: EvaluationBudget, scenarios: ScenarioContract[]): ValidationIssue[] {

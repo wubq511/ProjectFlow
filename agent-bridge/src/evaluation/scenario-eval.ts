@@ -33,6 +33,15 @@ export interface ScenarioObservation {
   requestCount?: number;
   outputPolicyPassed?: boolean;
   output?: string;
+  /**
+   * T46-2: The run_id observed from the SSE `status` event. Required for
+   * run-scoped hard graders (trajectory_facts, side_effect_facts,
+   * metric_facts, context_receipt_facts) to receive non-empty data from
+   * the evidence endpoint. Absent when the public seam did not emit a
+   * `status` event with `run_id` — in that case run-scoped graders will
+   * see empty/null facts and may fail closed depending on the oracle.
+   */
+  runId?: string;
 }
 
 export interface ScenarioResult {
