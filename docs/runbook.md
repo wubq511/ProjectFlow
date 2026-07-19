@@ -143,7 +143,7 @@ npm audit --omit=dev
 Expected baseline as of 2026-07-20 (Issue #97 branch `glm/t46-97-rca-repair-packets`):
 
 - Backend tests pass: 890 passed, 4 skipped; Ruff passes.
-- Agent bridge tests pass: 1936 tests across 85 unit files; typecheck and build pass.
+- Agent bridge tests pass: 1945 tests across 85 unit files; typecheck and build pass.
 - Frontend tests pass: 333 passed, 6 skipped across 26 files.
 - Frontend lint passes.
 - Frontend production build passes.

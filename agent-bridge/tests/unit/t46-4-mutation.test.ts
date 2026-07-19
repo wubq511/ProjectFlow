@@ -866,3 +866,192 @@ describe("T46-4 mutation — pipeline-level invariants", () => {
     ).rejects.toThrow(/禁止信息|scrub/);
   });
 });
+
+// ===========================================================================
+// §7 Symmetry coverage — closes the 5 asymmetry gaps found in the
+// first-principles symmetry review. Each test here mirrors an existing
+// mutation test on the other side of the allow/deny symmetry.
+// ===========================================================================
+
+describe("T46-4 mutation — symmetry coverage gaps", () => {
+  // Local sample helper (mirrors the one in §1).
+  function makeSample(overrides: Partial<RcaBenchmarkSample> = {}): RcaBenchmarkSample {
+    return {
+      sampleId: "sample-sym",
+      faultProfileId: "fp-routing-001",
+      expectedCauseId: "cause-routing-001",
+      proposedCauses: [{
+        causeId: "hyp-sym",
+        candidateCause: "路由错误",
+        confidence: "high",
+        matchedExpected: true,
+      }],
+      top1Correct: true,
+      top3Correct: true,
+      unresolvedReported: false,
+      falseAttribution: false,
+      evidenceComplete: true,
+      sampleClass: "correct_attribution",
+      ...overrides,
+    };
+  }
+
+  // -----------------------------------------------------------------------
+  // Gap 1: verifySampleCoverage — only 2 of 3 missing-class cases were
+  // tested (M4: confusable_neighbour, M5: unresolved). This closes the
+  // gap by testing missing correct_attribution.
+  // -----------------------------------------------------------------------
+
+  // M38: verifySampleCoverage flags missing correct_attribution class.
+  // Symmetric to M4 (missing confusable_neighbour) and M5 (missing
+  // unresolved_or_insufficient). The implementation treats all 3 classes
+  // as required; the test suite must verify each one is flagged when absent.
+  it("M38: verifySampleCoverage flags missing correct_attribution class", () => {
+    const samples = [
+      makeSample({ sampleId: "s1", sampleClass: "confusable_neighbour" }),
+      makeSample({ sampleId: "s2", sampleClass: "unresolved_or_insufficient" }),
+    ];
+    const missing = verifySampleCoverage(samples);
+    expect(missing).toContain("correct_attribution");
+  });
+
+  // -----------------------------------------------------------------------
+  // Gap 2: canGenerateFixPacket — only 1 of 2 missing-fingerprint cases
+  // was tested (M20: missing gitCommit). This closes the gap by testing
+  // missing worktreeSha256.
+  // -----------------------------------------------------------------------
+
+  // M39: a packet with empty codeFingerprint worktreeSha256 MUST be
+  // downgraded to `investigation`. Symmetric to M20 (missing gitCommit).
+  // The fix gate requires BOTH gitCommit AND worktreeSha256 to be non-empty.
+  it("M39: refuses fix when codeFingerprint is missing worktreeSha256", () => {
+    const diagnosis = makeDiagnosis();
+    const input = makePacketInput({
+      codeFingerprint: {
+        gitCommit: "abc123def4567890",
+        gitDirty: false,
+        worktreeSha256: "", // mutation: empty worktree hash
+      },
+    });
+    const packet = buildRepairPacket(input, diagnosis, undefined);
+    expect(packet.packetType).toBe("investigation");
+  });
+
+  // -----------------------------------------------------------------------
+  // Gap 3: scrubContent — each forbidden category was tested with only 1
+  // representative pattern (M21: api_key, M22: /tmp/, M23: __hidden__,
+  // M24: <think>). This closes the gap by testing the remaining patterns
+  // that the scrub regex covers but the tests did not exercise.
+  // -----------------------------------------------------------------------
+
+  // M40: refuses packet with -----BEGIN RSA PRIVATE KEY----- block.
+  // Symmetric to M21 (api_key). The scrub regex covers PEM private key
+  // headers as a distinct secret pattern.
+  it("M40: refuses packet with BEGIN PRIVATE KEY block", () => {
+    const diagnosis = makeDiagnosis();
+    const input = makePacketInput({
+      observedSymptom: "错误: -----BEGIN RSA PRIVATE KEY-----\nMIIEpAI...",
+    });
+    expect(() => buildRepairPacket(input, diagnosis, undefined)).toThrow(/禁止信息|scrub/);
+  });
+
+  // M41: refuses packet with /var/folders/ absolute path at start of field.
+  // Symmetric to M22 (/tmp/). The scrub regex covers /var/folders/ as a
+  // macOS-specific temp path pattern.
+  it("M41: refuses packet with /var/folders/ absolute path at start of field", () => {
+    const diagnosis = makeDiagnosis();
+    const input = makePacketInput({
+      reproductionCommand: "/var/folders/xx/eval-lab-secret/observations/scn-1.json",
+    });
+    expect(() => buildRepairPacket(input, diagnosis, undefined)).toThrow(/禁止信息|scrub|临时路径/);
+  });
+
+  // M42: refuses packet with __oracle__ raw hidden fact marker.
+  // Symmetric to M23 (__hidden__). The scrub regex covers __oracle__ as a
+  // distinct hidden-fact marker used by the evaluator oracle.
+  it("M42: refuses packet with __oracle__ raw hidden fact marker", () => {
+    const diagnosis = makeDiagnosis();
+    const input = makePacketInput({
+      observedSymptom: "错误: __oracle__field leaked into output",
+    });
+    expect(() => buildRepairPacket(input, diagnosis, undefined)).toThrow(/禁止信息|scrub/);
+  });
+
+  // M43: refuses packet with <reasoning> model hidden reasoning marker.
+  // Symmetric to M24 (<think>). The scrub regex covers <reasoning> as a
+  // distinct model-internal reasoning tag.
+  it("M43: refuses packet with <reasoning> model hidden reasoning marker", () => {
+    const diagnosis = makeDiagnosis();
+    const input = makePacketInput({
+      observedSymptom: "模型输出: <reasoning>internal chain-of-thought</reasoning>",
+    });
+    expect(() => buildRepairPacket(input, diagnosis, undefined)).toThrow(/禁止信息|scrub/);
+  });
+
+  // -----------------------------------------------------------------------
+  // Gap 4: buildRepairPrompt stale — only `stale` was tested (M28). This
+  // closes the gap by testing the `unknown` stale state, which is a
+  // design-intentional asymmetry: `unknown` does NOT throw (unlike
+  // `stale`), but the prompt MUST still include the fingerprint check
+  // as the last line of defense.
+  // -----------------------------------------------------------------------
+
+  // M44: buildRepairPrompt allows `unknown` stale state (no
+  // currentCodeFingerprint provided) but the generated prompt MUST still
+  // contain the fingerprint check section. This is the design-intentional
+  // asymmetry: `unknown` ≠ `stale`; the Coding Agent prompt's fingerprint
+  // check is the fallback when the builder could not compare.
+  it("M44: buildRepairPrompt allows unknown stale state but includes fingerprint check", () => {
+    const diagnosis = makeDiagnosis();
+    // No currentCodeFingerprint → detectStaleState returns "unknown".
+    const input = makePacketInput({
+      currentCodeFingerprint: undefined,
+    });
+    const packet = buildRepairPacket(input, diagnosis, undefined);
+    expect(packet.staleState).toBe("unknown");
+    // buildRepairPrompt does NOT throw on "unknown" (unlike "stale" in M28).
+    expect(() => buildRepairPrompt({ packet })).not.toThrow();
+    // But the prompt MUST include the fingerprint check section as a fallback.
+    const prompt = buildRepairPrompt({ packet });
+    expect(prompt).toContain("代码指纹校验");
+    expect(prompt).toContain(packet.codeFingerprint.gitCommit);
+    expect(prompt).toContain(packet.codeFingerprint.worktreeSha256);
+  });
+
+  // -----------------------------------------------------------------------
+  // Gap 5: assertValidStatusTransition — only 4 representative invalid
+  // transitions were tested (M9: intervention→fault, M10: unresolved→fault,
+  // M11: observed→intervention, M12: fault→observed). This closes the gap
+  // by testing 2 more invalid transitions that exercise different
+  // forbidden paths in the transition table.
+  // -----------------------------------------------------------------------
+
+  // M45: refuses invalid transition observed_failure → fault_injection_confirmed
+  // (skips 2 levels: localized_hypothesis AND intervention_supported).
+  // Symmetric to M11 (observed_failure → intervention_supported, skips 1
+  // level). The transition table only allows observed_failure →
+  // {localized_hypothesis, unresolved}.
+  it("M45: refuses invalid transition observed_failure → fault_injection_confirmed (skip 2 levels)", () => {
+    expect(() =>
+      assertValidStatusTransition(
+        "observed_failure",
+        "fault_injection_confirmed",
+        "mutation: skip localized_hypothesis and intervention_supported",
+      ),
+    ).toThrow(/状态转换/);
+  });
+
+  // M46: refuses backward transition intervention_supported → observed_failure.
+  // Symmetric to M12 (fault_injection_confirmed → observed_failure). The
+  // transition table only allows intervention_supported → {unresolved};
+  // downgrading to observed_failure is forbidden.
+  it("M46: refuses backward transition intervention_supported → observed_failure", () => {
+    expect(() =>
+      assertValidStatusTransition(
+        "intervention_supported",
+        "observed_failure",
+        "mutation: demote to observed_failure",
+      ),
+    ).toThrow(/状态转换/);
+  });
+});
