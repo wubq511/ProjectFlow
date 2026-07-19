@@ -2,7 +2,7 @@
 
 > Issue：[#95](https://github.com/wubq511/ProjectFlow/issues/95)
 >
-> 分支：`glm/t46-95-hard-oracles`（尚未合并）
+> 状态：2026-07-19 已合并到 `main`（merge head `ac3e68d`）
 >
 > 边界：本 issue 完成 hard-state / authority oracle 底座；[#96](https://github.com/wubq511/ProjectFlow/issues/96) 仍需完成，才能关闭整个 Slice 1。
 

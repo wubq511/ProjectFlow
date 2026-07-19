@@ -184,7 +184,7 @@ Exit codes are `0` pass, `1` Agent regression, `2` infrastructure/integrity fail
 
 ### T46 Evaluation Lab Slice 1 Foundation (#95) — V2 Hard Graders
 
-Issue #95 (branch `glm/t46-95-hard-oracles`) adds the hard-domain foundation via `smoke-v2`. Hard graders are pure functions over a normalized evidence snapshot. Public Agent behavior remains HTTP/SSE, and proposal confirmation/rejection is exercised through the public Proposal API. A hard-gate failure in any of Outcome, Authority & Safety, Trajectory or Privacy cannot be offset. Issue #96 remains required before Slice 1 is complete.
+Issue #95 (merged into `main` on 2026-07-19) adds the hard-domain foundation via `smoke-v2`. Hard graders are pure functions over a normalized evidence snapshot. Public Agent behavior remains HTTP/SSE, and proposal confirmation/rejection is exercised through the public Proposal API. A hard-gate failure in any of Outcome, Authority & Safety, Trajectory or Privacy cannot be offset. Issue #96 remains required before Slice 1 is complete.
 
 ```bash
 scripts/eval-lab validate --preset smoke-v2 --model mock:mock-model
