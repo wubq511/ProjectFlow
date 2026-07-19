@@ -184,7 +184,7 @@ Exit codes are `0` pass, `1` Agent regression, `2` infrastructure/integrity fail
 
 ### T46 Evaluation Lab Slice 1 Foundation (#95) — V2 Hard Graders
 
-Issue #95 (merged into `main` on 2026-07-19) adds the hard-domain foundation via `smoke-v2`. Hard graders are pure functions over a normalized evidence snapshot. Public Agent behavior remains HTTP/SSE, and proposal confirmation/rejection is exercised through the public Proposal API. A hard-gate failure in any of Outcome, Authority & Safety, Trajectory or Privacy cannot be offset. Issue #96 remains required before Slice 1 is complete.
+Issue #95 (merged into `main` on 2026-07-19) adds the hard-domain foundation via `smoke-v2`. Hard graders are pure functions over a normalized evidence snapshot. Public Agent behavior remains HTTP/SSE, and proposal confirmation/rejection is exercised through the public Proposal API. A hard-gate failure in any of Outcome, Authority & Safety, Trajectory or Privacy cannot be offset. Issue #96 completed the remaining Slice 1 surface on 2026-07-20.
 
 ```bash
 scripts/eval-lab validate --preset smoke-v2 --model mock:mock-model
@@ -202,11 +202,11 @@ GET /internal/evaluation/evidence
 
 Authentication requires BOTH the sidecar internal service token (`Authorization: Bearer ...`) AND the evaluator-owned instance identity (`X-Evaluation-Nonce` + `X-Evaluation-Instance-Id` + ownership marker + path containment), matching the Slice 0 destructive seed endpoint. The endpoint is read-only: it never mutates database state, never creates runs, never confirms proposals, and never modifies ProjectMemory. Viewer-sensitive collections (private conversations, `subject_and_owner` ProjectMemory) are filtered by the same authorization predicates used by public read endpoints. Run-scoped facts (`trajectory_facts`, `side_effect_facts`, `metric_facts`, `context_receipt_facts`) are returned only when `run_id` is provided.
 
-Issue #95 does not yet implement #96's multi-turn controller, full Skill/Runtime fault matrix, repeated-run reliability or candidate/baseline comparison. Do not start Slice 2 before #96 closes the Slice 1 exit gate. See `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice1_Handoff.md` for the evidence trust model and adversarial remediation.
+Issue #95 is the foundation; merged Issue #96 adds the multi-turn controller, full Skill/Runtime fault matrix, reliability reporting and isolated candidate/baseline execution. See `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice1_Handoff.md` for the complete evidence trust model and accepted closure evidence.
 
 ### T46 Evaluation Lab Slice 1 Multi-Turn / Skill / Runtime / Reliability (#96)
 
-Issue #96 is implemented and independently hardened on branch `glm/t46-96-conversation-runtime-reliability` (not yet merged, issue not closed). It adds the deterministic multi-turn user controller, simulator integrity (simulator_error excluded from the score denominator, `SIMULATOR_RETRY_BUDGET=2` frozen), append-only attempt ledger, Skill evaluation across 8 dimensions, Runtime fault matrix with 11 fault classes, `demo`/`smoke`/`smoke-v2`/`full` presets with `T46_3_P0_SCENARIO_IDS` and budget caps (smoke $0.10 / full $1 / calibrate $3), a candidate/baseline paired runner with separate detached worktrees and isolated runtime/state/artifact resources, reliability statistics that require explicit repeat groups before repeat-run claims, operational metrics with SUT/evaluator/coding-agent cost separation, and a 6-condition fail-closed Slice 1 exit gate.
+Issue #96 was merged into `main` at `50c0f77` and closed on 2026-07-20. It adds the deterministic multi-turn user controller, simulator integrity (simulator_error excluded from the score denominator, `SIMULATOR_RETRY_BUDGET=2` frozen), append-only attempt ledger, Skill evaluation across 8 dimensions, Runtime fault matrix with 11 fault classes, `demo`/`smoke`/`smoke-v2`/`full` presets with `T46_3_P0_SCENARIO_IDS` and budget caps (smoke $0.10 / full $1 / calibrate $3), a candidate/baseline paired runner with separate detached worktrees and isolated runtime/state/artifact resources, reliability statistics that require explicit repeat groups before repeat-run claims, operational metrics with SUT/evaluator/coding-agent cost separation, and a 6-condition fail-closed Slice 1 exit gate. Issue #97 is the next slice and owns evidence-graded RCA and Repair Packets.
 
 ```bash
 # Preset matrix

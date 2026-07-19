@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-07-20 T46 Evaluation Lab Slice 1 closure: merged and closed Issue #96 with deterministic multi-turn control, simulator integrity, append-only retry evidence, Skill 8-dimension evaluation, 11 Runtime fault classes, isolated candidate/baseline execution, honest reliability reporting, separated operational cost ledgers, and the six-condition hard exit gate. Accepted evidence: mock demo 5/5, full 16/16, exit gate 6/6, integrity root `7cfbc3a16aa5707988a0a31da4dc6bd372e2c541e1a802e51cfda2bdb3651142`.
+
 All notable changes to ProjectFlow are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]

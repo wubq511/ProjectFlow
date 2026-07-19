@@ -4,7 +4,7 @@
 >
 > 状态：
 > - #95 已于 2026-07-19 合并到 `main`（merge head `ac3e68d`）
-> - #96 已于 2026-07-20 在 `glm/t46-96-conversation-runtime-reliability` 分支完成确定性实现、独立对抗审查与修复（尚未 merge、未关闭 issue）
+> - #96 已于 2026-07-20 完成确定性实现、独立对抗审查与修复，合并到 `main`（`50c0f77`）并关闭
 >
 > 边界：#95 完成 hard-state / authority oracle 底座；#96 完成多轮、Skill、Runtime、可靠性与 candidate/baseline 报告。Slice 1 的确定性关闭证据是 mock `full` + `verify` + `exit-gate`；真实付费模型 canary 属于后续可选校准，不是 #96 或 Slice 1 的关闭前提。
 
@@ -127,11 +127,11 @@ scripts/eval-lab run --preset smoke-v2 --model mock:mock-model --json
 git diff --check main...HEAD
 ```
 
-#95 的后续 ticket #96 已完成分支实现并通过独立修复；在最终回归和合并前，不得把整个 Slice 1 标记为关闭，也不得开始 Slice 2。
+#95 的后续 ticket #96 已完成、合并并关闭，Slice 1 的确定性 exit gate 已满足。下一 ticket 是 #97 的 evidence-graded RCA 与 Repair Packets。
 
 ---
 
-## Issue #96 交付（2026-07-20，分支 `glm/t46-96-conversation-runtime-reliability`）
+## Issue #96 交付（2026-07-20，已合并 `main`：`50c0f77`）
 
 ### 范围
 
@@ -240,9 +240,9 @@ scripts/eval-lab compare --candidate <git-ref> --baseline <git-ref> --preset smo
 git diff --check main...HEAD
 ```
 
-### Slice 1 关闭路径
+### Slice 1 关闭证据
 
-#96 关闭只要求当前实现合并到 `main`，并保留以下确定性证据：
+#96 已合并到 `main` 并关闭，保留以下确定性证据：
 
 1. mock `full` 所有 required scenarios 通过；
 2. `verify` 验证 immutable result graph；
@@ -250,4 +250,4 @@ git diff --check main...HEAD
 4. 三端回归与静态检查通过；
 5. paired runner 对资源隔离和 unresolved model identity 均 fail-closed。
 
-重复运行可靠性必须通过新的显式 repeat runs 采集，单次 artifact 只能报告 evidence 不足。真实付费模型可在价格表和调用前最坏成本上限冻结后作为额外校准证据运行，但不得拿它阻塞确定性 Slice 1，也不得把 Coding Agent 成本计入 ProjectFlow Agent 的预算。Slice 1 合并关闭后，才可规划 Slice 2（RCA / Repair Packet / Dashboard）；语义 Judge 仍不是 hard exit gate。
+重复运行可靠性必须通过新的显式 repeat runs 采集，单次 artifact 只能报告 evidence 不足。真实付费模型可在价格表和调用前最坏成本上限冻结后作为额外校准证据运行，但不得拿它阻塞确定性 Slice 1，也不得把 Coding Agent 成本计入 ProjectFlow Agent 的预算。Slice 1 已完成，下一步是 Issue #97 的 RCA / Repair Packet；Dashboard 与语义 Judge 不属于 #97 hard gate。
