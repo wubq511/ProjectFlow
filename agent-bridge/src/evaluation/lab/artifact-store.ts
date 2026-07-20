@@ -464,6 +464,109 @@ export class EvaluationArtifactStore {
     return { artifactPath: relativePath, sha256: hash };
   }
 
+  // -------------------------------------------------------------------------
+  // T46-5 (Issue #98) — V5 calibration artifact publishing.
+  //
+  // All V5 artifacts atomically enter the SHA-256 result graph. They
+  // are published as immutable files under the run directory.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Publish a V5 calibration artifact as an immutable file under
+   * `calibration-artifact.json`.
+   */
+  async publishCalibrationArtifact(
+    artifact: unknown,
+    runId: string,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(runId)) {
+      throw new EvaluationValidationError(`非法 calibration run ID: ${runId}`);
+    }
+    const relativePath = "calibration-artifact.json";
+    const hash = await this.stageAndPublish(relativePath, artifact);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
+  /**
+   * Publish a V5 candidate registry as an immutable file under
+   * `candidate-registry.json`.
+   */
+  async publishCandidateRegistry(
+    registry: unknown,
+    runId: string,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(runId)) {
+      throw new EvaluationValidationError(`非法 calibration run ID: ${runId}`);
+    }
+    const relativePath = "candidate-registry.json";
+    const hash = await this.stageAndPublish(relativePath, registry);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
+  /**
+   * Publish V5 standard conflicts as an immutable file under
+   * `standard-conflicts.json`.
+   */
+  async publishStandardConflicts(
+    conflicts: unknown,
+    runId: string,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(runId)) {
+      throw new EvaluationValidationError(`非法 calibration run ID: ${runId}`);
+    }
+    const relativePath = "standard-conflicts.json";
+    const hash = await this.stageAndPublish(relativePath, conflicts);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
+  /**
+   * Publish a V5 standard diff as an immutable file under
+   * `standard-diffs/<diffId>.json`.
+   */
+  async publishStandardDiff(
+    diff: unknown,
+    diffId: string,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(diffId)) {
+      throw new EvaluationValidationError(`非法 standard diff ID: ${diffId}`);
+    }
+    const relativePath = `standard-diffs/${diffId}.json`;
+    const hash = await this.stageAndPublish(relativePath, diff);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
+  /**
+   * Publish a V5 candidate standard as an immutable file under
+   * `candidate-standards/<candidateId>.json`.
+   */
+  async publishCandidateStandard(
+    candidate: unknown,
+    candidateId: string,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(candidateId)) {
+      throw new EvaluationValidationError(`非法 candidate ID: ${candidateId}`);
+    }
+    const relativePath = `candidate-standards/${candidateId}.json`;
+    const hash = await this.stageAndPublish(relativePath, candidate);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
+  /**
+   * Publish a V5 promotion approval record as an immutable file under
+   * `promotion-approvals/<approvalId>.json`.
+   */
+  async publishPromotionApproval(
+    approval: unknown,
+    approvalId: string,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(approvalId)) {
+      throw new EvaluationValidationError(`非法 approval ID: ${approvalId}`);
+    }
+    const relativePath = `promotion-approvals/${approvalId}.json`;
+    const hash = await this.stageAndPublish(relativePath, approval);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
   /**
    * Read a published repair packet by ID. Verifies the SHA-256 against
    * the integrity index when available.
@@ -514,6 +617,9 @@ export class EvaluationArtifactStore {
     // V4 directories (repair-packets, diagnoses, clusters, counterfactuals)
     // are included in the SHA-256 result graph so that immutable V4
     // artifacts are tamper-evident. Issue #97 §7.
+    // V5 directories (standard-diffs, candidate-standards, promotion-approvals)
+    // are also included so V5 calibration artifacts enter the SHA-256
+    // result graph. Issue #98 §8.
     for (const dir of [
       "observations",
       "grades",
@@ -522,6 +628,9 @@ export class EvaluationArtifactStore {
       "diagnoses",
       "clusters",
       "counterfactuals",
+      "standard-diffs",
+      "candidate-standards",
+      "promotion-approvals",
     ] as const) {
       const files = await readdir(this.finalPath(dir)).catch((error) => (error as NodeJS.ErrnoException).code === "ENOENT" ? [] : Promise.reject(error));
       for (const file of files.filter((item) => item.endsWith(".json")).sort()) {
@@ -532,6 +641,17 @@ export class EvaluationArtifactStore {
     const rcaBenchmarkPath = this.finalPath("rca-benchmark.json");
     if (await pathExists(rcaBenchmarkPath)) {
       await add("rca-benchmark.json");
+    }
+    // V5 single-file artifacts at run root.
+    for (const file of [
+      "calibration-artifact.json",
+      "candidate-registry.json",
+      "standard-conflicts.json",
+    ] as const) {
+      const path = this.finalPath(file);
+      if (await pathExists(path)) {
+        await add(file);
+      }
     }
     return entries;
   }

@@ -10,7 +10,7 @@ fi
 shift
 
 case "$COMMAND" in
-  list|validate|run|show|status|verify|exit-gate|reliability|compare|diagnose|repair-packet|rca-benchmark|fault-catalog) ;;
+  list|validate|run|show|status|verify|exit-gate|reliability|compare|diagnose|repair-packet|rca-benchmark|fault-catalog|calibrate|standard-conflicts|promote-standard|active-registry|candidate-registry|conflict-catalog) ;;
   *)
     echo '{"event":"validation_error","exitCode":3,"error":"未知命令"}'
     exit 3

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { EvaluationArtifactStore } from "./artifact-store.js";
 import { EVALUATION_SCHEMA_VERSION } from "./contract.js";
@@ -8,7 +9,12 @@ import {
   EvaluationInfrastructureError,
   EvaluationValidationError,
 } from "./errors.js";
-import { SLICE_0_PRESETS, T46_3_P0_SCENARIO_IDS } from "./presets.js";
+import {
+  SLICE_0_PRESETS,
+  PRESETS_WITH_CALIBRATE,
+  T46_3_P0_SCENARIO_IDS,
+  CALIBRATE_PRESET,
+} from "./presets.js";
 import { runEvaluation } from "./runner.js";
 import { validateEvaluationConfig } from "./validation.js";
 import {
@@ -25,6 +31,16 @@ import { runDiagnosisPipeline, runBenchmarkPipeline } from "./diagnosis-runner.j
 import { buildRepairPrompt } from "./repair-prompt.js";
 import { verifyFaultCatalog } from "./fault-profiles.js";
 import { verifyPacketInvariants } from "./repair-packet.js";
+// T46-5 (Issue #98) — calibration, semantic standards, promotion.
+import { runCalibrationPipeline, buildPromotionApproval } from "./calibration-runner.js";
+import { loadActiveRegistry, assertActiveRegistryUnchanged } from "./standards-registry.js";
+import { verifyConflictCatalog } from "./standard-conflicts.js";
+import { verifyCalibrationArtifactInvariants } from "./calibration-runner.js";
+import type {
+  CalibrateBudget,
+  CalibrationCostLedger,
+} from "./calibration-contract.js";
+import type { CostLedgerEntry } from "./contract.js";
 
 const EXIT = {
   passed: 0,
@@ -55,7 +71,7 @@ function usage(): void {
     schemaVersion: EVALUATION_SCHEMA_VERSION,
     commands: {
       list: "scripts/eval-lab list",
-      validate: "scripts/eval-lab validate [--preset smoke|smoke-v2|demo|full] [--model mock:mock-model]",
+      validate: "scripts/eval-lab validate [--preset smoke|smoke-v2|demo|full|calibrate] [--model mock:mock-model]",
       run: "scripts/eval-lab run [--preset smoke|smoke-v2|demo|full] [--scenario ID] [--model mock:mock-model] [--run-id ID] [--resume] [--json]",
       status: "scripts/eval-lab status <run-id>",
       show: "scripts/eval-lab show <run-id>",
@@ -68,6 +84,13 @@ function usage(): void {
       "repair-packet": "scripts/eval-lab repair-packet <run-id> [--packet-id ID] [--json]",
       "rca-benchmark": "scripts/eval-lab rca-benchmark <run-id> [--json]",
       "fault-catalog": "scripts/eval-lab fault-catalog [--json]",
+      // T46-5 (Issue #98) — calibration, semantic standards, promotion.
+      "calibrate": "scripts/eval-lab calibrate <run-id> [--json]",
+      "standard-conflicts": "scripts/eval-lab standard-conflicts <run-id> [--json]",
+      "promote-standard": "scripts/eval-lab promote-standard --candidate-id <id> --approver-robert --diff-path <path> --commit <sha> [--json]",
+      "active-registry": "scripts/eval-lab active-registry [--json]",
+      "candidate-registry": "scripts/eval-lab candidate-registry <run-id> [--json]",
+      "conflict-catalog": "scripts/eval-lab conflict-catalog [--json]",
     },
     exitCodes: EXIT,
   });
@@ -118,14 +141,14 @@ function parseArgs(args: string[], allowRunOnly: boolean): CommonArgs {
       throw new EvaluationValidationError(`未知参数: ${flag}`);
     }
   }
-  if (!SLICE_0_PRESETS[parsed.preset]) {
+  if (!PRESETS_WITH_CALIBRATE[parsed.preset]) {
     throw new EvaluationValidationError(`未知 preset: ${parsed.preset}`);
   }
   return parsed;
 }
 
 function selectScenarios(parsed: CommonArgs) {
-  const preset = SLICE_0_PRESETS[parsed.preset]!;
+  const preset = PRESETS_WITH_CALIBRATE[parsed.preset]!;
   if (!parsed.scenarioId) return preset.scenarios;
   const selected = preset.scenarios.filter((scenario) => scenario.scenarioId === parsed.scenarioId);
   if (selected.length === 0) {
@@ -152,9 +175,10 @@ async function main(): Promise<void> {
   if (command === "list") {
     output({
       schemaVersion: EVALUATION_SCHEMA_VERSION,
-      presets: Object.entries(SLICE_0_PRESETS).map(([name, preset]) => ({
+      presets: Object.entries(PRESETS_WITH_CALIBRATE).map(([name, preset]) => ({
         name,
         budget: preset.budget,
+        ...(preset.calibrateBudget ? { calibrateBudget: preset.calibrateBudget } : {}),
         scenarios: preset.scenarios.map((scenario) => ({
           scenarioId: scenario.scenarioId,
           prompt: scenario.visible.prompt,
@@ -167,13 +191,14 @@ async function main(): Promise<void> {
 
   if (command === "validate") {
     const parsed = parseArgs(args, false);
-    const preset = SLICE_0_PRESETS[parsed.preset]!;
+    const preset = PRESETS_WITH_CALIBRATE[parsed.preset]!;
     const result = await validateEvaluationConfig({
       projectRoot,
       model: parsed.model,
       scenarios: preset.scenarios,
       budget: preset.budget,
       preset: parsed.preset,
+      ...(preset.calibrateBudget ? { calibrateBudget: preset.calibrateBudget } : {}),
     });
     output({ event: "validation_result", ...result, exitCode: result.valid ? EXIT.passed : EXIT.validation });
     process.exit(result.valid ? EXIT.passed : EXIT.validation);
@@ -520,6 +545,318 @@ async function main(): Promise<void> {
       });
     } else {
       process.stdout.write("Fault catalog 验证通过\n");
+    }
+    process.exit(EXIT.passed);
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // T46-5 (Issue #98) — Calibration and semantic standards commands.
+  //
+  // These commands implement the governed calibration pipeline:
+  //  - `calibrate <run-id>`: runs the calibration pipeline using mock
+  //    Judge + preset anchors/rubrics. Produces candidate standards,
+  //    never modifies active registry.
+  //  - `standard-conflicts <run-id>`: lists standard conflicts detected
+  //    during a calibration run.
+  //  - `promote-standard`: builds a promotion approval record from an
+  //    explicit Robert instruction. Does NOT claim cryptographic identity
+  //    authentication. The caller is responsible for the actual Git
+  //    diff + commit that mutates the active registry.
+  //  - `active-registry`: shows the current active standards registry
+  //    (read-only).
+  //  - `candidate-registry <run-id>`: shows the candidate registry
+  //    produced by a calibration run.
+  //  - `conflict-catalog`: verifies the frozen conflict catalog is
+  //    complete (6 patterns).
+  // -------------------------------------------------------------------------
+
+  if (command === "calibrate") {
+    if (args.length < 1) {
+      throw new EvaluationValidationError("calibrate 需要且只接受一个 run-id");
+    }
+    const runId = args[0]!;
+    const jsonFlag = parsedArgsHasFlag(args, "--json");
+    const store = await verifiedStore(projectRoot, runId);
+    // Build the calibration input from the preset.
+    const calibrateBudget = CALIBRATE_PRESET.calibrateBudget;
+    if (!calibrateBudget) {
+      throw new EvaluationValidationError("CALIBRATE_PRESET 缺少 calibrateBudget");
+    }
+    // Build a mock cost ledger with unknown provenance (Slice 3 uses
+    // mock Judge; no real paid model is invoked).
+    const mockCostEntry: CostLedgerEntry = {
+      amountUsd: null,
+      source: "unknown",
+      countedAgainstSutCap: false,
+    };
+    const costLedger: CalibrationCostLedger = {
+      sut: mockCostEntry,
+      evaluator: mockCostEntry,
+      codingAgent: mockCostEntry,
+      sutProvenance: "unknown",
+      evaluatorProvenance: "unknown",
+      codingAgentProvenance: "unknown",
+    };
+    // Load active registry before calibration to verify immutability.
+    const activeBefore = await loadActiveRegistry(projectRoot);
+    // Run the calibration pipeline.
+    const result = await runCalibrationPipeline(store, {
+      runId,
+      projectRoot,
+      acceptanceProposal: CALIBRATE_PRESET.acceptanceProposal,
+      rubrics: CALIBRATE_PRESET.rubrics,
+      anchorSets: CALIBRATE_PRESET.anchorSets,
+      judgeManifest: CALIBRATE_PRESET.judgeManifest,
+      anchorEvaluations: [],
+      pairwiseEvaluations: [],
+      standardClaims: [],
+      costLedger,
+      mutationResults: [],
+      thresholds: {
+        positionBias: CALIBRATE_PRESET.acceptanceProposal.positionBiasThreshold,
+        verbosityBias: CALIBRATE_PRESET.acceptanceProposal.verbosityBiasThreshold,
+        sameFamilyPreference: CALIBRATE_PRESET.acceptanceProposal.sameFamilyPreferenceThreshold,
+        disagreementRate: CALIBRATE_PRESET.acceptanceProposal.disagreementRateThreshold,
+        repeatedRunFlipRate: CALIBRATE_PRESET.acceptanceProposal.repeatedRunFlipRateThreshold,
+        anchorOrdering: CALIBRATE_PRESET.acceptanceProposal.anchorOrderingThreshold,
+      },
+      anchorRepeats: 3,
+    });
+    // Verify active registry is unchanged.
+    const activeAfter = await loadActiveRegistry(projectRoot);
+    assertActiveRegistryUnchanged(activeBefore, activeAfter);
+    // Verify calibration artifact invariants.
+    const violations = verifyCalibrationArtifactInvariants(result.artifact);
+    if (violations.length > 0) {
+      throw new EvaluationValidationError(
+        `calibration artifact 不变式违反: ${violations.join("; ")}`,
+      );
+    }
+    if (jsonFlag) {
+      output({
+        event: "calibration_completed",
+        runId,
+        calibrationId: result.artifact.calibrationId,
+        passed: result.artifact.passed,
+        partial: result.artifact.partial,
+        candidateCount: result.candidateStandards.length,
+        conflictCount: result.standardConflicts.length,
+        anyEligibleForPromotion: result.artifact.promotionEligibility.anyEligible,
+        activeRegistryFingerprint: result.artifact.activeRegistryFingerprint,
+        candidateRegistryFingerprint: result.artifact.candidateRegistryFingerprint,
+        integritySha256: result.artifact.integritySha256,
+        published: result.published,
+      });
+    } else {
+      process.stdout.write(
+        `校准完成: ${result.candidateStandards.length} 个候选标准, ${result.standardConflicts.length} 个冲突\n` +
+        `  passed: ${result.artifact.passed}, partial: ${result.artifact.partial}\n` +
+        `  active registry fingerprint 未改变\n` +
+        `  integrity: ${result.artifact.integritySha256}\n`,
+      );
+    }
+    process.exit(result.artifact.passed ? EXIT.passed : EXIT.partialBudget);
+    return;
+  }
+
+  if (command === "standard-conflicts") {
+    if (args.length < 1) {
+      throw new EvaluationValidationError("standard-conflicts 需要且只接受一个 run-id");
+    }
+    const runId = args[0]!;
+    const jsonFlag = parsedArgsHasFlag(args, "--json");
+    const store = await verifiedStore(projectRoot, runId);
+    // Read the calibration artifact's standard conflicts.
+    const calibrationPath = store.runDir + "/calibration-artifact.json";
+    let conflicts: unknown[];
+    try {
+      const content = await readFile(calibrationPath, "utf-8");
+      const artifact = JSON.parse(content) as { standardConflicts?: unknown[] };
+      conflicts = artifact.standardConflicts ?? [];
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new EvaluationValidationError(
+          `run ${runId} 没有 calibration-artifact.json; 请先运行 calibrate 命令`,
+        );
+      }
+      throw error;
+    }
+    if (jsonFlag) {
+      output({
+        event: "standard_conflicts_list",
+        runId,
+        count: conflicts.length,
+        conflicts,
+      });
+    } else {
+      process.stdout.write(`Run ${runId} 包含 ${conflicts.length} 个 standard conflict:\n`);
+      for (const c of conflicts) {
+        const conflict = c as { conflictId: string; severity: string; resolutionStatus: string };
+        process.stdout.write(
+          `  - ${conflict.conflictId} [${conflict.severity}] status=${conflict.resolutionStatus}\n`,
+        );
+      }
+    }
+    process.exit(EXIT.passed);
+    return;
+  }
+
+  if (command === "promote-standard") {
+    // This command builds a promotion approval record from an explicit
+    // Robert instruction. It does NOT claim cryptographic identity
+    // authentication. The caller is responsible for:
+    //  1. Receiving an explicit instruction from Robert.
+    //  2. Computing the new active registry state via
+    //     `applyPromotionApproval` from `standards-registry.ts`.
+    //  3. Writing the new active registry file to Git via a reviewable
+    //     diff (path + commit).
+    //
+    // This CLI command ONLY produces the approval record and publishes
+    // it as an immutable artifact. The actual active registry mutation
+    // happens via Git, not via this command.
+    const candidateId = parseOptionalValue(args, "--candidate-id");
+    if (!candidateId) {
+      throw new EvaluationValidationError("promote-standard 需要 --candidate-id <id>");
+    }
+    const approverRobert = parsedArgsHasFlag(args, "--approver-robert");
+    if (!approverRobert) {
+      throw new EvaluationValidationError(
+        "promote-standard 必须显式声明 --approver-robert; 未显式 Robert 指令禁止 promotion",
+      );
+    }
+    const diffPath = parseOptionalValue(args, "--diff-path");
+    if (!diffPath) {
+      throw new EvaluationValidationError("promote-standard 需要 --diff-path <path>");
+    }
+    const commit = parseOptionalValue(args, "--commit");
+    if (!commit) {
+      throw new EvaluationValidationError("promote-standard 需要 --commit <sha>");
+    }
+    const beforeFingerprint = parseOptionalValue(args, "--before-fingerprint");
+    const afterFingerprint = parseOptionalValue(args, "--after-fingerprint");
+    if (!beforeFingerprint || !afterFingerprint) {
+      throw new EvaluationValidationError(
+        "promote-standard 需要 --before-fingerprint 与 --after-fingerprint",
+      );
+    }
+    const runId = parseOptionalValue(args, "--run-id") ?? `promotion_${Date.now()}`;
+    const jsonFlag = parsedArgsHasFlag(args, "--json");
+    const store = await verifiedStore(projectRoot, runId);
+    // Build the approval record.
+    const approval = buildPromotionApproval({
+      candidateId,
+      approverInstruction: `Robert 显式指令: promote candidate ${candidateId} to active`,
+      diffPath,
+      commit,
+      beforeActiveFingerprint: beforeFingerprint,
+      afterActiveFingerprint: afterFingerprint,
+      resolvedConflictIds: [],
+    });
+    // Publish the approval record as an immutable artifact.
+    const published = await store.publishPromotionApproval(approval, approval.approvalId);
+    if (jsonFlag) {
+      output({
+        event: "promotion_approval_recorded",
+        runId,
+        approvalId: approval.approvalId,
+        candidateId: approval.candidateId,
+        approverInstruction: approval.approverInstruction,
+        reviewableDiff: approval.reviewableDiff,
+        beforeActiveFingerprint: approval.beforeActiveFingerprint,
+        afterActiveFingerprint: approval.afterActiveFingerprint,
+        published,
+        note: "此命令仅记录 approval record; 实际 active registry 修改通过 Git diff 完成",
+      });
+    } else {
+      process.stdout.write(
+        `Promotion approval 已记录: ${approval.approvalId}\n` +
+        `  candidate: ${approval.candidateId}\n` +
+        `  diff: ${approval.reviewableDiff.diffPath} @ ${approval.reviewableDiff.commit}\n` +
+        `  before: ${approval.beforeActiveFingerprint}\n` +
+        `  after: ${approval.afterActiveFingerprint}\n`,
+      );
+    }
+    process.exit(EXIT.passed);
+    return;
+  }
+
+  if (command === "active-registry") {
+    const jsonFlag = parsedArgsHasFlag(args, "--json");
+    const registry = await loadActiveRegistry(projectRoot);
+    if (jsonFlag) {
+      output({
+        event: "active_registry",
+        registry,
+      });
+    } else {
+      process.stdout.write(
+        `Active standards registry: ${registry.registryId}\n` +
+        `  entries: ${registry.entries.length}\n` +
+        `  fingerprint: ${registry.fingerprint}\n` +
+        `  updatedAt: ${registry.updatedAt}\n`,
+      );
+    }
+    process.exit(EXIT.passed);
+    return;
+  }
+
+  if (command === "candidate-registry") {
+    if (args.length < 1) {
+      throw new EvaluationValidationError("candidate-registry 需要且只接受一个 run-id");
+    }
+    const runId = args[0]!;
+    const jsonFlag = parsedArgsHasFlag(args, "--json");
+    const store = await verifiedStore(projectRoot, runId);
+    const candidatePath = store.runDir + "/candidate-registry.json";
+    let registry: unknown;
+    try {
+      const content = await readFile(candidatePath, "utf-8");
+      registry = JSON.parse(content);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new EvaluationValidationError(
+          `run ${runId} 没有 candidate-registry.json; 请先运行 calibrate 命令`,
+        );
+      }
+      throw error;
+    }
+    if (jsonFlag) {
+      output({
+        event: "candidate_registry",
+        runId,
+        registry,
+      });
+    } else {
+      const reg = registry as { registryId: string; entries: unknown[]; fingerprint: string };
+      process.stdout.write(
+        `Candidate standards registry for run ${runId}: ${reg.registryId}\n` +
+        `  entries: ${reg.entries.length}\n` +
+        `  fingerprint: ${reg.fingerprint}\n`,
+      );
+    }
+    process.exit(EXIT.passed);
+    return;
+  }
+
+  if (command === "conflict-catalog") {
+    const jsonFlag = parsedArgsHasFlag(args, "--json");
+    const verification = verifyConflictCatalog();
+    if (!verification.complete) {
+      output({
+        event: "conflict_catalog_invalid",
+        missingPatterns: verification.missingPatterns,
+      });
+      process.exit(EXIT.validation);
+      return;
+    }
+    if (jsonFlag) {
+      output({
+        event: "conflict_catalog_valid",
+        complete: verification.complete,
+      });
+    } else {
+      process.stdout.write("Standard conflict catalog 验证通过 (6 patterns)\n");
     }
     process.exit(EXIT.passed);
     return;

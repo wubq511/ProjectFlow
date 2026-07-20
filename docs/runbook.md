@@ -140,10 +140,10 @@ npm run build
 npm audit --omit=dev
 ```
 
-Expected baseline as of 2026-07-20 after Issue #97 merged into `main`:
+Expected baseline as of 2026-07-20 after Issue #97 merged into `main` (Issue #98 on local branch `glm/t46-98-governed-calibration` adds 221 tests in 8 new t46-5 files; not yet merged):
 
 - Backend tests pass: 890 passed, 4 skipped; Ruff passes.
-- Agent bridge tests pass: 1945 tests across 85 unit files; typecheck and build pass.
+- Agent bridge tests pass: 1945 tests across 85 unit files; typecheck and build pass. (On the #98 branch: 2166 tests across 93 files, +221 t46-5 tests.)
 - Frontend tests pass: 333 passed, 6 skipped across 26 files.
 - Frontend lint passes.
 - Frontend production build passes.
@@ -253,6 +253,46 @@ scripts/eval-lab fault-catalog --json
 Repair Packets use `REPAIR_PACKET_SCHEMA_VERSION = 1`. The `fix` packet type is only allowed when there is direct component evidence, intervention_supported, or fault_injection_confirmed, AND a falsifiable acceptance test, protected boundaries, verification commands and a valid code fingerprint are all present; otherwise the packet is `investigation`. Packets are scrubbed of secrets, absolute temp paths, raw hidden-fact markers (`__hidden__`/`__oracle__`/`__expected_cause__`) and model hidden reasoning (`<think>`/`<reasoning>`). Stale detection fail-closes when the commit or worktree SHA-256 differs. Candidate regressions are marked `candidate`/`unapproved` and cannot be auto-promoted to `approved`. The Coding Agent prompt forbids modifying `.env`, API keys, internal service tokens, frozen standards, graders, thresholds, P0 cases, privacy/authority boundaries; forbids auto push/merge/Issue close; and refuses to execute on a stale packet.
 
 Key files: `agent-bridge/src/evaluation/lab/diagnosis-contract.ts`, `agent-bridge/src/evaluation/lab/diagnosis-runner.ts`, `agent-bridge/src/evaluation/lab/fault-profiles.ts`, `agent-bridge/src/evaluation/lab/counterfactual.ts`, `agent-bridge/src/evaluation/lab/earliest-divergence.ts`, `agent-bridge/src/evaluation/lab/rca-benchmark.ts`, `agent-bridge/src/evaluation/lab/issue-clustering.ts`, `agent-bridge/src/evaluation/lab/repair-packet.ts`, `agent-bridge/src/evaluation/lab/repair-prompt.ts`, and `agent-bridge/src/evaluation/lab/cli.ts`.
+
+### T46 Evaluation Lab Slice 3 Governed Calibration & Semantic Standards (#98)
+
+Issue #98 (implemented on local branch `glm/t46-98-governed-calibration`; local commit created; not pushed, merged, or closed) adds governed calibration and semantic quality evaluation on top of #97. ProjectFlow deterministic hard gates always take precedence; Semantic Judge is soft evidence by default; normal eval cannot modify active standards; calibration only produces candidate standards; `needs_review` is returned when no reliable independent Judge is available or conflicts exist; all standard changes are versioned, reviewable, rollback-able Git diffs; no Agent, Judge or ordinary command can auto-promote without explicit Robert instruction.
+
+```bash
+# Validate the calibrate preset (zero-token JSON validation)
+scripts/eval-lab validate --preset calibrate --model mock:mock-model
+
+# Run the calibration pipeline (mock judge; no paid model invoked)
+scripts/eval-lab calibrate <run-id> --json
+
+# Build a promotion approval record (requires explicit --approver-robert)
+scripts/eval-lab promote-standard \
+  --candidate-id <id> \
+  --approver-robert \
+  --diff-path <path> \
+  --commit <sha> \
+  --before-fingerprint <fp> \
+  --after-fingerprint <fp> \
+  [--run-id <id>] \
+  --json
+
+# Verify the 6 frozen standard conflict patterns are complete
+scripts/eval-lab conflict-catalog --json
+```
+
+`calibrate` exits `0` when the pipeline produces a valid calibration artifact (the artifact is produced even when fail-safe triggers, so partial evidence is preserved); `1` on invariant violation or calibration failure; `2` infrastructure; `3` validation; `4` budget exhausted. `promote-standard` exits `0` when the approval record is built and the candidate is `approved`; `1` when the candidate is not approved, fingerprints do not match, or unresolved conflicts remain; `3` validation.
+
+Registry paths are fixed: `agent-bridge/standards/active/registry.json` is read-only for normal eval / diagnose / repair-packet / Judge paths; `agent-bridge/standards/candidate/` is the calibration-only namespace. `loadActiveRegistry` returns a stable bootstrap registry (fixed timestamp `1970-01-01T00:00:00.000Z`) on ENOENT, so `assertActiveRegistryUnchanged` holds even on the bootstrap path. Failed / fail-safe / conflict-blocked / unapproved calibration all leave the active registry byte-identical.
+
+Frozen conflict resolutions are `unresolved | resolved | deferred`. `hasUnresolvedConflict` treats BOTH `unresolved` AND `deferred` as blocking — only `resolved` unblocks promotion. Frozen hard gates are 8: `state_invariant`, `authority`, `privacy_visibility`, `proposal_confirm`, `terminal_consistency`, `idempotency`, `forbidden_side_effect`, `frozen_p0_gate`. `combineHardGateWithSemantic(false, any)` always produces `fail`; `combineHardGateWithSemantic(true, "needs_review")` stays `needs_review` (semantic verdicts are never upgraded).
+
+9 fail-safe conditions degrade to `needs_review` by priority: `no_independent_judge` → `judge_identity_unconfirmed` → `only_same_family_uncalibrated` → `judges_conflict` → `anchor_ordering_unstable` → `bias_metrics_exceeded` → `judge_telemetry_incomplete` → `judge_schema_unrepairable` → `calibration_evidence_insufficient`. Silent switching to a same-family Judge is forbidden from forming a hard verdict.
+
+Cost provenance is one of `provider_reported`, `versioned_price_estimate`, `unknown`. Unknown cost MUST NOT display as `$0` (`amountUsd` must be `null` or a non-zero number). ProjectFlow Agent (SUT) cap is `$3`; Coding Agent cost is `external/unknown` and never counts against the SUT cap; evaluator model has its own ceiling (`maxCalls`, `maxInputTokens`, `maxOutputTokens`, `maxWallMs`, `maxMeasurableUsd`). Paid calibration remains fail-closed until a frozen price table and pre-call worst-case estimate exist. This ticket's verification uses mock/deterministic Judge only.
+
+`applyPromotionApproval` is the ONLY function that mutates the active registry. It requires: `candidate.status === "approved"`, matching `candidateId`, all `affectedByConflicts` resolved, matching `beforeActiveFingerprint`, and matching `afterActiveFingerprint` (computed post-apply). The approval record NEVER claims cryptographic identity authentication for Robert — it is repository governance with reviewable Git history.
+
+Key files: `agent-bridge/src/evaluation/lab/calibration-contract.ts`, `agent-bridge/src/evaluation/lab/standards-registry.ts`, `agent-bridge/src/evaluation/lab/standard-conflicts.ts`, `agent-bridge/src/evaluation/lab/semantic-judge.ts`, `agent-bridge/src/evaluation/lab/judge-bias.ts`, `agent-bridge/src/evaluation/lab/calibration-runner.ts`, plus V5 extensions to `presets.ts`, `artifact-store.ts`, `cli.ts`, `validation.ts`. See `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice3_Handoff.md` for the full trust model and closure evidence.
 
 ### Conversation history smoke test
 

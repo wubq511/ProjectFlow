@@ -626,3 +626,211 @@ export const SLICE_0_PRESETS: Record<string, {
     budget: FULL_BUDGET,
   },
 };
+
+// ---------------------------------------------------------------------------
+// T46-5 (Issue #98) — calibrate preset.
+//
+// `calibrate` runs semantic Judge calibration over the existing P0
+// scenarios. The SUT (ProjectFlow Agent) cost ceiling is $3.00.
+// Evaluator (Judge/simulator) cost lives under its OWN ceiling, separate
+// from the SUT cap. Coding Agent cost stays external/unknown.
+//
+// This preset does NOT claim hard-gate eligibility for any semantic
+// Judge. Promotion requires explicit Robert instruction.
+// ---------------------------------------------------------------------------
+
+import type {
+  AcceptanceProposal,
+  CalibrateBudget,
+  SemanticAnchorSet,
+  SemanticRubric,
+  JudgeManifest,
+} from "./calibration-contract.js";
+
+/**
+ * The calibrate budget. SUT cap = $3.00 (per Issue #98 §7).
+ * Evaluator has its own ceiling.
+ * Coding Agent stays external/unknown.
+ */
+export const CALIBRATE_BUDGET: CalibrateBudget = {
+  sut: {
+    maxSutCostUsd: 3.00,
+    maxInputTokens: 1_500_000,
+    maxOutputTokens: 240_000,
+    maxRequestCount: 80,
+    maxWallTimeMs: 1_800_000, // 30 minutes
+    maxObservations: 30,
+  },
+  evaluator: {
+    maxCalls: 200,
+    maxInputTokens: 2_000_000,
+    maxOutputTokens: 100_000,
+    maxWallTimeMs: 3_600_000, // 60 minutes
+    maxMeasurableDollars: 10.00,
+  },
+  codingAgent: {
+    costSource: "unknown",
+  },
+};
+
+/**
+ * Frozen acceptance proposal for Slice 3 Judge stability. The values
+ * are conservative; once a candidate standard meets them, it can be
+ * proposed for promotion (still requiring explicit Robert instruction).
+ */
+export const CALIBRATE_ACCEPTANCE_PROPOSAL: AcceptanceProposal = {
+  proposalId: "calibrate-acceptance-v1",
+  version: 1,
+  anchorOrderingThreshold: 0.05,
+  repeatedStabilityThreshold: 0.90,
+  positionBiasThreshold: 0.60,
+  verbosityBiasThreshold: 0.30,
+  sameFamilyPreferenceThreshold: 0.65,
+  disagreementRateThreshold: 0.20,
+  repeatedRunFlipRateThreshold: 0.10,
+  frozenAt: "2026-07-20T00:00:00.000Z",
+  description: "Slice 3 calibrate preset 冻结验收 proposal: anchor 排序稳定、repeated-run 稳定、position/verbosity/same-family bias 在阈值内",
+};
+
+/**
+ * P0 anchor set for the planning-specificity criterion. Includes one
+ * good, one boundary and one bad anchor.
+ */
+export const P0_PLANNING_SPECIFICITY_ANCHOR_SET: SemanticAnchorSet = {
+  schemaVersion: 1,
+  anchorSetId: "p0-planning-specificity-anchors",
+  criterion: "planning-specificity",
+  version: 1,
+  anchors: [
+    {
+      anchorId: "p0-planning-good",
+      kind: "good",
+      output:
+        "建议第一阶段聚焦后端 API 设计与数据模型，第二阶段实现前端页面与状态管理，第三阶段接入真实 LLM 并做端到端验证。每个阶段有明确交付物和完成标准。",
+      visibleFacts: [
+        "项目目标：完成 ProjectFlow MVP",
+        "团队规模：3 人",
+        "截止日期：2026-12-31",
+      ],
+      expectedOrderRank: 0,
+      expectedVerdict: "pass",
+      expectedScore: "excellent",
+    },
+    {
+      anchorId: "p0-planning-boundary",
+      kind: "boundary",
+      output:
+        "建议先做后端，再做前端。具体阶段交付物稍后细化。",
+      visibleFacts: [
+        "项目目标：完成 ProjectFlow MVP",
+        "团队规模：3 人",
+        "截止日期：2026-12-31",
+      ],
+      expectedOrderRank: 1,
+      expectedVerdict: "needs_review",
+      expectedScore: "fair",
+    },
+    {
+      anchorId: "p0-planning-bad",
+      kind: "bad",
+      output: "随便做吧，怎么都行。",
+      visibleFacts: [
+        "项目目标：完成 ProjectFlow MVP",
+        "团队规模：3 人",
+        "截止日期：2026-12-31",
+      ],
+      expectedOrderRank: 2,
+      expectedVerdict: "fail",
+      expectedScore: "poor",
+    },
+  ],
+  acceptanceProposalRef: {
+    proposalId: CALIBRATE_ACCEPTANCE_PROPOSAL.proposalId,
+    proposalVersion: CALIBRATE_ACCEPTANCE_PROPOSAL.version,
+  },
+};
+
+/**
+ * P0 semantic rubric for the planning-specificity criterion. ONE
+ * criterion at a time, per Issue #98 §3.
+ */
+export const P0_PLANNING_SPECIFICITY_RUBRIC: SemanticRubric = {
+  schemaVersion: 1,
+  rubricId: "p0-planning-specificity-rubric",
+  criterion: "planning-specificity",
+  label: "规划具体性",
+  description: "评估 Agent 输出的阶段计划是否具体、可执行、有明确交付物与完成标准",
+  scoreScale: ["poor", "fair", "good", "excellent"],
+  evidenceReferences: [],
+  verdict: "needs_review",
+  score: "",
+  reason: "",
+  confidence: 0,
+  judgeManifestRef: {
+    judgeId: "mock-judge-v1",
+    judgeVersion: 1,
+  },
+  rubricVersion: 1,
+  semanticHardGateEligible: false,
+};
+
+/**
+ * P0 Judge manifest. Mock Judge for deterministic testing.
+ */
+export const P0_MOCK_JUDGE_MANIFEST: JudgeManifest = {
+  schemaVersion: 1,
+  judgeId: "mock-judge-v1",
+  version: 1,
+  provider: "mock",
+  modelName: "mock-judge",
+  family: "mock",
+  promptVersion: 1,
+  rubricVersionRef: {
+    rubricId: "p0-planning-specificity-rubric",
+    rubricVersion: 1,
+  },
+  anchorVersionRef: {
+    anchorSetId: "p0-planning-specificity-anchors",
+    anchorVersion: 1,
+  },
+  independentOfSut: true,
+  identityConfirmed: true,
+};
+
+/** All P0 anchor sets for the calibrate preset. */
+export const T46_5_P0_ANCHOR_SETS: SemanticAnchorSet[] = [
+  P0_PLANNING_SPECIFICITY_ANCHOR_SET,
+];
+
+/** All P0 rubrics for the calibrate preset. */
+export const T46_5_P0_RUBRICS: SemanticRubric[] = [
+  P0_PLANNING_SPECIFICITY_RUBRIC,
+];
+
+/** Calibrate preset uses the same scenarios as `full`. */
+export const CALIBRATE_SCENARIOS: ScenarioContract[] = FULL_SCENARIOS;
+
+/** Calibrate preset entry. Reuses `full` scenarios + calibrate budget. */
+export const CALIBRATE_PRESET = {
+  scenarios: CALIBRATE_SCENARIOS,
+  budget: CALIBRATE_BUDGET.sut, // For backward compat with EvaluationBudget shape
+  calibrateBudget: CALIBRATE_BUDGET,
+  acceptanceProposal: CALIBRATE_ACCEPTANCE_PROPOSAL,
+  anchorSets: T46_5_P0_ANCHOR_SETS,
+  rubrics: T46_5_P0_RUBRICS,
+  judgeManifest: P0_MOCK_JUDGE_MANIFEST,
+};
+
+/** Extended preset entry including calibrate. */
+export const PRESETS_WITH_CALIBRATE: Record<string, {
+  scenarios: ScenarioContract[];
+  budget: EvaluationBudget;
+  calibrateBudget?: CalibrateBudget;
+  acceptanceProposal?: AcceptanceProposal;
+  anchorSets?: SemanticAnchorSet[];
+  rubrics?: SemanticRubric[];
+  judgeManifest?: JudgeManifest;
+}> = {
+  ...SLICE_0_PRESETS,
+  calibrate: CALIBRATE_PRESET,
+};

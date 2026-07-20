@@ -404,12 +404,15 @@ function validateBudget(budget: EvaluationBudget, scenarios: ScenarioContract[],
   // T46-3 (Issue #96): preset-aware cost cap.
   //   - smoke / smoke-v2 / demo: maxSutCostUsd ≤ $0.10 (Slice 0 handoff).
   //   - full: maxSutCostUsd ≤ $1.00 (Slice 0 handoff: full $1).
-  //   - calibrate (future): $3 — not implemented in this ticket.
+  //   - calibrate (T46-5, Issue #98): maxSutCostUsd ≤ $3.00. The SUT cap
+  //     covers ONLY ProjectFlow Agent cost; evaluator Judge/simulator
+  //     cost lives under its OWN ceiling (see validateCalibrateBudget).
   // The cap is enforced per-preset so `full` can run more scenarios
   // without tripping the smoke budget guard.
   const isFullPreset = preset === "full";
-  const costCap = isFullPreset ? 1.00 : 0.10;
-  const costCapLabel = isFullPreset ? "full" : "smoke/demo";
+  const isCalibratePreset = preset === "calibrate";
+  const costCap = isCalibratePreset ? 3.00 : isFullPreset ? 1.00 : 0.10;
+  const costCapLabel = isCalibratePreset ? "calibrate" : isFullPreset ? "full" : "smoke/demo";
   if (budget.maxSutCostUsd > costCap) {
     add("budget_preset_cost", `${costCapLabel} 的 ProjectFlow Agent 成本上限不得超过 $${costCap.toFixed(2)}`);
   }
@@ -431,6 +434,173 @@ function validateBudget(budget: EvaluationBudget, scenarios: ScenarioContract[],
     }
   }
   return errors;
+}
+
+// ---------------------------------------------------------------------------
+// T46-5 (Issue #98 §7) — Calibrate budget validation.
+//
+// The calibrate preset has a SUT cap ($3) AND an independent evaluator
+// ceiling (max calls/tokens/time/dollars). Evaluator budget exhaustion
+// stops NEW Judge calls but preserves completed evidence.
+//
+// Cost provenance MUST be one of: provider_reported,
+// versioned_price_estimate, unknown. Unknown cost MUST NOT be displayed
+// as $0. Coding Agent cost stays external/unknown and is NOT counted
+// against the SUT cap.
+// ---------------------------------------------------------------------------
+
+import type { CalibrateBudget, CalibrationCostProvenance } from "./calibration-contract.js";
+
+/** Validate a calibrate budget. Returns violations (empty = OK). */
+export function validateCalibrateBudget(budget: CalibrateBudget): ValidationIssue[] {
+  const errors: ValidationIssue[] = [];
+  const add = (code: string, message: string) => errors.push({ code, message });
+
+  // §1 SUT cap: $3.00 hard ceiling per Issue #98 §7.
+  if (!Number.isFinite(budget.sut.maxSutCostUsd) || budget.sut.maxSutCostUsd <= 0) {
+    add("calibrate_sut_cost", "calibrate sut.maxSutCostUsd 必须为正数");
+  } else if (budget.sut.maxSutCostUsd > 3.00) {
+    add(
+      "calibrate_sut_cap",
+      `calibrate sut.maxSutCostUsd 不得超过 $3.00, 实际 $${budget.sut.maxSutCostUsd.toFixed(2)}`,
+    );
+  }
+  // §2 SUT integer fields.
+  for (const field of ["maxInputTokens", "maxOutputTokens", "maxRequestCount", "maxWallTimeMs", "maxObservations"] as const) {
+    if (!Number.isInteger(budget.sut[field]) || budget.sut[field] <= 0) {
+      add("calibrate_sut_integer", `calibrate sut.${field} 必须为正整数`);
+    }
+  }
+
+  // §3 Evaluator ceiling: independent of SUT cap. All fields required.
+  if (!Number.isInteger(budget.evaluator.maxCalls) || budget.evaluator.maxCalls <= 0) {
+    add("calibrate_eval_calls", "calibrate evaluator.maxCalls 必须为正整数");
+  }
+  if (!Number.isInteger(budget.evaluator.maxInputTokens) || budget.evaluator.maxInputTokens <= 0) {
+    add("calibrate_eval_input_tokens", "calibrate evaluator.maxInputTokens 必须为正整数");
+  }
+  if (!Number.isInteger(budget.evaluator.maxOutputTokens) || budget.evaluator.maxOutputTokens <= 0) {
+    add("calibrate_eval_output_tokens", "calibrate evaluator.maxOutputTokens 必须为正整数");
+  }
+  if (!Number.isInteger(budget.evaluator.maxWallTimeMs) || budget.evaluator.maxWallTimeMs <= 0) {
+    add("calibrate_eval_wall_time", "calibrate evaluator.maxWallTimeMs 必须为正整数");
+  }
+  if (
+    !Number.isFinite(budget.evaluator.maxMeasurableDollars)
+    || budget.evaluator.maxMeasurableDollars <= 0
+  ) {
+    add("calibrate_eval_dollars", "calibrate evaluator.maxMeasurableDollars 必须为正数");
+  }
+
+  // §4 Coding Agent cost source: must be external/unknown.
+  if (budget.codingAgent.costSource !== "external" && budget.codingAgent.costSource !== "unknown") {
+    add(
+      "calibrate_coding_agent_source",
+      `calibrate codingAgent.costSource 必须为 external 或 unknown, 实际 ${budget.codingAgent.costSource}`,
+    );
+  }
+  return errors;
+}
+
+/** Validate a cost provenance value. Returns violation message or null. */
+export function validateCostProvenance(
+  provenance: string,
+  amountUsd: number | null,
+): ValidationIssue | null {
+  const valid: CalibrationCostProvenance[] = ["provider_reported", "versioned_price_estimate", "unknown"];
+  if (!valid.includes(provenance as CalibrationCostProvenance)) {
+    return {
+      code: "cost_provenance_invalid",
+      message: `cost provenance 非法: ${provenance}; 只允许 ${valid.join(", ")}`,
+    };
+  }
+  // Unknown cost MUST NOT be displayed as $0.
+  if (provenance === "unknown" && amountUsd === 0) {
+    return {
+      code: "cost_provenance_unknown_zero",
+      message: "cost provenance=unknown 但 amountUsd=0; unknown cost 不得显示为 $0",
+    };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// T46-5 (Issue #98 §1) — Registry schema validation.
+//
+// Unsupported future registry schema versions MUST fail-closed.
+// ---------------------------------------------------------------------------
+
+import {
+  STANDARDS_REGISTRY_SCHEMA_VERSION,
+  CALIBRATION_ARTIFACT_SCHEMA_VERSION,
+  SEMANTIC_RUBRIC_SCHEMA_VERSION,
+  SEMANTIC_ANCHOR_SCHEMA_VERSION,
+  JUDGE_MANIFEST_SCHEMA_VERSION,
+  STANDARD_DIFF_SCHEMA_VERSION,
+  PROMOTION_APPROVAL_SCHEMA_VERSION,
+} from "./calibration-contract.js";
+
+/** Assert that a registry schema version is supported. Fail-closed. */
+export function assertSupportedStandardsRegistrySchema(version: number): void {
+  if (version !== STANDARDS_REGISTRY_SCHEMA_VERSION) {
+    throw new Error(
+      `unsupported standards registry schema version: ${version}; current version is ${STANDARDS_REGISTRY_SCHEMA_VERSION}`,
+    );
+  }
+}
+
+/** Assert that a calibration artifact schema version is supported. */
+export function assertSupportedCalibrationArtifactSchema(version: number): void {
+  if (version !== CALIBRATION_ARTIFACT_SCHEMA_VERSION) {
+    throw new Error(
+      `unsupported calibration artifact schema version: ${version}; current version is ${CALIBRATION_ARTIFACT_SCHEMA_VERSION}`,
+    );
+  }
+}
+
+/** Assert that a semantic rubric schema version is supported. */
+export function assertSupportedSemanticRubricSchema(version: number): void {
+  if (version !== SEMANTIC_RUBRIC_SCHEMA_VERSION) {
+    throw new Error(
+      `unsupported semantic rubric schema version: ${version}; current version is ${SEMANTIC_RUBRIC_SCHEMA_VERSION}`,
+    );
+  }
+}
+
+/** Assert that a semantic anchor schema version is supported. */
+export function assertSupportedSemanticAnchorSchema(version: number): void {
+  if (version !== SEMANTIC_ANCHOR_SCHEMA_VERSION) {
+    throw new Error(
+      `unsupported semantic anchor schema version: ${version}; current version is ${SEMANTIC_ANCHOR_SCHEMA_VERSION}`,
+    );
+  }
+}
+
+/** Assert that a judge manifest schema version is supported. */
+export function assertSupportedJudgeManifestSchema(version: number): void {
+  if (version !== JUDGE_MANIFEST_SCHEMA_VERSION) {
+    throw new Error(
+      `unsupported judge manifest schema version: ${version}; current version is ${JUDGE_MANIFEST_SCHEMA_VERSION}`,
+    );
+  }
+}
+
+/** Assert that a standard diff schema version is supported. */
+export function assertSupportedStandardDiffSchema(version: number): void {
+  if (version !== STANDARD_DIFF_SCHEMA_VERSION) {
+    throw new Error(
+      `unsupported standard diff schema version: ${version}; current version is ${STANDARD_DIFF_SCHEMA_VERSION}`,
+    );
+  }
+}
+
+/** Assert that a promotion approval schema version is supported. */
+export function assertSupportedPromotionApprovalSchema(version: number): void {
+  if (version !== PROMOTION_APPROVAL_SCHEMA_VERSION) {
+    throw new Error(
+      `unsupported promotion approval schema version: ${version}; current version is ${PROMOTION_APPROVAL_SCHEMA_VERSION}`,
+    );
+  }
 }
 
 interface ModelConfigFile {
@@ -536,6 +706,9 @@ export async function validateEvaluationConfig(options: {
   /** Optional preset name, used to apply preset-specific budget caps.
    *  When omitted, the smoke/demo $0.10 cap is enforced. */
   preset?: string;
+  /** Optional calibrate budget (required when preset="calibrate").
+   *  Validates the independent evaluator ceiling and SUT cap. */
+  calibrateBudget?: CalibrateBudget;
 }): Promise<ValidationResult> {
   const scenarioErrors = options.scenarios.flatMap(validateScenario);
   const duplicateIds = options.scenarios
@@ -545,9 +718,29 @@ export async function validateEvaluationConfig(options: {
     scenarioErrors.push({ code: "scenario_duplicate", message: `场景 ID 重复: ${[...new Set(duplicateIds)].join(", ")}` });
   }
   const budgetErrors = validateBudget(options.budget, options.scenarios, options.preset);
+  // T46-5: when preset="calibrate", the calibrate budget MUST be provided
+  // and must pass its own validation (SUT $3 cap + evaluator ceiling +
+  // coding agent external/unknown).
+  const calibrateBudgetErrors: ValidationIssue[] = [];
+  if (options.preset === "calibrate") {
+    if (!options.calibrateBudget) {
+      calibrateBudgetErrors.push({
+        code: "calibrate_budget_missing",
+        message: "calibrate preset 必须提供 calibrateBudget (含 evaluator 独立上限)",
+      });
+    } else {
+      calibrateBudgetErrors.push(...validateCalibrateBudget(options.calibrateBudget));
+    }
+  }
   const modelErrors = await validateModel(options.projectRoot, options.model);
   const toolchainErrors = await validateToolchain(options.projectRoot);
-  const errors = [...scenarioErrors, ...budgetErrors, ...modelErrors, ...toolchainErrors];
+  const errors = [
+    ...scenarioErrors,
+    ...budgetErrors,
+    ...calibrateBudgetErrors,
+    ...modelErrors,
+    ...toolchainErrors,
+  ];
   return {
     schemaVersion: EVALUATION_SCHEMA_VERSION,
     valid: errors.length === 0,
@@ -555,7 +748,7 @@ export async function validateEvaluationConfig(options: {
     scenarioCount: options.scenarios.length,
     checks: {
       scenarioContracts: scenarioErrors.length === 0,
-      budgetCompatibility: budgetErrors.length === 0,
+      budgetCompatibility: budgetErrors.length === 0 && calibrateBudgetErrors.length === 0,
       modelCompatibility: modelErrors.length === 0,
       toolchain: toolchainErrors.length === 0,
     },

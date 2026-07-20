@@ -29,7 +29,13 @@
     "eval:diagnose": "tsx src/evaluation/lab/cli.ts diagnose",
     "eval:repair-packet": "tsx src/evaluation/lab/cli.ts repair-packet",
     "eval:rca-benchmark": "tsx src/evaluation/lab/cli.ts rca-benchmark",
-    "eval:fault-catalog": "tsx src/evaluation/lab/cli.ts fault-catalog"
+    "eval:fault-catalog": "tsx src/evaluation/lab/cli.ts fault-catalog",
+    "eval:calibrate": "tsx src/evaluation/lab/cli.ts calibrate",
+    "eval:standard-conflicts": "tsx src/evaluation/lab/cli.ts standard-conflicts",
+    "eval:promote-standard": "tsx src/evaluation/lab/cli.ts promote-standard",
+    "eval:active-registry": "tsx src/evaluation/lab/cli.ts active-registry",
+    "eval:candidate-registry": "tsx src/evaluation/lab/cli.ts candidate-registry",
+    "eval:conflict-catalog": "tsx src/evaluation/lab/cli.ts conflict-catalog"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.80.3",

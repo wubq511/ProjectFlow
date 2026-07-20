@@ -4,6 +4,37 @@ Status: current as of 2026-07-20.
 
 ## Latest Architecture Handoff
 
+### 2026-07-20 — T46 Issue #98 Slice 3 Governed Calibration & Semantic Standards
+
+GitHub Issue #98 was implemented on local branch `glm/t46-98-governed-calibration` (local commit created; not pushed, merged, or closed). It is the Slice 3 governed calibration and semantic standards surface: active/candidate standards registries are strictly separated; 6 frozen standard conflict patterns detect and block promotion; criterion-scoped semantic rubrics produce 5 verdicts (`pass | fail | needs_review | infra_error | insufficient_evidence`); blinding + seed-randomized A/B order + reverse repetition + 6 bias metrics (position / verbosity / same-family / disagreement / repeated-run / anchor-ordering); good/boundary/bad anchors with Judge stability testing; 9 fail-safe conditions degrade to `needs_review` by priority; `calibrate` preset with SUT `$3` cap + independent evaluator ceiling + 3 cost provenance classes; immutable calibration artifact enters the SHA-256 result graph; `applyPromotionApproval` is the ONLY active registry mutation path, requiring explicit Robert instruction + reviewable Git diff + matching fingerprints + all conflicts resolved. ProjectFlow deterministic hard gates always take precedence over semantic evidence; `semanticHardGateEligible` defaults to `false` and cannot be raised by a single successful Judge call.
+
+Registry paths are fixed: `agent-bridge/standards/active/registry.json` is the read-only input for normal eval / diagnose / repair-packet / Judge paths; `agent-bridge/standards/candidate/` is the calibration-only namespace. `loadActiveRegistry` is read-only and returns a stable bootstrap registry (fixed timestamp `1970-01-01T00:00:00.000Z`) on ENOENT, so `assertActiveRegistryUnchanged` holds even on the bootstrap path. Failed / fail-safe / conflict-blocked / unapproved calibration all leave the active registry byte-identical. The pipeline loads the active registry before and after calibration and verifies the fingerprint is unchanged.
+
+Frozen conflict resolutions are `unresolved | resolved | deferred`. `hasUnresolvedConflict` treats BOTH `unresolved` AND `deferred` as blocking — only `resolved` unblocks promotion. Otherwise one could defer all conflicts and promote a candidate with known semantic disagreements. Frozen hard gates are 8: `state_invariant`, `authority`, `privacy_visibility`, `proposal_confirm`, `terminal_consistency`, `idempotency`, `forbidden_side_effect`, `frozen_p0_gate`. `combineHardGateWithSemantic(false, any)` always produces `fail`; `combineHardGateWithSemantic(true, "needs_review")` stays `needs_review` (semantic verdicts are never upgraded).
+
+**Operator/Coding Agent commands:**
+
+```bash
+# Run the governed calibration pipeline (mock judge; no paid model invoked)
+scripts/eval-lab validate --preset calibrate --model mock:mock-model
+scripts/eval-lab calibrate <run-id> --json
+
+# Build a promotion approval record (requires explicit --approver-robert)
+scripts/eval-lab promote-standard \
+  --candidate-id <id> --approver-robert \
+  --diff-path <path> --commit <sha> \
+  --before-fingerprint <fp> --after-fingerprint <fp> --json
+
+# Verify the 6 frozen conflict patterns are complete
+scripts/eval-lab conflict-catalog --json
+```
+
+`calibrate` exits `0` when the pipeline produces a valid calibration artifact (even if fail-safe triggers — the artifact still records partial evidence); `1` on calibration failure (invariant violation or unresolved conflict blocking all candidates); `2` infrastructure; `3` validation; `4` budget exhausted. `promote-standard` exits `0` when the approval record is built and the candidate is approved; `1` when the candidate is not in `approved` status, fingerprints do not match, or unresolved conflicts remain; `3` validation. The approval record NEVER claims cryptographic identity authentication for Robert — it is repository governance with reviewable Git history.
+
+**Key files:** `agent-bridge/src/evaluation/lab/calibration-contract.ts`, `agent-bridge/src/evaluation/lab/standards-registry.ts`, `agent-bridge/src/evaluation/lab/standard-conflicts.ts`, `agent-bridge/src/evaluation/lab/semantic-judge.ts`, `agent-bridge/src/evaluation/lab/judge-bias.ts`, `agent-bridge/src/evaluation/lab/calibration-runner.ts`, plus V5 extensions to `presets.ts`, `artifact-store.ts`, `cli.ts`, `validation.ts`. Test files: `t46-5-calibration-contract.test.ts`, `t46-5-standards-registry.test.ts`, `t46-5-standard-conflicts.test.ts`, `t46-5-semantic-judge.test.ts`, `t46-5-judge-bias.test.ts`, `t46-5-calibration-runner.test.ts`, `t46-5-mutation.test.ts`, `t46-5-governance.test.ts` (221 tests total).
+
+**Verification:** 8 new test files with 221 tests cover the V5 contract, active/candidate registry separation, standard conflict detection (6 patterns), semantic judge (anchor ordering + stability), 6 bias metrics, calibration runner pipeline (15 steps + resume + invariants + fail-safe + conflicts + promotion approval), mutation results, and governance (hard gate precedence + fail-safe priority + active immutability + applyPromotionApproval + conflicts block promotion + auto-promotion forbidden). Real CLI path verified: `validate --preset calibrate` accepts the preset; `calibrate <run-id>` runs the full pipeline with mock judge. Backend ruff/pytest, frontend lint/build/test pass (no business code changes). Proposal-Confirm, FastAPI source of truth, sidecar not reading/writing business DB, public HTTP/SSE seam, evaluator-owned isolation, immutable checkpoint/SHA-256, paid-model fail-closed, and Slice 0/1/2 compatibility boundaries remain unchanged. Adversarial self-review at implementer level fixed 8 bugs (JSDoc `*/` glob trap ×2, variable shadowing in `computeSameFamilyPreference`, `generateConflictId` field access, `buildEmptyActiveRegistry` unstable timestamp, `isEligibleForPromotion` missing `entry.id` check, `computeAnchorStability` default verdict, `hasUnresolvedConflict` deferred semantics, `applyPromotionApproval` test flakiness). Full cross-slice adversarial review is deferred until all T46 tickets are complete per Robert's instruction.
+
 ### 2026-07-20 — T46 Issue #97 Slice 2 Evidence-Graded RCA & Repair Packets
 
 GitHub Issue #97 was merged into `main` at `3e09596` and closed on 2026-07-20. It is the Slice 2 diagnosis & repair surface: it turns trusted evaluation failures into (1) evidence-graded diagnoses with frozen causal statuses, (2) evaluator-owned single-variable counterfactuals and fault injection evidence, (3) a known-fault RCA benchmark with anti-gaming metrics, (4) evidence-bound issue clustering, (5) immutable Repair Packets with versioned schema and stale detection, and (6) copy-ready Coding Agent prompts that forbid weakening frozen standards. Issue #98 is next and owns governed calibration and semantic standards.

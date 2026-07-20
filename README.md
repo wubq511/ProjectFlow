@@ -6,7 +6,7 @@ The primary Agent path uses the T41 TypeScript Agent Bridge Sidecar with Pi comp
 
 ## Current Status
 
-All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory V1, T43 Agent Harness V2 P0, T44 efficiency/model integrity, and T45 private conversation history are implemented. T46 Slice 0 and Slice 1 Issues #94-#96 are merged. On 2026-07-20, T46 Issue #97 was merged into `main` at `3e09596` and closed: evidence-graded diagnoses with 5 frozen causal statuses, evaluator-owned single-variable counterfactuals, 8-category fault profiles, a known-fault RCA benchmark with 5 anti-gaming gates, evidence-bound issue clustering, immutable Repair Packets (`REPAIR_PACKET_SCHEMA_VERSION = 1`) with fix/investigation gate + scrubbing + stale detection + candidate-regression governance, and copy-ready Coding Agent prompts are complete. The light release gate passed Agent Bridge 1945/1945, typecheck/build, fault catalog completeness, and the 12-sample RCA benchmark. Issue #98 is next and owns governed calibration and semantic standards. Paid models remain fail-closed until frozen pricing and pre-call worst-case estimates exist.
+All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory V1, T43 Agent Harness V2 P0, T44 efficiency/model integrity, and T45 private conversation history are implemented. T46 Slice 0 and Slice 1 Issues #94-#96 are merged. On 2026-07-20, T46 Issue #97 was merged into `main` at `3e09596` and closed: evidence-graded diagnoses with 5 frozen causal statuses, evaluator-owned single-variable counterfactuals, 8-category fault profiles, a known-fault RCA benchmark with 5 anti-gaming gates, evidence-bound issue clustering, immutable Repair Packets (`REPAIR_PACKET_SCHEMA_VERSION = 1`) with fix/investigation gate + scrubbing + stale detection + candidate-regression governance, and copy-ready Coding Agent prompts are complete. On 2026-07-20, T46 Issue #98 was implemented on local branch `glm/t46-98-governed-calibration` (local commit created; not pushed, merged, or closed): governed calibration pipeline with strict active/candidate standards registry separation, 6 frozen standard conflict patterns, criterion-scoped semantic rubrics (5 verdicts), blinding + seed-randomized A/B order + reverse repetition + 6 bias metrics, good/boundary/bad anchors with Judge stability testing, 9 fail-safe conditions by priority, `calibrate` preset with SUT `$3` cap + independent evaluator ceiling + 3 cost provenance classes, immutable calibration artifact in the SHA-256 result graph, and `applyPromotionApproval` as the ONLY active registry mutation path requiring explicit Robert instruction + reviewable Git diff + matching fingerprints + all conflicts resolved. 221 new tests across 8 t46-5 files pass; agent-bridge typecheck/build pass. Paid models remain fail-closed until frozen pricing and pre-call worst-case estimates exist.
 
 - Phase 0 / GitHub #2 — Guardrails & Setup
 - Phase 1 / GitHub #3 — Account / Workspace / Member Profile
@@ -44,6 +44,7 @@ All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory 
 - T46 Evaluation Lab Slice 1 foundation / GitHub #95 — scoped evidence, hard-state/authority oracles, public confirm/reject E2E, hidden-field commitments and `smoke-v2` (merged 2026-07-19)
 - T46 Evaluation Lab Slice 1 multi-turn / Skill / Runtime / Reliability / GitHub #96 — deterministic multi-turn user controller, simulator integrity, attempt ledger, Skill 8 dimensions, Runtime 11 fault classes, demo/smoke/smoke-v2/full presets, isolated candidate/baseline execution, reliability statistics, operational metrics and Slice 1 exit gate (merged and closed 2026-07-20)
 - T46 Evaluation Lab Slice 2 Diagnosis & Repair / GitHub #97 — evidence-graded diagnoses with 5 frozen causal statuses, evaluator-owned counterfactuals, 8-category fault profiles, anti-gaming RCA benchmark, immutable Repair Packets with fix/investigation gate, and governed Coding Agent prompts (merged and closed 2026-07-20)
+- T46 Evaluation Lab Slice 3 Governed Calibration & Semantic Standards / GitHub #98 — active/candidate standards registries, 6 frozen conflict patterns, criterion-scoped semantic rubrics, 6 bias metrics, 9 fail-safe conditions, calibrate preset with SUT `$3` cap, immutable calibration artifact, `applyPromotionApproval` as the only active mutation path (implemented on local branch `glm/t46-98-governed-calibration`; not pushed/merged/closed)
 
 Implemented: FastAPI backend with private multi-conversation persistence and service-token-protected internal runtime/tools; T41 typed domain tools and Proposal-Confirm; T42 governed ProjectMemory; T43 durable Agent Harness V2; T44 request/model/prompt/Skill efficiency hardening; the T46 trustworthy evaluation minimum loop; the T46 Slice 1 ProjectFlow-aware deterministic hard graders; and the T46 Slice 1 multi-turn / Skill / Runtime / reliability surface. See [the post-T44 production canary](docs/T44/post-t44-production-canary-2026-07-13.md) for repeated model evidence, [the T46 Slice 0 handoff](docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice0_Handoff.md) for evaluator usage and trust boundaries, and [the T46 Slice 1 handoff](docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice1_Handoff.md) for hard grader contracts, the #96 module table, adversarial review remediation, and the Slice 1 closure path.
 
@@ -106,7 +107,7 @@ scripts/project-npm --prefix agent-bridge run build
 
 ## Agent Evaluation Lab
 
-Slice 0 runs the bounded local mock smoke; Issues #95/#96 supply hard-domain, multi-turn, Skill, Runtime, reliability and paired evaluation; merged Issue #97 adds evidence-graded diagnosis, counterfactuals, fault profiles, RCA benchmark and Repair Packets. Issue #98 is the next slice for governed calibration and semantic standards. Coding Agent cost is reported separately and never counts against the ProjectFlow Agent cap.
+Slice 0 runs the bounded local mock smoke; Issues #95/#96 supply hard-domain, multi-turn, Skill, Runtime, reliability and paired evaluation; merged Issue #97 adds evidence-graded diagnosis, counterfactuals, fault profiles, RCA benchmark and Repair Packets. Issue #98 (local branch `glm/t46-98-governed-calibration`; not pushed/merged/closed) adds governed calibration and semantic standards with strict active/candidate registry separation, 6 frozen conflict patterns, criterion-scoped semantic rubrics, 6 bias metrics, 9 fail-safe conditions, immutable calibration artifact, and `applyPromotionApproval` as the only active mutation path. Coding Agent cost is reported separately and never counts against the ProjectFlow Agent cap.
 
 ```bash
 # Slice 0 — minimum trustworthy loop
@@ -130,6 +131,15 @@ scripts/eval-lab diagnose <run-id> --json
 scripts/eval-lab repair-packet <run-id> --packet-id <optional-id> --json
 scripts/eval-lab rca-benchmark <run-id> --json
 scripts/eval-lab fault-catalog --json
+
+# Slice 3 Governed Calibration & Semantic Standards (#98, local branch)
+scripts/eval-lab validate --preset calibrate --model mock:mock-model
+scripts/eval-lab calibrate <run-id> --json
+scripts/eval-lab promote-standard \
+  --candidate-id <id> --approver-robert \
+  --diff-path <path> --commit <sha> \
+  --before-fingerprint <fp> --after-fingerprint <fp> --json
+scripts/eval-lab conflict-catalog --json
 ```
 
 ## Frontend
@@ -178,6 +188,7 @@ npm audit --omit=dev
 - [Evaluation Lab specification](docs/T46/ProjectFlow_Agent_Evaluation_Lab_Spec.md)
 - [Evaluation Lab Slice 0 handoff](docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice0_Handoff.md)
 - [Evaluation Lab Slice 1 handoff](docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice1_Handoff.md)
+- [Evaluation Lab Slice 3 handoff](docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice3_Handoff.md)
 - [Domain glossary](CONTEXT.md)
 - [T23 test docs](docs/T23/)
 - [T23.A feedback](docs/T23/T23.A.feedback.md)
