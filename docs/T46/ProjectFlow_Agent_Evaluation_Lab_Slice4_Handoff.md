@@ -2,7 +2,7 @@
 
 > Issue：[#99](https://github.com/wubq511/ProjectFlow/issues/99)
 >
-> 状态：2026-07-20 在分支 `glm/t46-99-golden-core` 完成实现并本地 commit（未 push、未合并、未关闭 Issue）。下一项为 push 分支、创建 PR、关闭 Issue #99，然后推进 Issue #100（Dashboard/viewer slice）。
+> 状态：2026-07-20 已合并到 `main`（`a3df83d`）并关闭 Issue #99。下一项为 Issue #100 evidence-backed showcase 与 T46 closeout。
 >
 > 边界：#99 在 #98 的 governed calibration 之上补齐 Slice 4 Golden Core 扩展与冻结。ProjectFlow deterministic hard gates 永远优先；grader 不调用 SUT 业务实现；fixture/goal/oracle/Reference Program/grader mutation 逻辑独立；不弱化 privacy/authority/Proposal-Confirm/idempotency/P0 hard gates/预算/fail-closed。本 ticket 不做跨 Slice 全面审查；不执行 Issue #100 的 Dashboard/viewer 工作；不执行 active-standard promotion；不调用付费模型。
 
@@ -204,7 +204,7 @@ scripts/eval-lab golden-core candidates --json
 11. **部分 runtime fault 场景缺少 `hardGrader`**：`runtimeDuplicateTerminalScenario` 和 `runtimeFaultScenario()` 生成的 10 个场景没有 `hardGrader` 属性。修复：在 `presets.ts` 中为这些场景添加 `hardGrader` 块。
 12. **`expectedMilestoneSubset` 可选字段检查过严**：测试 A-05 要求所有 reference program 的 `expectedMilestoneSubset` 已定义，但该字段在类型中是可选的（`?:`），51/52 个 reference program 没有设置。修复：在 `buildEntry()` 中规范化 `referenceProgram`，确保 `expectedMilestoneSubset` 总是定义（默认 `[]`）。
 13. **`golden-core-presets.ts` 类型导入错误**：`GoldenCoreRegistry` 类型从 `golden-core-registry.js` 导入，但该模块只导出值 `GOLDEN_CORE_REGISTRY`，不导出类型。修复：改为从 `golden-core-contract.js` 导入类型。
-14. **5 个场景 `allowedSideEffectTypes` 为空**：`clarifyAdversarialScenario`、`statusReadAdversarialScenario`、`riskCreateAdversarialScenario`、`replanConflictScenario`、`replanBoundaryDirectOwnerChangeScenario` 的 `allowedSideEffectTypes: []` 加上 `unknownSideEffects: "fail_closed"` 会让 grader 静默 skip（fail-open）。修复：3 个改为 `["advisory"]`，2 个改为 `["proposal_create"]`，并更新对应的 `goldenConstraintsSummary`。
+14. **5 个场景 `allowedSideEffectTypes` 为空**：`clarifyAdversarialScenario`、`statusReadAdversarialScenario`、`riskCreateAdversarialScenario`、`replanConflictScenario`、`replanBoundaryDirectOwnerChangeScenario` 的空 allowlist 加上 `unknownSideEffects: "fail_closed"` 会让 grader 静默 skip（fail-open）。初始实现补齐了 allowlist；关闭门禁随后按真实 ToolManifest 统一为 `none` / `advisory_record_create` / `proposal_create`，避免文档层 `advisory` 与可执行 effect type 漂移。
 15. **`validation.ts` 不识别 `golden-core` preset**：`validation.ts` 把 `golden-core` 当作 smoke/demo 处理，应用 `$0.10` cap，导致 golden-core 的 `$1.00` 预算被认为超限。修复：添加 `golden-core` preset 识别，应用 `$1` cap。
 16. **`freeze + verify` 测试超时**：vitest 默认 5000ms 超时，但该测试运行两次 CLI 子进程（freeze + verify），在完整测试套件并发下超过 5s。修复：`runCli` 添加可选 `timeoutMs` 参数传给 `execFileSync`；`it` 调用设置 60s 测试超时。
 
@@ -212,12 +212,13 @@ scripts/eval-lab golden-core candidates --json
 
 当前验证基线（仓库锁定工具链）：
 
-- backend：未修改，基线保持 890 passed / 4 skipped；
-- agent-bridge：2239/2249 全量通过（10 个失败是预存在的 Node 版本不匹配问题，与 #99 无关）；typecheck 与 build 通过；
-- frontend：未修改业务代码，全量回归通过；
-- `validate --preset golden-core`：通过（仅剩预存在的 Node 版本失败）；
+- backend / frontend：#99 未修改这两个 product surface，因此关闭门禁未重复运行；
+- agent-bridge：2255/2255（94 files），typecheck 与 build 通过；
+- targeted Golden Core + hard grader：137/137；
 - `golden-core freeze` / `verify` / `list` / `coverage` / `candidates` 真实 CLI 路径跑通；
-- t46-6 测试套件 79/79 通过；
+- inherited `full` mock：16/16，SUT `$0.00`；
+- mock `calibrate`：通过，active registry 未被普通路径修改；
+- real `golden-core` public seam：30/52，status=`regression`，SUT `$0.00`，制品 integrity verify 通过；
 - `git diff --check`：通过。
 
 验收命令：
@@ -241,7 +242,7 @@ git diff --check main...HEAD
 
 #99 实现完成时保留以下确定性证据：
 
-1. 1 个 t46-6 测试文件 79 个测试全部通过，覆盖 registry、coverage、candidates、variants、presets、CLI smoke 和 adversarial review checks；
+1. 1 个 t46-6 测试文件 82 个测试全部通过，覆盖 registry、coverage、candidates、variants、presets、CLI smoke、可执行 Skill ID 与 ToolManifest effect type 对齐；
 2. `buildGoldenCoreRegistry` 使用 `GOLDEN_CORE_DEFAULT_FROZEN_AT` 稳定常量，fingerprint 跨构建确定性；
 3. `computeRegistryFingerprint` 包含 `candidates`/`rejected`/`freezeNotes` 字段，篡改检测完整；
 4. 52 个 canonical scenarios 覆盖 8 capability × 8 scenario class；
@@ -252,14 +253,14 @@ git diff --check main...HEAD
 9. `golden-core` preset SUT `$1` cap + 独立 evaluator ceiling + Coding Agent external/unknown；
 10. `validation.ts` 识别 `golden-core` preset 并应用 `$1` cap；
 11. `validation.ts` 强制 `unknownSideEffects="fail_closed"` 时必须声明非空 `allowedSideEffectTypes`；
-12. 5 个场景 allowlist 修复（3 个 `["advisory"]` + 2 个 `["proposal_create"]`）；
+12. allowlist 使用真实 ToolManifest effect type（`none` / `advisory_record_create` / `proposal_create`），prohibited commit effect 对 null/unknown 和伪装的 `proposal_create` 保持 fail-closed；
 13. mock CLI 完整 pipeline 真实路径跑通（freeze/verify/list/coverage/candidates）；
-14. 轻量关闭门禁通过 Agent Bridge 2239/2249、typecheck/build、`validate --preset golden-core`、t46-6 79/79；backend/frontend 未在关闭门禁重复运行，因为本 issue 未修改这两个 surface。
+14. 轻量关闭门禁通过 Agent Bridge 2255/2255、typecheck/build、targeted 137/137、`full` mock 16/16 和 mock `calibrate`；Golden Core mock 30/52 的失败证据与完整性制品被诚实保留，未通过改金标或弱化 grader 消除。
 
 ## 后续可能工作（不属于 #99）
 
-- push 分支 `glm/t46-99-golden-core`、创建 PR、关闭 Issue #99；
-- Issue #100：Dashboard/viewer slice（不属于 #99）；
+- Issue #100：portable showcase、loopback-only read viewer、live preview、retention planning、Agent-first acceptance 与 T46 closeout；
+- Golden Core 30/52 剩余回归的跨 Slice 对抗审查、根因修复与回归对齐（按用户要求在全部 T46 tickets 完成后统一进行）；
 - 付费模型真实运行（在冻结价格表与调用前最坏成本前继续 fail-closed）；
 - 跨模型 Judge 横评；
 - active-standard promotion（需要显式 Robert instruction）；

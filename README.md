@@ -6,7 +6,7 @@ The primary Agent path uses the T41 TypeScript Agent Bridge Sidecar with Pi comp
 
 ## Current Status
 
-All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory V1, T43 Agent Harness V2 P0, T44 efficiency/model integrity, and T45 private conversation history are implemented. T46 Issues #94-#98 are merged and closed. On 2026-07-20, Issue #99 was implemented on branch `glm/t46-99-golden-core` (local commit, not pushed/merged/closed): the Evaluation Lab is expanded from 16 scenarios into a frozen ProjectFlow Golden Core of 52 canonical scenarios covering 8 capability domains × 8 scenario classes, with a single versioned auditable registry (TS source of truth + JSON snapshot audit artifact), 9 trusted entry conditions per stateful scenario, an immovable P0 set of 8 categories with scope-filter protection, 6 robustness variant kinds that do NOT inflate the canonical count, generated regression candidate governance (candidate registry only, 8 verification checks, no auto-promotion), and a `golden-core` preset with the same SUT `$1` cap as `full` plus an independent evaluator ceiling and Coding Agent external/unknown cost. New `golden-core` CLI subcommands: `freeze`/`verify`/`coverage`/`list`/`candidates`. Validation now recognizes the `golden-core` preset and enforces non-empty `allowedSideEffectTypes` under `fail_closed` mode to prevent silent grader skip. Hard deterministic gates stay primary; the grader does not invoke SUT business services; fixture/goal/oracle/Reference Program/grader mutation logic stays independent. Paid models remain fail-closed until frozen pricing and pre-call worst-case estimates exist. Cross-slice adversarial review is deferred until all T46 tickets are complete.
+All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory V1, T43 Agent Harness V2 P0, T44 efficiency/model integrity, and T45 private conversation history are implemented. T46 Issues #94-#99 are merged and closed. Issue #99 freezes a ProjectFlow Golden Core of 52 canonical scenarios across 8 capability domains × 8 scenario classes, with a single versioned auditable registry, 9 trusted entry conditions per stateful scenario, an immovable P0 set of 8 categories, 6 non-count-inflating robustness variant kinds, governed regression candidates, and a `golden-core` preset with the same `$1` SUT cap as `full`. Its light release gate passed Agent Bridge 2255/2255 plus typecheck/build, preserved `full` mock at 16/16, and published an integrity-verified Golden Core baseline of 30/52; the remaining failures are evidence for the final cross-slice review, not grounds to weaken graders. Paid models remain fail-closed until frozen pricing and pre-call worst-case estimates exist. Issue #100 is next and owns the evidence-backed showcase and T46 closeout.
 
 - Phase 0 / GitHub #2 — Guardrails & Setup
 - Phase 1 / GitHub #3 — Account / Workspace / Member Profile
@@ -107,7 +107,7 @@ scripts/project-npm --prefix agent-bridge run build
 
 ## Agent Evaluation Lab
 
-Slice 0 runs the bounded local mock smoke; Issues #95/#96 supply hard-domain, multi-turn, Skill, Runtime, reliability and paired evaluation; Issue #97 adds evidence-graded diagnosis, counterfactuals, fault profiles, RCA benchmark and Repair Packets; merged Issue #98 adds governed calibration and semantic standards; Issue #99 (branch `glm/t46-99-golden-core`, local commit) expands the suite into a frozen 52-scenario Golden Core with P0 immovable set, robustness variants and candidate governance. Coding Agent and evaluator costs are reported separately and never count against the ProjectFlow Agent cap.
+Slice 0 runs the bounded local mock smoke; Issues #95/#96 supply hard-domain, multi-turn, Skill, Runtime, reliability and paired evaluation; Issue #97 adds evidence-graded diagnosis, counterfactuals, fault profiles, RCA benchmark and Repair Packets; Issue #98 adds governed calibration and semantic standards; merged Issue #99 expands the suite into a frozen 52-scenario Golden Core with P0 immovable set, robustness variants and candidate governance. Coding Agent and evaluator costs are reported separately and never count against the ProjectFlow Agent cap.
 
 ```bash
 # Slice 0 — minimum trustworthy loop
@@ -141,12 +141,12 @@ scripts/eval-lab promote-standard \
   --before-fingerprint <fp> --after-fingerprint <fp> --json
 scripts/eval-lab conflict-catalog --json
 
-# Slice 4 Golden Core Expansion & Freeze (#99, branch glm/t46-99-golden-core)
-scripts/eval-lab validate --preset golden-core --model mock:mock-model
+# Slice 4 Golden Core Expansion & Freeze (#99, merged and closed)
 scripts/eval-lab golden-core list --json
 scripts/eval-lab golden-core coverage --json
 scripts/eval-lab golden-core freeze --json
 scripts/eval-lab golden-core verify --json
+scripts/eval-lab validate --preset golden-core --model mock:mock-model
 scripts/eval-lab golden-core candidates --json
 ```
 

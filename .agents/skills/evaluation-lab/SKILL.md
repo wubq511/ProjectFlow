@@ -81,14 +81,14 @@ scripts/eval-lab conflict-catalog --json
 
 `calibrate` 在 mock Judge 下完整跑通（不调用付费模型）；fail-safe 触发时仍产出 artifact（保留 partial evidence），active registry 必须 byte-identical；`promote-standard` 必须显式 `--approver-robert`，否则 exit `3`。ProjectFlow deterministic hard gates 永远优先；Semantic Judge 默认只是 soft evidence；`semanticHardGateEligible` 默认 `false`，必须由独立校准证据单独提升，不能由单次成功 Judge 调用冒充。Cost provenance 三类：`provider_reported` / `versioned_price_estimate` / `unknown`；unknown cost 不得显示为 `$0`。SUT 预算上限 `$3`，不包含 Coding Agent 与 evaluator Judge。本 ticket 验收使用 mock/deterministic Judge。
 
-Slice 4 (Issue #99，分支 `glm/t46-99-golden-core`，本地 commit 未 push/merge/closed) 的 Golden Core expansion/freeze 路径：先 `validate --preset golden-core` 做零 Token JSON 校验（同 `full` 的 `$1` SUT cap + 独立 evaluator ceiling + Coding Agent external/unknown）；`golden-core list` 列出 52 个 canonical scenarios 的 capability/class/priority/P0 categories；`golden-core coverage` 生成 8 capability × 8 scenario class 覆盖矩阵报告；`golden-core freeze` 把 TS registry 冻结为 `agent-bridge/golden-core/registry.json`（git-ignored 运行时审计产物），报告 `previousFingerprint`/`newFingerprint`/`changed`；`golden-core verify` 校验 JSON snapshot 与 TS registry fingerprint 匹配，不匹配或无 snapshot 时 fail-closed exit `3`；`golden-core candidates` 返回 candidate registry 与 `eligibleForPromotion` 列表（默认为空，无 auto-promotion）。
+Slice 4 (Issue #99，已合并关闭) 的 Golden Core expansion/freeze 路径：先 `golden-core freeze` 创建审计快照，再用 `validate --preset golden-core` 做零 Token JSON 校验（同 `full` 的 `$1` SUT cap + 独立 evaluator ceiling + Coding Agent external/unknown）；`golden-core list` 列出 52 个 canonical scenarios 的 capability/class/priority/P0 categories；`golden-core coverage` 生成 8 capability × 8 scenario class 覆盖矩阵报告；`golden-core verify` 校验 JSON snapshot 与 TS registry fingerprint 匹配，不匹配或无 snapshot 时 fail-closed exit `3`；`golden-core candidates` 返回 candidate registry 与 `eligibleForPromotion` 列表（默认为空，无 auto-promotion）。真实 public-seam mock Golden Core 基线是 30/52，制品完整性通过；这不是发布通过声明，剩余失败必须保留供最终跨 Slice 审查与修复，禁止通过弱化 hard gate 或改写 Golden truth 消除。
 
 ```bash
-scripts/eval-lab validate --preset golden-core --model mock:mock-model
 scripts/eval-lab golden-core list --json
 scripts/eval-lab golden-core coverage --json
 scripts/eval-lab golden-core freeze --json
 scripts/eval-lab golden-core verify --json
+scripts/eval-lab validate --preset golden-core --model mock:mock-model
 scripts/eval-lab golden-core candidates --json
 ```
 

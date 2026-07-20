@@ -1,6 +1,6 @@
 # ProjectFlow CodeWiki
 
-> 最初基于 2026-06-02 代码库全量扫描生成；2026-07-20 同步 T46 Evaluation Lab Issues #94-#98 与最新验证基线。
+> 最初基于 2026-06-02 代码库全量扫描生成；2026-07-20 同步 T46 Evaluation Lab Issues #94-#99 与最新验证基线。
 
 ---
 
@@ -59,7 +59,7 @@ ProjectFlow/
 │   │   ├── tools/             # registry.ts, fastapi-client.ts, projectflow-tools.ts, register-defaults.ts, mock-tools.ts, result-normalizer.ts
 │   │   ├── policy/            # policy-engine.ts, budget.ts, boundaries
 │   │   ├── events/            # event-mapper.ts, stream.ts, trace-envelope.ts
-│   │   ├── evaluation/        # T43 public seam + T46 isolation/hard graders/reliability/RCA/Repair Packets/governed calibration/semantic standards
+│   │   ├── evaluation/        # T43 public seam + T46 isolation/hard graders/reliability/RCA/Repair Packets/calibration/Golden Core
 │   │   ├── skills/            # skill-index.ts, skill-loader.ts, skill-selector.ts
 │   │   ├── types/             # run-state.ts, tool-manifest.ts, tool-result.ts, wire.ts, runtime-event.ts
 │   │   └── utils/             # 工具函数
