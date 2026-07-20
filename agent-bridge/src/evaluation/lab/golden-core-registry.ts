@@ -664,6 +664,13 @@ export function verifyP0ScopeFilter(
   // Find missing P0 categories.
   const missingP0Categories = P0_MANDATORY_CATEGORIES.filter((c) => !p0Covered.has(c));
 
+  // Find P0 scenarios that were excluded by the filter (i.e., P0 scenarios
+  // in the canonical set that are NOT in the selected set). These are the
+  // scenarios the caller MUST add back to satisfy P0 coverage.
+  const missingP0ScenarioIds = registry.canonical
+    .filter((e) => e.p0Categories.length > 0 && !selectedSet.has(e.scenarioId))
+    .map((e) => e.scenarioId);
+
   if (missingP0Categories.length === 0) {
     return {
       passed: true,
@@ -685,7 +692,7 @@ export function verifyP0ScopeFilter(
 
   return {
     passed: false,
-    missingP0ScenarioIds: [],
+    missingP0ScenarioIds,
     missingP0Categories,
     mandatoryAdditions,
     failureReason: `scope filter 移除了 P0 必需类别: ${missingP0Categories.join(", ")}；必须包含: ${mandatoryAdditions.join(", ")}`,

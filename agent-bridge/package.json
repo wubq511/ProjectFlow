@@ -35,7 +35,8 @@
     "eval:promote-standard": "tsx src/evaluation/lab/cli.ts promote-standard",
     "eval:active-registry": "tsx src/evaluation/lab/cli.ts active-registry",
     "eval:candidate-registry": "tsx src/evaluation/lab/cli.ts candidate-registry",
-    "eval:conflict-catalog": "tsx src/evaluation/lab/cli.ts conflict-catalog"
+    "eval:conflict-catalog": "tsx src/evaluation/lab/cli.ts conflict-catalog",
+    "eval:golden-core": "tsx src/evaluation/lab/cli.ts golden-core"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.80.3",

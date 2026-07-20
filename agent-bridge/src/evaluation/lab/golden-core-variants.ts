@@ -29,7 +29,7 @@ import type {
 } from "./golden-core-contract.js";
 import { ROBUSTNESS_VARIANT_KINDS } from "./golden-core-contract.js";
 import { EvaluationValidationError } from "./errors.js";
-import { sha256 } from "./validation.js";
+import { sha256, stableStringify } from "./validation.js";
 
 // ---------------------------------------------------------------------------
 // §1 Hidden-goal fingerprint
@@ -61,7 +61,11 @@ export function computeHiddenGoalFingerprint(
     maxRequestCount: scenario.hidden.maxRequestCount,
     hardGrader: scenario.hardGrader ?? null,
   };
-  return sha256(JSON.stringify(hiddenGoal));
+  // Use stableStringify (not JSON.stringify) so the fingerprint is
+  // deterministic across processes: JSON.stringify field order follows
+  // insertion order, which can vary when the same object is constructed
+  // by different code paths. stableStringify sorts keys lexicographically.
+  return sha256(stableStringify(hiddenGoal));
 }
 
 // ---------------------------------------------------------------------------
@@ -156,8 +160,10 @@ export function verifyVariantPreservesGoal(
   }
 
   // Deterministic keyword overlap check: the variant prompt should
-  // share at least 30% of significant words with the original prompt.
+  // share at least 20% of significant words with the original prompt.
   // This catches cases where the variant prompt is completely unrelated.
+  // (The fingerprint check above is authoritative; this is a secondary
+  // heuristic for detecting prompt substitution.)
   const originalWords = extractSignificantWords(parentEntry.scenario.visible.prompt);
   const variantWords = extractSignificantWords(variant.promptOverride);
   if (originalWords.size === 0) {
@@ -170,7 +176,7 @@ export function verifyVariantPreservesGoal(
   }
   const overlap = [...variantWords].filter((w) => originalWords.has(w)).length;
   const overlapRatio = overlap / originalWords.size;
-  if (overlapRatio < 0.2) {
+  if (overlapRatio < 0.20) {
     const updated = { ...variant, goalChanged: true, verified: false };
     return {
       preserved: false,

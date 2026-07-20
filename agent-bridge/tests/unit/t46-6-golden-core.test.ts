@@ -493,6 +493,14 @@ describe("T46-6 Golden Core — P0 scope filter protection", () => {
     expect(result.passed).toBe(false);
     expect(result.missingP0Categories.length).toBe(8);
     expect(result.mandatoryAdditions.length).toBeGreaterThan(0);
+    // Symmetry: missingP0ScenarioIds must list every P0 scenario excluded
+    // by the filter (all of them, since only a non-P0 scenario was selected).
+    // An empty list here would be a symmetry bug — the field is declared
+    // in the contract but never populated.
+    expect(result.missingP0ScenarioIds.length).toBe(GOLDEN_CORE_P0_SCENARIO_IDS.length);
+    for (const id of GOLDEN_CORE_P0_SCENARIO_IDS) {
+      expect(result.missingP0ScenarioIds).toContain(id);
+    }
   });
 
   it("fails-closed when only one P0 scenario is selected (missing other categories)", () => {
@@ -500,6 +508,11 @@ describe("T46-6 Golden Core — P0 scope filter protection", () => {
     const result = verifyP0ScopeFilter(GOLDEN_CORE_REGISTRY, [first]);
     expect(result.passed).toBe(false);
     expect(result.missingP0Categories.length).toBeGreaterThan(0);
+    // Symmetry: missingP0ScenarioIds must list every P0 scenario that was
+    // NOT in the selected set. Since only one P0 scenario was selected,
+    // all other P0 scenarios must appear in missingP0ScenarioIds.
+    expect(result.missingP0ScenarioIds.length).toBe(GOLDEN_CORE_P0_SCENARIO_IDS.length - 1);
+    expect(result.missingP0ScenarioIds).not.toContain(first);
   });
 
   it("passes when all P0 scenarios are selected", () => {
@@ -564,6 +577,32 @@ describe("T46-6 Golden Core — robustness variants", () => {
     // The variant inherits the same hidden-goal fingerprint.
     const verification = verifyVariantPreservesGoal(variant, entry);
     expect(verification.preserved).toBe(true);
+  });
+
+  it("computeHiddenGoalFingerprint is deterministic across field order", () => {
+    // Symmetry: fingerprint must be stable regardless of object key order.
+    // JSON.stringify follows insertion order, which would make the
+    // fingerprint non-deterministic. stableStringify sorts keys, so the
+    // same logical content produces the same fingerprint.
+    const entry = GOLDEN_CORE_REGISTRY.canonical[0]!;
+    const fp1 = computeHiddenGoalFingerprint(entry);
+    // Reconstruct the same scenario with fields in a different order
+    // (simulating a different code path or process).
+    const scenario = entry.scenario;
+    const reordered = {
+      ...scenario,
+      hidden: {
+        maxRequestCount: scenario.hidden.maxRequestCount,
+        maxLatencyMs: scenario.hidden.maxLatencyMs,
+        forbidRawIds: scenario.hidden.forbidRawIds,
+        forbiddenOutputPatterns: scenario.hidden.forbiddenOutputPatterns,
+        requiredEvidence: scenario.hidden.requiredEvidence,
+        expectedMode: scenario.hidden.expectedMode,
+        // Insert fields in reverse order of the original construction.
+      },
+    };
+    const fp2 = computeHiddenGoalFingerprint({ scenario: reordered });
+    expect(fp1).toBe(fp2);
   });
 
   it("verifyVariantPreservesGoal rejects a variant with a wrong fingerprint", () => {
