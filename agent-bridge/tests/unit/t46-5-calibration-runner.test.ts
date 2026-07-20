@@ -95,10 +95,10 @@ function buildMockCostLedger(): CalibrationCostLedger {
 function buildMockCostLedgerWithSutCost(amountUsd: number): CalibrationCostLedger {
   return {
     sut: { amountUsd, source: "versioned_price_estimate", countedAgainstSutCap: true },
-    evaluator: { amountUsd: 0, source: "unknown", countedAgainstSutCap: false },
+    evaluator: { amountUsd: 0, source: "versioned_price_estimate", countedAgainstSutCap: false },
     codingAgent: { amountUsd: 0, source: "unknown", countedAgainstSutCap: false },
     sutProvenance: "versioned_price_estimate",
-    evaluatorProvenance: "unknown",
+    evaluatorProvenance: "versioned_price_estimate",
     codingAgentProvenance: "unknown",
   };
 }
@@ -257,6 +257,28 @@ describe("T46-5 calibration runner — pipeline basics", () => {
     expect(violations).toEqual([]);
   });
 
+  it("flags evaluator cost provenance=unknown with amountUsd=0 (symmetric with SUT)", async () => {
+    // Regression test: verifyCalibrationArtifactInvariants previously
+    // only checked SUT cost (unknown + $0), not evaluator cost. Now
+    // both are checked symmetrically. codingAgent cost is exempt
+    // (always "unknown" by design).
+    const runId = "evaluator-cost-invariant";
+    const { store, tempProjectRoot } = await makeStore(runId);
+    const input = buildBasicInput(runId, tempProjectRoot, {
+      costLedger: {
+        sut: { amountUsd: 0, source: "versioned_price_estimate", countedAgainstSutCap: true },
+        evaluator: { amountUsd: 0, source: "unknown", countedAgainstSutCap: false },
+        codingAgent: { amountUsd: 0, source: "unknown", countedAgainstSutCap: false },
+        sutProvenance: "versioned_price_estimate",
+        evaluatorProvenance: "unknown",
+        codingAgentProvenance: "unknown",
+      },
+    });
+    const result = await runCalibrationPipeline(store, input);
+    const violations = verifyCalibrationArtifactInvariants(result.artifact);
+    expect(violations.some((v) => v.includes("evaluator cost provenance=unknown"))).toBe(true);
+  });
+
   it("active registry fingerprint is byte-identical before and after", async () => {
     const runId = "immutable-active";
     const { store, tempProjectRoot } = await makeStore(runId);
@@ -361,6 +383,35 @@ describe("T46-5 calibration runner — fail-safe", () => {
     expect(result.artifact.exitGateEvidence.passed).toBe(false);
     expect(result.artifact.exitGateEvidence.failSafeVerified).toBe(true);
   });
+
+  it("degrades anchor verdicts to needs_review in artifact when fail-safe triggers", async () => {
+    // Regression test: previously runAnchorEvaluation hardcoded all
+    // fail-safe parameters to "safe" values, so anchor verdicts in the
+    // artifact were never degraded even when the pipeline-level fail-safe
+    // triggered. Now the pipeline degrades all anchor verdicts to
+    // needs_review in the artifact when any fail-safe condition triggers.
+    const runId = "fail-safe-anchor-degrade";
+    const { store, tempProjectRoot } = await makeStore(runId);
+    const input = buildBasicInput(runId, tempProjectRoot, {
+      failSafeOverrides: { biasMetricsExceeded: true, anchorOrderingUnstable: false },
+    });
+    const result = await runCalibrationPipeline(store, input);
+    // Artifact's repeatedAnchorResults must all be needs_review.
+    for (const repeat of result.artifact.repeatedAnchorResults) {
+      for (const v of repeat.verdicts) {
+        expect(v).toBe("needs_review");
+      }
+      expect(repeat.stability).toBe(0);
+      expect(repeat.orderingPreserved).toBe(false);
+    }
+    // CalibrationRunnerResult.anchorResults must also be degraded.
+    for (const results of result.anchorResults) {
+      for (const r of results) {
+        expect(r.verdict).toBe("needs_review");
+        expect(r.confidence).toBe(0);
+      }
+    }
+  });
 });
 
 describe("T46-5 calibration runner — standard conflicts", () => {
@@ -411,6 +462,7 @@ describe("T46-5 calibration runner — resume", () => {
     // First run.
     const input1 = buildBasicInput(runId, tempProjectRoot);
     const result1 = await runCalibrationPipeline(store, input1);
+    const firstRunPairwiseCount = result1.pairwiseRecords.length;
 
     // Second run with the existing pairwise records passed in.
     // We use a new runId but pass existing records to simulate resume.
@@ -420,8 +472,9 @@ describe("T46-5 calibration runner — resume", () => {
       existingPairwiseRecords: result1.pairwiseRecords,
     });
     const result2 = await runCalibrationPipeline(store2, input2);
-    // The records from run1 should be preserved in run2.
-    expect(result2.pairwiseRecords.length).toBeGreaterThanOrEqual(result1.pairwiseRecords.length);
+    // Idempotent resume: the same pairwise records must NOT be recomputed
+    // and appended. The count must equal the first run's count, not 2x.
+    expect(result2.pairwiseRecords.length).toBe(firstRunPairwiseCount);
   });
 
   it("does NOT repeat completed anchor Judge calls when existing results provided", async () => {
@@ -429,6 +482,7 @@ describe("T46-5 calibration runner — resume", () => {
     const { store, tempProjectRoot } = await makeStore(runId);
     const input1 = buildBasicInput(runId, tempProjectRoot);
     const result1 = await runCalibrationPipeline(store, input1);
+    const firstRunAnchorCount = result1.anchorResults.length;
 
     const runId2 = "resume-anchor-2";
     const { store: store2, tempProjectRoot: tempProjectRoot2 } = await makeStore(runId2);
@@ -436,7 +490,15 @@ describe("T46-5 calibration runner — resume", () => {
       existingAnchorResults: result1.anchorResults,
     });
     const result2 = await runCalibrationPipeline(store2, input2);
-    expect(result2.anchorResults.length).toBeGreaterThan(0);
+    // Idempotent resume: the same anchors must NOT be recomputed and
+    // appended. The count must equal the first run's count, not 2x.
+    expect(result2.anchorResults.length).toBe(firstRunAnchorCount);
+    // The verdicts must be identical (no recomputation).
+    for (let i = 0; i < firstRunAnchorCount; i++) {
+      expect(result2.anchorResults[i]!.map((r) => r.verdict)).toEqual(
+        result1.anchorResults[i]!.map((r) => r.verdict),
+      );
+    }
   });
 
   it("determineRemainingJudgeCalls computes remaining correctly", () => {
@@ -459,6 +521,47 @@ describe("T46-5 calibration runner — resume", () => {
     });
     expect(result.remainingAnchorEvaluations).toBe(0);
     expect(result.remainingPairwiseEvaluations).toBe(0);
+  });
+
+  it("resume does NOT mutate the caller's existingAnchorResults / existingPairwiseRecords arrays", async () => {
+    // Regression test for a side-effect bug where runCalibrationPipeline
+    // pushed new results into the caller's array when resume inputs were
+    // provided. The caller's arrays must be treated as read-only inputs.
+    const runId = "resume-no-mutate";
+    const { store, tempProjectRoot } = await makeStore(runId);
+    const input1 = buildBasicInput(runId, tempProjectRoot);
+    const result1 = await runCalibrationPipeline(store, input1);
+
+    const runId2 = "resume-no-mutate-2";
+    const { store: store2, tempProjectRoot: tempProjectRoot2 } = await makeStore(runId2);
+    const existingAnchor = [...result1.anchorResults];
+    const existingPairwise = [...result1.pairwiseRecords];
+    const input2 = buildBasicInput(runId2, tempProjectRoot2, {
+      existingAnchorResults: existingAnchor,
+      existingPairwiseRecords: existingPairwise,
+    });
+    await runCalibrationPipeline(store2, input2);
+    // Caller's arrays must NOT have been mutated by the second run.
+    expect(existingAnchor.length).toBe(result1.anchorResults.length);
+    expect(existingPairwise.length).toBe(result1.pairwiseRecords.length);
+  });
+});
+
+describe("T46-5 calibration runner — failSafeVerified invariant", () => {
+  it("failSafeVerified is true when all candidates are in 'candidate' status (no tautology)", async () => {
+    // Regression test: failSafeVerified previously contained a tautology
+    // `(failSafeReason === null || failSafeReason !== null)` that was
+    // always true. The simplified form depends only on candidate status.
+    const runId = "failsafe-verified";
+    const { store, tempProjectRoot } = await makeStore(runId);
+    const input = buildBasicInput(runId, tempProjectRoot);
+    const result = await runCalibrationPipeline(store, input);
+    // All candidates must be in "candidate" status, so failSafeVerified
+    // must be true regardless of whether failSafeReason was triggered.
+    expect(result.artifact.exitGateEvidence.failSafeVerified).toBe(true);
+    for (const c of result.artifact.candidateStandards) {
+      expect(c.status).toBe("candidate");
+    }
   });
 });
 

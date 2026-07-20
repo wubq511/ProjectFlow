@@ -275,6 +275,33 @@ export type StandardKind =
   | "semantic_threshold"
   | "acceptance_proposal";
 
+/** Placeholder for scenario_version standard payload (V5 reserved). */
+export interface ScenarioVersion {
+  scenarioId: string;
+  version: string;
+  fingerprint: string;
+}
+
+/** Placeholder for judge_prompt_version standard payload (V5 reserved). */
+export interface JudgePromptVersion {
+  promptId: string;
+  version: string;
+  fingerprint: string;
+}
+
+/** Placeholder for judge_model_compatibility standard payload (V5 reserved). */
+export interface JudgeModelCompatibility {
+  judgeId: string;
+  modelId: string;
+  compatible: boolean;
+}
+
+/** Placeholder for semantic_threshold standard payload (V5 reserved). */
+export interface SemanticThreshold {
+  thresholdId: string;
+  value: number;
+}
+
 export type StandardPayload =
   | SemanticRubric
   | SemanticAnchorSet

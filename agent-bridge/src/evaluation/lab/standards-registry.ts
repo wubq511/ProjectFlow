@@ -260,21 +260,10 @@ export function applyPromotionApproval(
     );
   }
   // §5 Apply the entry. If an entry with the same id exists, replace it
-  //    (modification). Otherwise, add it (addition).
+  //    (modification). Otherwise, add it (addition). The new entry's
+  //    source is rewritten to point at the active registry + approval
+  //    commit so the provenance is reviewable in Git history.
   const existingIdx = active.entries.findIndex((e) => e.id === candidate.entry.id);
-  let newEntries: StandardEntry[];
-  let additions = 0;
-  let modifications = 0;
-  let removals = 0;
-  if (existingIdx < 0) {
-    newEntries = [...active.entries, candidate.entry];
-    additions = 1;
-  } else {
-    newEntries = [...active.entries];
-    newEntries[existingIdx] = candidate.entry;
-    modifications = 1;
-  }
-  // §6 The new entry's source must be "active" with the approval commit.
   const newEntry: StandardEntry = {
     ...candidate.entry,
     source: {
@@ -283,10 +272,17 @@ export function applyPromotionApproval(
       path: approval.reviewableDiff.diffPath,
     },
   };
+  let newEntries: StandardEntry[];
+  let additions = 0;
+  let modifications = 0;
+  let removals = 0;
   if (existingIdx < 0) {
     newEntries = [...active.entries, newEntry];
+    additions = 1;
   } else {
+    newEntries = [...active.entries];
     newEntries[existingIdx] = newEntry;
+    modifications = 1;
   }
   const base: Omit<StandardsRegistry, "fingerprint"> = {
     schemaVersion: active.schemaVersion,

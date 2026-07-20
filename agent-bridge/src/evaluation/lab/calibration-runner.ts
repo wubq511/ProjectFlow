@@ -60,9 +60,7 @@ import {
   CALIBRATION_ARTIFACT_SCHEMA_VERSION,
   PROMOTION_APPROVAL_SCHEMA_VERSION,
   STANDARD_DIFF_SCHEMA_VERSION,
-  V5_CONTRACT_VERSION,
   assertFrozenCandidateStatus,
-  combineHardGateWithSemantic,
   decideJudgeFailSafe,
 } from "./calibration-contract.js";
 import {
@@ -77,7 +75,6 @@ import {
   type StructuredClaim,
 } from "./standard-conflicts.js";
 import {
-  applyFailSafe,
   buildPairwiseRecord,
   computeAnchorStability,
   evaluateAcceptanceProposal,
@@ -205,10 +202,40 @@ export async function runCalibrationPipeline(
   const conflicts = detectStandardConflicts(input.standardClaims, detectedAt);
 
   // §3 Run anchor evaluations (or reuse existing for resume).
-  const anchorResults = input.existingAnchorResults ?? [];
+  // NOTE: We spread into a new array so resume does NOT mutate the
+  // caller's `existingAnchorResults`. The caller's array is treated
+  // as read-only input.
+  // NOTE: Anchors whose anchorId already appears in existingAnchorResults
+  // are skipped (idempotent resume), so re-running a calibration does
+  // NOT repeat completed Judge calls or append duplicate results.
+  const anchorResults: AnchorEvaluationResult[][] = [...(input.existingAnchorResults ?? [])];
+  const existingAnchorIds = new Set(
+    anchorResults.flatMap((results) => results.map((r) => r.anchorId)),
+  );
   const anchorRepeatResults: AnchorRepeatResult[] = [];
   for (const anchorSet of input.anchorSets) {
     for (const anchor of anchorSet.anchors) {
+      if (existingAnchorIds.has(anchor.anchorId)) {
+        // Skip re-computation for already-computed anchors (idempotent resume).
+        // Re-derive repeat summary from existing results so the artifact
+        // remains self-consistent without re-calling the Judge.
+        const existingResults = anchorResults.find(
+          (results) => results.length > 0 && results[0]!.anchorId === anchor.anchorId,
+        );
+        if (existingResults) {
+          const stability = computeAnchorStability([existingResults], [anchor]);
+          const ordering = evaluateAnchorOrdering([anchor], existingResults);
+          anchorRepeatResults.push({
+            anchorId: anchor.anchorId,
+            repeats: existingResults.length,
+            verdicts: existingResults.map((r) => r.verdict),
+            scores: existingResults.map((r) => r.score),
+            stability: stability.perAnchor[0]?.stability ?? 0,
+            orderingPreserved: ordering.orderingPreserved,
+          });
+        }
+        continue;
+      }
       const relevantInputs = input.anchorEvaluations.filter((a) => a.anchor.anchorId === anchor.anchorId);
       const perAnchorResults: AnchorEvaluationResult[] = [];
       for (let i = 0; i < input.anchorRepeats; i++) {
@@ -240,8 +267,18 @@ export async function runCalibrationPipeline(
   }
 
   // §4 Run pairwise evaluations (or reuse existing for resume).
-  const pairwiseRecords = input.existingPairwiseRecords ?? [];
+  // NOTE: Spread into a new array so resume does NOT mutate the
+  // caller's `existingPairwiseRecords`.
+  // NOTE: Pairwise records whose pairwiseId already appears in
+  // existingPairwiseRecords are skipped (idempotent resume).
+  const pairwiseRecords: PairwiseEvaluationRecord[] = [...(input.existingPairwiseRecords ?? [])];
+  const existingPairwiseIds = new Set(pairwiseRecords.map((r) => r.pairwiseId));
   for (const pe of input.pairwiseEvaluations) {
+    const pairwiseId = `pairwise-${pe.candidateAId}-${pe.candidateBId}`;
+    if (existingPairwiseIds.has(pairwiseId)) {
+      // Skip re-computation for already-computed pairwise evaluations.
+      continue;
+    }
     const record = runPairwiseEvaluation(pe, input.judgeManifest);
     pairwiseRecords.push(record);
   }
@@ -271,6 +308,35 @@ export async function runCalibrationPipeline(
     judgeSchemaUnrepairable: input.failSafeOverrides?.judgeSchemaUnrepairable ?? false,
     calibrationEvidenceInsufficient: input.failSafeOverrides?.calibrationEvidenceInsufficient ?? false,
   });
+
+  // §6.5 If fail-safe triggered, degrade anchor results to needs_review.
+  // The original Judge verdicts are not trustworthy under fail-safe
+  // conditions (e.g. bias exceeded, anchor ordering unstable, no
+  // independent judge). The artifact and CalibrationRunnerResult must
+  // reflect the degraded verdicts so downstream consumers cannot
+  // mistake raw verdicts for final verdicts.
+  //
+  // Bias metrics (§5) and the fail-safe decision (§6) use the original
+  // anchorResults; only the artifact and result expose the degraded
+  // versions.
+  const failSafeTriggered = failSafeReason !== null;
+  const anchorResultsForArtifact: AnchorEvaluationResult[][] = failSafeTriggered
+    ? anchorResults.map((results) =>
+        results.map((r) => ({
+          ...r,
+          verdict: "needs_review" as SemanticVerdict,
+          confidence: 0,
+        })),
+      )
+    : anchorResults;
+  const anchorRepeatResultsForArtifact: AnchorRepeatResult[] = failSafeTriggered
+    ? anchorRepeatResults.map((r) => ({
+        ...r,
+        verdicts: r.verdicts.map(() => "needs_review" as SemanticVerdict),
+        stability: 0,
+        orderingPreserved: false,
+      }))
+    : anchorRepeatResults;
 
   // §7 Build candidate standards.
   const candidateStandards: CandidateStandard[] = input.rubrics.map((rubric, idx) => {
@@ -309,11 +375,13 @@ export async function runCalibrationPipeline(
   });
 
   // §10 Evaluate acceptance proposal.
+  // Use the degraded anchorRepeatResults when fail-safe triggered so
+  // acceptance reflects the fail-safe (repeatedStability becomes 0).
   const acceptance = evaluateAcceptanceProposal(input.acceptanceProposal, {
     anchorOrderingViolationRate: biasMetrics.anchorOrderingStability.violationRate,
     repeatedStability:
-      anchorRepeatResults.length > 0
-        ? anchorRepeatResults.reduce((s, r) => s + r.stability, 0) / anchorRepeatResults.length
+      anchorRepeatResultsForArtifact.length > 0
+        ? anchorRepeatResultsForArtifact.reduce((s, r) => s + r.stability, 0) / anchorRepeatResultsForArtifact.length
         : 0,
     positionBiasPreferenceForFirst: biasMetrics.positionBias.preferenceForFirst,
     verbosityBiasCorrelation: biasMetrics.verbosityBias.correlation,
@@ -338,9 +406,7 @@ export async function runCalibrationPipeline(
   // auto-promotion). When no fail-safe was triggered, the verdict is
   // also considered verified because the fail-safe decision function
   // was still called and returned null.
-  const failSafeVerified =
-    candidateStandards.every((c) => c.status === "candidate")
-    && (failSafeReason === null || failSafeReason !== null);
+  const failSafeVerified = candidateStandards.every((c) => c.status === "candidate");
   // conflictsRecorded: detectStandardConflicts returns ALL detected
   // conflicts; nothing is filtered. This is always true for the
   // pipeline output.
@@ -392,7 +458,7 @@ export async function runCalibrationPipeline(
         fingerprint: sha256(stableStringify(input.judgeManifest)),
       },
     ],
-    repeatedAnchorResults: anchorRepeatResults,
+    repeatedAnchorResults: anchorRepeatResultsForArtifact,
     biasMetrics,
     disagreementSummary: {
       pairwiseDisagreementRate: biasMetrics.disagreementRate.rate,
@@ -434,7 +500,7 @@ export async function runCalibrationPipeline(
     standardConflicts: conflicts,
     standardDiffs,
     pairwiseRecords,
-    anchorResults,
+    anchorResults: anchorResultsForArtifact,
     biasMetrics,
     published: {
       calibrationArtifactPath: calibrationArtifactPub.artifactPath,
@@ -453,25 +519,25 @@ export async function runCalibrationPipeline(
 // ---------------------------------------------------------------------------
 
 function runAnchorEvaluation(ai: AnchorEvaluationInput): AnchorEvaluationResult {
-  // §1 Apply fail-safe.
-  const failSafe = applyFailSafe({
-    judgeResult: ai.mockJudgeResult ?? null,
-    hardGatePassed: true,
-    independentJudgeAvailable: true,
-    judgeIdentityConfirmed: true,
-    onlySameFamilyUncalibrated: false,
-    judgesConflict: false,
-    anchorOrderingUnstable: false,
-    biasMetricsExceeded: false,
-    judgeTelemetryIncomplete: false,
-    judgeSchemaUnrepairable: false,
-    calibrationEvidenceInsufficient: false,
-  });
+  // Anchor-level fail-safe: only handle missing Judge result.
+  // Pipeline-level fail-safe (bias, anchor ordering, independent judge,
+  // etc.) is applied in §6.5 of runCalibrationPipeline, which degrades
+  // all anchor verdicts to needs_review when any fail-safe condition
+  // triggers. This avoids hardcoding all fail-safe parameters to "safe"
+  // values at the anchor level.
+  if (!ai.mockJudgeResult) {
+    return {
+      anchorId: ai.anchor.anchorId,
+      verdict: "infra_error",
+      score: "",
+      confidence: 0,
+    };
+  }
   return {
     anchorId: ai.anchor.anchorId,
-    verdict: failSafe.finalVerdict,
-    score: ai.mockJudgeResult?.score ?? "",
-    confidence: ai.mockJudgeResult?.confidence ?? 0,
+    verdict: ai.mockJudgeResult.verdict,
+    score: ai.mockJudgeResult.score,
+    confidence: ai.mockJudgeResult.confidence,
   };
 }
 
@@ -716,11 +782,20 @@ export function verifyCalibrationArtifactInvariants(
     );
   }
   // §5 Unknown cost must NOT be displayed as $0.
+  // Applies to SUT and evaluator costs. codingAgent cost is always
+  // "unknown" by design (it does not call a paid API directly) and is
+  // exempt from this check.
   if (
     artifact.costLedger.sutProvenance === "unknown"
     && artifact.costLedger.sut.amountUsd === 0
   ) {
     violations.push("SUT cost provenance=unknown 但 amountUsd=0; unknown cost 不得显示为 $0");
+  }
+  if (
+    artifact.costLedger.evaluatorProvenance === "unknown"
+    && artifact.costLedger.evaluator.amountUsd === 0
+  ) {
+    violations.push("evaluator cost provenance=unknown 但 amountUsd=0; unknown cost 不得显示为 $0");
   }
   return violations;
 }

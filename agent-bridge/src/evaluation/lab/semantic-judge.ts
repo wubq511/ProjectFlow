@@ -267,9 +267,6 @@ export function evaluateAnchorOrdering(
   violations: string[];
 } {
   const byAnchor = new Map(results.map((r) => [r.anchorId, r]));
-  const good = anchors.filter((a) => a.kind === "good");
-  const boundary = anchors.filter((a) => a.kind === "boundary");
-  const bad = anchors.filter((a) => a.kind === "bad");
   const violations: string[] = [];
   // §1 Each anchor's expectedOrderRank must match the rank inferred from
   //    the Judge's confidence.

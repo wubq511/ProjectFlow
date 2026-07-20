@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { EvaluationArtifactStore } from "./artifact-store.js";
 import { EVALUATION_SCHEMA_VERSION } from "./contract.js";
@@ -37,7 +37,6 @@ import { loadActiveRegistry, assertActiveRegistryUnchanged } from "./standards-r
 import { verifyConflictCatalog } from "./standard-conflicts.js";
 import { verifyCalibrationArtifactInvariants } from "./calibration-runner.js";
 import type {
-  CalibrateBudget,
   CalibrationCostLedger,
 } from "./calibration-contract.js";
 import type { CostLedgerEntry } from "./contract.js";

@@ -246,3 +246,38 @@ git diff --check main...HEAD
 8. 三端 lint/typecheck/build 通过。
 
 真实付费模型 canary 不属于本 ticket 关闭条件。在冻结价格表与调用前最坏成本上限前，付费 calibration 继续 fail-closed。Slice 3 后续可能工作（不属于 #98）：付费模型真实校准、跨模型 Judge 横评、Dashboard 自动化、semantic hard-gate promotion 评估。全面对抗审查按用户要求留到全部 T46 tickets 完成后统一进行。
+
+## 第一性原理对抗审查修复（2026-07-20）
+
+对 Slice 3 实现做了第一性原理对称性 + 代码审查，发现并修复 6 个问题（3 个直接修复 + 3 个设计选择修复）和 10 个 pre-existing typecheck 错误。
+
+### 已修复（含回归测试）
+
+1. **`failSafeVerified` tautology**（`calibration-runner.ts`）：原表达式 `(failSafeReason === null || failSafeReason !== null)` 永远为 true，是 dead code。简化为 `candidateStandards.every((c) => c.status === "candidate")`。新增 `failSafeVerified is true when all candidates are in 'candidate' status` 回归测试。
+
+2. **`runCalibrationPipeline` resume 副作用**（`calibration-runner.ts`）：原代码 `const anchorResults = input.existingAnchorResults ?? []` 引用调用者数组，后续 `push` 会修改调用者数组。改为 `[...(input.existingAnchorResults ?? [])]` 创建新数组。pairwise records 同样修复。新增 `resume does NOT mutate the caller's existingAnchorResults / existingPairwiseRecords arrays` 回归测试。
+
+3. **`applyPromotionApproval` dead code**（`standards-registry.ts`）：原代码先按 `candidate.entry` 构建 `newEntries`，随后又按 `newEntry`（覆盖 source 字段）重新构建，第一次赋值被完全覆盖。合并为单次构建，直接用 `newEntry`。
+
+4. **`runAnchorEvaluation` 硬编码 fail-safe 参数**（`calibration-runner.ts`）：原 anchor 级 `applyFailSafe` 所有参数硬编码为"安全"值，anchor verdict 不会被 fail-safe 降级。移除 `runAnchorEvaluation` 中的 `applyFailSafe` 调用，只处理 missing Judge result；在 pipeline §6.5 新增 fail-safe 触发时的降级后处理：构建 `anchorResultsForArtifact` 与 `anchorRepeatResultsForArtifact`，所有 verdicts 降级为 `needs_review`，stability=0，orderingPreserved=false；acceptance proposal 与 artifact 使用降级后的结果。新增 `degrades anchor verdicts to needs_review in artifact when fail-safe triggers` 回归测试。
+
+5. **Cost provenance 检查不对称**（`calibration-runner.ts`）：`verifyCalibrationArtifactInvariants` 原本只对 SUT cost 强制"unknown 不得为 $0"，不检查 evaluator cost。新增 evaluator cost `unknown + $0` violation 检查，对称强制两类 cost provenance。新增 `flags evaluator cost provenance=unknown with amountUsd=0 (symmetric with SUT)` 回归测试。
+
+6. **Resume 逻辑不 idempotent**（`calibration-runner.ts`）：原 resume 时对所有 anchor 重新计算并追加，导致重复；现有测试用 `>=` 和 `> 0` 容忍了重复，测试名"does NOT repeat"与实际行为矛盾。新增 `existingAnchorIds` / `existingPairwiseIds` Set 跳过已计算项目；为跳过的 anchor 重新推导 `anchorRepeatResults` 以保证 summary 完整；更新现有 resume 测试：`>=` / `> 0` 改为严格 `toBe`，验证 verdicts 完全相同。
+
+### Pre-existing typecheck 错误修复（10 个）
+
+在审查过程中发现 10 个 pre-existing typecheck 错误（通过 `git stash` 确认是 pre-existing，非本次审查引入），全部修复：
+
+1. `calibration-contract.ts` 新增 4 个 V5 reserved 占位接口：`ScenarioVersion`、`JudgePromptVersion`、`JudgeModelCompatibility`、`SemanticThreshold`。
+2. `calibration-runner.ts` 移除未使用 import：`V5_CONTRACT_VERSION`、`combineHardGateWithSemantic`、`applyFailSafe`。
+3. `cli.ts` 移除未使用 import：`join`（from `node:path`）、`CalibrateBudget`（from `calibration-contract.js`）。
+4. `semantic-judge.ts` `evaluateAnchorOrdering` 移除未使用的 `good`/`boundary`/`bad` 局部变量。
+5. `standard-conflicts.ts` `detectStandardConflicts` 中 `for (const [aspectKey, group]` 改为 `for (const [, group]`（移除未使用变量）。
+
+### 验证
+
+- t46-5 测试从 221 增加到 225（+4 回归测试），全部 pass
+- agent-bridge typecheck pass
+- agent-bridge build pass
+- 8 个不变量强制点全部通过验证（详见审查报告）

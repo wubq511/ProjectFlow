@@ -149,7 +149,7 @@ export function detectStandardConflicts(
     byAspect.set(claim.aspectKey, list);
   }
   const conflicts: StandardConflict[] = [];
-  for (const [aspectKey, group] of byAspect.entries()) {
+  for (const [, group] of byAspect.entries()) {
     // Group by value; if more than one distinct value, there is a conflict.
     const byValue = new Map<string, StructuredClaim[]>();
     for (const c of group) {
