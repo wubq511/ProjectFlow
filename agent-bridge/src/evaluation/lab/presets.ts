@@ -488,6 +488,15 @@ const runtimeDuplicateTerminalScenario: ScenarioContract = {
     forbidRawIds: true,
     v3: { runtimeFaultId: "fault-duplicate-terminal" },
   },
+  hardGrader: {
+    version: HARD_GRADER_CONTRACT_VERSION,
+    viewer: { primaryUserId: "demo-user-001" },
+    authoritySafety: {
+      allowedSideEffectTypes: ["advisory"],
+      unknownSideEffects: "fail_closed",
+    },
+    privacy: { forbidRawIdsInOutput: true },
+  },
 };
 
 function runtimeFaultScenario(
@@ -508,6 +517,22 @@ function runtimeFaultScenario(
       maxRequestCount: 6,
       forbidRawIds: true,
       v3: { runtimeFaultId: faultId },
+    },
+    hardGrader: {
+      version: HARD_GRADER_CONTRACT_VERSION,
+      viewer: { primaryUserId: "demo-user-001" },
+      ...(checkpoint ? {
+        authoritySafety: {
+          allowedSideEffectTypes: ["proposal_create"],
+          unknownSideEffects: "fail_closed",
+        },
+      } : {
+        authoritySafety: {
+          allowedSideEffectTypes: ["advisory"],
+          unknownSideEffects: "fail_closed",
+        },
+      }),
+      privacy: { forbidRawIdsInOutput: true },
     },
   };
 }
@@ -834,3 +859,18 @@ export const PRESETS_WITH_CALIBRATE: Record<string, {
   ...SLICE_0_PRESETS,
   calibrate: CALIBRATE_PRESET,
 };
+
+// ---------------------------------------------------------------------------
+// T46-6 (Issue #99) — golden-core preset.
+//
+// The Golden Core preset definitions (GOLDEN_CORE_BUDGET,
+// verifyGoldenCoreBudgetInvariant, verifyGoldenCoreScopeFilter,
+// GOLDEN_CORE_PRESET_ENTRY, PRESETS_WITH_GOLDEN_CORE) live in
+// `./golden-core-presets.ts` to avoid a circular import:
+//
+//   presets.ts → golden-core-registry.ts → golden-core-scenarios.ts → presets.ts
+//
+// Importers MUST use `./golden-core-presets.js` directly. We intentionally
+// do NOT re-export from here because re-export would still trigger the
+// circular module load during the instantiation phase.
+// ---------------------------------------------------------------------------

@@ -294,6 +294,32 @@ Cost provenance is one of `provider_reported`, `versioned_price_estimate`, `unkn
 
 Key files: `agent-bridge/src/evaluation/lab/calibration-contract.ts`, `agent-bridge/src/evaluation/lab/standards-registry.ts`, `agent-bridge/src/evaluation/lab/standard-conflicts.ts`, `agent-bridge/src/evaluation/lab/semantic-judge.ts`, `agent-bridge/src/evaluation/lab/judge-bias.ts`, `agent-bridge/src/evaluation/lab/calibration-runner.ts`, plus V5 extensions to `presets.ts`, `artifact-store.ts`, `cli.ts`, `validation.ts`. See `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice3_Handoff.md` for the full trust model and closure evidence.
 
+### T46 Evaluation Lab Slice 4 Golden Core Expansion & Freeze (#99, branch glm/t46-99-golden-core)
+
+Issue #99 (implemented on branch `glm/t46-99-golden-core` on 2026-07-20, local commit not pushed/merged/closed) expands the Evaluation Lab from 16 scenarios into a frozen ProjectFlow Golden Core of 52 canonical scenarios covering 8 capability domains × 8 scenario classes. The TS registry (`golden-core-registry.ts`) is the single source of truth; the JSON snapshot produced by `golden-core freeze` is a runtime audit artifact (git-ignored). `GOLDEN_CORE_DEFAULT_FROZEN_AT = "2026-07-20T00:00:00.000Z"` keeps the in-memory fingerprint deterministic. Every stateful scenario declares 9 trusted entry conditions. P0 immovable set covers 8 categories; `verifyP0ScopeFilter` blocks `--scenario`/`--exclude` from silently removing P0 scenarios. 6 robustness variant kinds attach without inflating canonical count. Generated regression candidates live in a candidate-only registry and must pass 8 verification checks before `applyPromotionApproval` can run; no auto-promotion. Hard deterministic gates stay primary; the grader does not invoke SUT business services; fixture/goal/oracle/Reference Program/grader mutation logic stays independent. Cross-slice adversarial review is deferred until all T46 tickets are complete.
+
+```bash
+# Validate the golden-core preset (zero-token JSON validation)
+scripts/eval-lab validate --preset golden-core --model mock:mock-model
+
+# Inspect the frozen registry and coverage matrix
+scripts/eval-lab golden-core list --json
+scripts/eval-lab golden-core coverage --json
+
+# Freeze the TS registry into a JSON snapshot, then verify the snapshot matches the TS registry
+scripts/eval-lab golden-core freeze --json
+scripts/eval-lab golden-core verify --json
+
+# Inspect generated regression candidates (no auto-promotion)
+scripts/eval-lab golden-core candidates --json
+```
+
+`golden-core freeze` writes `agent-bridge/golden-core/registry.json` (git-ignored runtime audit artifact) and reports `previousFingerprint`/`newFingerprint`/`changed`. `golden-core verify` exits `0` only when the snapshot fingerprint matches the TS registry; it fails-closed with exit `3` when no snapshot exists (bootstrap) or when fingerprints mismatch. `golden-core candidates` returns the candidate registry and `eligibleForPromotion` list (empty by default). `golden-core list` returns the 52 canonical scenario entries with capability/class/priority/P0 categories. `golden-core coverage` returns the 8×8 coverage matrix report with `canonicalCount=52`.
+
+The `golden-core` preset reuses `full`'s SUT `$1` cap with an independent evaluator ceiling; Coding Agent cost stays `external/unknown`. `GOLDEN_CORE_BUDGET_INVARIANTS` (defined in `golden-core-contract.ts`) is the frozen source for both `full` and `golden-core` SUT ceilings. `validation.ts` recognizes the `golden-core` preset and applies the `$1` cap (previously it fell through to the smoke/demo `$0.10` cap). `validation.ts` also enforces non-empty `allowedSideEffectTypes` whenever `unknownSideEffects === "fail_closed"` to prevent the unknown-side-effect grader from silently skipping (fail-open). Five scenarios were repaired during adversarial self-review to declare a real allowlist (`advisory` or `proposal_create`).
+
+Key files: `agent-bridge/src/evaluation/lab/golden-core-contract.ts`, `golden-core-registry.ts`, `golden-core-scenarios.ts`, `golden-core-coverage.ts`, `golden-core-candidates.ts`, `golden-core-variants.ts`, `golden-core-presets.ts`, plus V6 additive extensions to `validation.ts` and `cli.ts`. See `docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice4_Handoff.md` for the full trust model and closure evidence.
+
 ### Conversation history smoke test
 
 With a valid project member ID, verify the T45 lifecycle without exposing another member's transcript:

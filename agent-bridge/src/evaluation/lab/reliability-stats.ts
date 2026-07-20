@@ -55,7 +55,7 @@ export interface ReliabilityTrial {
 export function computeReliabilityReport(
   trials: ReliabilityTrial[],
   options: {
-    preset: "demo" | "smoke" | "smoke-v2" | "full";
+    preset: "demo" | "smoke" | "smoke-v2" | "full" | "golden-core";
     confidenceLevel?: number;
     /** k for modeled pass@k/pass^k. Defaults to the largest observed
      * repeat group, or 1 when the artifact has no repeated trials. */
@@ -124,7 +124,7 @@ export function computeReliabilityReport(
 
   const insufficientEvidence = denominator < MIN_STATISTICAL_SIGNIFICANCE_SAMPLE_SIZE;
   const statisticalSignificanceClaimAllowed =
-    options.preset === "full" && !insufficientEvidence;
+    (options.preset === "full" || options.preset === "golden-core") && !insufficientEvidence;
 
   const perScenario = computePerScenarioMetrics(trials, confidenceLevel);
 

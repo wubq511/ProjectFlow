@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, writeSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -10,11 +10,31 @@ import {
   EvaluationValidationError,
 } from "./errors.js";
 import {
-  SLICE_0_PRESETS,
-  PRESETS_WITH_CALIBRATE,
   T46_3_P0_SCENARIO_IDS,
   CALIBRATE_PRESET,
 } from "./presets.js";
+import {
+  PRESETS_WITH_GOLDEN_CORE,
+  verifyGoldenCoreBudgetInvariant,
+  verifyGoldenCoreScopeFilter,
+} from "./golden-core-presets.js";
+// T46-6 (Issue #99) — Golden Core registry, coverage, candidates.
+import {
+  GOLDEN_CORE_REGISTRY,
+  GOLDEN_CORE_P0_SCENARIO_IDS,
+  freezeRegistry,
+  verifyRegistry,
+  verifyRegistryInvariants,
+} from "./golden-core-registry.js";
+import { generateCoverageReport, computeCoverageReportFingerprint } from "./golden-core-coverage.js";
+import {
+  loadCandidateRegistry,
+  isEligibleForPromotion,
+} from "./golden-core-candidates.js";
+import type {
+  RegressionCandidateVerificationChecks,
+  VerificationCheckResult,
+} from "./golden-core-contract.js";
 import { runEvaluation } from "./runner.js";
 import { validateEvaluationConfig } from "./validation.js";
 import {
@@ -55,7 +75,17 @@ const EXIT = {
 } as const;
 
 function findProjectRoot(): string {
-  let current = resolve(import.meta.dirname ?? process.cwd());
+  // Prefer `process.cwd()` if it contains `CLAUDE.md`. This allows tests
+  // to invoke the CLI with `cwd: <temp-dir>` (where the temp dir has a
+  // CLAUDE.md file) and have `findProjectRoot()` resolve to that temp dir.
+  // Fall back to walking up from the CLI file's directory (via
+  // `import.meta.dirname`) for production use where the CLI is invoked
+  // from anywhere.
+  const cwd = process.cwd();
+  if (existsSync(resolve(cwd, "CLAUDE.md"))) {
+    return cwd;
+  }
+  let current = resolve(import.meta.dirname ?? cwd);
   while (!existsSync(resolve(current, "CLAUDE.md"))) {
     const parent = dirname(current);
     if (parent === current) {
@@ -67,7 +97,42 @@ function findProjectRoot(): string {
 }
 
 function output(value: unknown): void {
-  process.stdout.write(`${JSON.stringify(value)}\n`);
+  // Use fs.writeSync (synchronous) instead of process.stdout.write (async
+  // when writing to a pipe). When stdout is a pipe (as in tests via
+  // execFileSync), process.stdout.write returns false if the kernel pipe
+  // buffer (64KB on macOS) is full, and the data is queued internally.
+  // If process.exit() is called immediately after, the queued data may
+  // be lost, truncating the output. fs.writeSync blocks until all data
+  // is written to the kernel pipe buffer.
+  //
+  // On macOS, writing to a non-blocking pipe can raise EAGAIN when the
+  // kernel buffer is full. We sleep briefly (synchronously via
+  // Atomics.wait) and retry until the write succeeds.
+  const payload = `${JSON.stringify(value)}\n`;
+  const buffer = Buffer.from(payload, "utf-8");
+  let offset = 0;
+  while (offset < buffer.length) {
+    try {
+      // fd 1 = stdout
+      const written = writeSync(1, buffer, offset);
+      if (written > 0) {
+        offset += written;
+      } else if (written === 0) {
+        // Should not happen for blocking writes, but avoid infinite loop.
+        break;
+      }
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === "EAGAIN" || err.code === "EWOULDBLOCK") {
+        // Kernel pipe buffer is full. Sleep 1ms synchronously and retry.
+        // Atomics.wait blocks the thread without consuming CPU.
+        const shared = new Int32Array(new SharedArrayBuffer(4));
+        Atomics.wait(shared, 0, 0, 1);
+        continue;
+      }
+      throw error;
+    }
+  }
 }
 
 function usage(): void {
@@ -75,14 +140,14 @@ function usage(): void {
     schemaVersion: EVALUATION_SCHEMA_VERSION,
     commands: {
       list: "scripts/eval-lab list",
-      validate: "scripts/eval-lab validate [--preset smoke|smoke-v2|demo|full|calibrate] [--model mock:mock-model]",
-      run: "scripts/eval-lab run [--preset smoke|smoke-v2|demo|full] [--scenario ID] [--model mock:mock-model] [--run-id ID] [--resume] [--json]",
+      validate: "scripts/eval-lab validate [--preset smoke|smoke-v2|demo|full|calibrate|golden-core] [--model mock:mock-model]",
+      run: "scripts/eval-lab run [--preset smoke|smoke-v2|demo|full|golden-core] [--scenario ID] [--model mock:mock-model] [--run-id ID] [--resume] [--json]",
       status: "scripts/eval-lab status <run-id>",
       show: "scripts/eval-lab show <run-id>",
       verify: "scripts/eval-lab verify <run-id>",
       "exit-gate": "scripts/eval-lab exit-gate <run-id> [--json]",
       "reliability": "scripts/eval-lab reliability <run-id> [--confidence-level 0.95]",
-      "compare": "scripts/eval-lab compare --candidate <git-ref> --baseline <git-ref> [--preset smoke|demo|full] [--model mock:mock-model] [--json]",
+      "compare": "scripts/eval-lab compare --candidate <git-ref> --baseline <git-ref> [--preset smoke|demo|full|golden-core] [--model mock:mock-model] [--json]",
       // T46-4 (Issue #97) — diagnosis, repair packet, RCA benchmark.
       "diagnose": "scripts/eval-lab diagnose <run-id> [--json]",
       "repair-packet": "scripts/eval-lab repair-packet <run-id> [--packet-id ID] [--json]",
@@ -95,6 +160,8 @@ function usage(): void {
       "active-registry": "scripts/eval-lab active-registry [--json]",
       "candidate-registry": "scripts/eval-lab candidate-registry <run-id> [--json]",
       "conflict-catalog": "scripts/eval-lab conflict-catalog [--json]",
+      // T46-6 (Issue #99) — Golden Core freeze, verify, coverage, list.
+      "golden-core": "scripts/eval-lab golden-core <freeze|verify|coverage|list|candidates> [--json]",
     },
     exitCodes: EXIT,
   });
@@ -145,14 +212,14 @@ function parseArgs(args: string[], allowRunOnly: boolean): CommonArgs {
       throw new EvaluationValidationError(`未知参数: ${flag}`);
     }
   }
-  if (!PRESETS_WITH_CALIBRATE[parsed.preset]) {
+  if (!PRESETS_WITH_GOLDEN_CORE[parsed.preset]) {
     throw new EvaluationValidationError(`未知 preset: ${parsed.preset}`);
   }
   return parsed;
 }
 
 function selectScenarios(parsed: CommonArgs) {
-  const preset = PRESETS_WITH_CALIBRATE[parsed.preset]!;
+  const preset = PRESETS_WITH_GOLDEN_CORE[parsed.preset]!;
   if (!parsed.scenarioId) return preset.scenarios;
   const selected = preset.scenarios.filter((scenario) => scenario.scenarioId === parsed.scenarioId);
   if (selected.length === 0) {
@@ -179,14 +246,23 @@ async function main(): Promise<void> {
   if (command === "list") {
     output({
       schemaVersion: EVALUATION_SCHEMA_VERSION,
-      presets: Object.entries(PRESETS_WITH_CALIBRATE).map(([name, preset]) => ({
+      presets: Object.entries(PRESETS_WITH_GOLDEN_CORE).map(([name, preset]) => ({
         name,
         budget: preset.budget,
         ...(preset.calibrateBudget ? { calibrateBudget: preset.calibrateBudget } : {}),
+        ...(preset.goldenCoreRegistry ? {
+          goldenCore: {
+            registryId: preset.goldenCoreRegistry.registryId,
+            fingerprint: preset.goldenCoreRegistry.fingerprint,
+            canonicalCount: preset.goldenCoreRegistry.canonical.length,
+            candidateCount: preset.goldenCoreRegistry.candidates.length,
+            rejectedCount: preset.goldenCoreRegistry.rejected.length,
+          },
+        } : {}),
         scenarios: preset.scenarios.map((scenario) => ({
           scenarioId: scenario.scenarioId,
           prompt: scenario.visible.prompt,
-          source: "T43_RELEASE_SCENARIOS",
+          source: name === "golden-core" ? "GOLDEN_CORE_REGISTRY" : "T43_RELEASE_SCENARIOS",
         })),
       })),
     });
@@ -195,7 +271,32 @@ async function main(): Promise<void> {
 
   if (command === "validate") {
     const parsed = parseArgs(args, false);
-    const preset = PRESETS_WITH_CALIBRATE[parsed.preset]!;
+    const preset = PRESETS_WITH_GOLDEN_CORE[parsed.preset]!;
+    // For golden-core preset, verify the TS registry matches the frozen
+    // JSON snapshot before validation. This is the central fail-safe.
+    if (parsed.preset === "golden-core") {
+      const verification = await verifyRegistry(projectRoot);
+      if (!verification.verified) {
+        output({
+          event: "golden_core_verification_failed",
+          preset: parsed.preset,
+          reason: verification.failureReason,
+          exitCode: EXIT.validation,
+        });
+        process.exit(EXIT.validation);
+      }
+      // Verify budget invariants.
+      const budgetCheck = verifyGoldenCoreBudgetInvariant(preset.budget);
+      if (!budgetCheck.passed) {
+        output({
+          event: "golden_core_budget_invariant_violation",
+          preset: parsed.preset,
+          reason: budgetCheck.failureReason,
+          exitCode: EXIT.validation,
+        });
+        process.exit(EXIT.validation);
+      }
+    }
     const result = await validateEvaluationConfig({
       projectRoot,
       model: parsed.model,
@@ -250,16 +351,23 @@ async function main(): Promise<void> {
     const acceptance = artifact.v3?.acceptanceEvidence;
     if (!acceptance) {
       throw new EvaluationValidationError(
-        "artifact 缺少真实 Slice 1 acceptanceEvidence；请先运行 full preset，禁止用普通 grade 代替 mutation/reference 证据",
+        "artifact 缺少真实 Slice 1 acceptanceEvidence；请先运行 full 或 golden-core preset，禁止用普通 grade 代替 mutation/reference 证据",
       );
     }
     // §4 Required scenarios not skipped/excluded: the artifact's
     // observations cover the P0 scenarios AND each observed P0 scenario's
     // hard grade must pass. A scenario that ran but failed its hard grade
     // is marked "failed" (not "passed") to prevent masking regressions.
+    //
+    // For `golden-core` runs, use the Golden Core P0 scenario IDs (which
+    // cover all 8 P0 mandatory categories). For other runs, use the
+    // Slice 1 P0 scenario IDs.
+    const p0ScenarioIds = artifact.preset === "golden-core"
+      ? GOLDEN_CORE_P0_SCENARIO_IDS
+      : T46_3_P0_SCENARIO_IDS;
     const observedIds = new Set(artifact.observations.map((o) => o.scenarioId));
     const gradeByScenario = new Map(artifact.grades.map((g) => [g.scenarioId, g]));
-    const requiredScenarios = T46_3_P0_SCENARIO_IDS.map((id) => {
+    const requiredScenarios = p0ScenarioIds.map((id) => {
       if (!observedIds.has(id)) {
         return {
           scenarioId: id,
@@ -310,7 +418,7 @@ async function main(): Promise<void> {
     }
     const presetName = artifact.preset;
     const report = computeReliabilityReport(trials, {
-      preset: presetName as "demo" | "smoke" | "smoke-v2" | "full",
+      preset: presetName as "demo" | "smoke" | "smoke-v2" | "full" | "golden-core",
       confidenceLevel,
     });
     if (parsedArgsHasFlag(args, "--json")) {
@@ -337,7 +445,7 @@ async function main(): Promise<void> {
         && args[index - 1] !== "--candidate" && args[index - 1] !== "--baseline"),
       true,
     );
-    const preset = SLICE_0_PRESETS[parsed.preset]!;
+    const preset = PRESETS_WITH_GOLDEN_CORE[parsed.preset]!;
     const result = await runPairedComparison({
       projectRoot,
       candidateRef,
@@ -369,10 +477,10 @@ async function main(): Promise<void> {
     // Read the artifact (must be a completed/verified run).
     const artifact = await store.readVerifiedArtifact();
     // Build diagnosis targets from failed observations.
-    const preset = SLICE_0_PRESETS[artifact.preset];
+    const preset = PRESETS_WITH_GOLDEN_CORE[artifact.preset];
     if (!preset) {
       throw new EvaluationValidationError(
-        `artifact preset ${artifact.preset} 未在 SLICE_0_PRESETS 中找到`,
+        `artifact preset ${artifact.preset} 未在 PRESETS_WITH_GOLDEN_CORE 中找到`,
       );
     }
     const scenarioById = new Map(preset.scenarios.map((s) => [s.scenarioId, s]));
@@ -951,13 +1059,224 @@ async function main(): Promise<void> {
     return;
   }
 
+  // -------------------------------------------------------------------------
+  // T46-6 (Issue #99) — `golden-core` command.
+  //
+  // Single machine-readable command for Golden Core governance:
+  //   - freeze:    Write the TS registry's fingerprint to the JSON audit
+  //                snapshot. This is the ONLY way to update the frozen
+  //                snapshot. Produces a reviewable Git diff.
+  //   - verify:    Compare TS fingerprint against the frozen JSON snapshot.
+  //                Fail-closed on mismatch or missing snapshot.
+  //   - coverage:  Generate the full coverage matrix report.
+  //   - list:      List canonical scenario IDs with capability/class/
+  //                priority/P0 categories.
+  //   - candidates:Load and report the candidate registry (read-only).
+  // -------------------------------------------------------------------------
+  if (command === "golden-core") {
+    const subcommand = args[0];
+    const jsonFlag = parsedArgsHasFlag(args, "--json");
+    if (!subcommand || subcommand.startsWith("--")) {
+      throw new EvaluationValidationError(
+        "golden-core 需要一个子命令: freeze | verify | coverage | list | candidates",
+      );
+    }
+    if (subcommand === "freeze") {
+      const freezeNotes = parseOptionalValue(args, "--freeze-notes");
+      const result = await freezeRegistry(projectRoot, freezeNotes ? { freezeNotes } : {});
+      if (jsonFlag) {
+        output({
+          event: "golden_core_freeze_completed",
+          registryId: result.registry.registryId,
+          previousFingerprint: result.previousFingerprint,
+          newFingerprint: result.newFingerprint,
+          changed: result.changed,
+          snapshotPath: result.snapshotPath,
+          canonicalCount: result.registry.canonical.length,
+          candidateCount: result.registry.candidates.length,
+          rejectedCount: result.registry.rejected.length,
+        });
+      } else {
+        process.stdout.write(
+          `Golden Core 冻结完成: ${result.registry.canonical.length} 个 canonical scenarios\n` +
+          `  fingerprint: ${result.newFingerprint}\n` +
+          `  changed: ${result.changed ? "yes" : "no"}\n` +
+          `  snapshot: ${result.snapshotPath}\n`,
+        );
+      }
+      process.exit(EXIT.passed);
+      return;
+    }
+    if (subcommand === "verify") {
+      const verification = await verifyRegistry(projectRoot);
+      // Also verify the comprehensive registry invariants.
+      const invariants = verifyRegistryInvariants(verification.tsRegistry);
+      const passed = verification.verified && invariants.passed;
+      if (jsonFlag) {
+        output({
+          event: passed ? "golden_core_verify_passed" : "golden_core_verify_failed",
+          verified: verification.verified,
+          failureReason: verification.failureReason,
+          invariantChecks: invariants.checks,
+          registryFingerprint: verification.tsRegistry.fingerprint,
+          frozenFingerprint: verification.frozenSnapshot?.fingerprint ?? null,
+          canonicalCount: verification.tsRegistry.canonical.length,
+          candidateCount: verification.tsRegistry.candidates.length,
+          rejectedCount: verification.tsRegistry.rejected.length,
+        });
+      } else {
+        if (passed) {
+          process.stdout.write(
+            `Golden Core 验证通过: ${verification.tsRegistry.canonical.length} 个 canonical scenarios\n` +
+            `  fingerprint: ${verification.tsRegistry.fingerprint}\n`,
+          );
+        } else {
+          process.stdout.write(
+            `Golden Core 验证失败: ${verification.failureReason ?? "invariant check failed"}\n`,
+          );
+          for (const check of invariants.checks) {
+            if (!check.passed) {
+              process.stdout.write(`  - ${check.name}: ${check.details ?? "failed"}\n`);
+            }
+          }
+        }
+      }
+      process.exit(passed ? EXIT.passed : EXIT.validation);
+      return;
+    }
+    if (subcommand === "coverage") {
+      const report = generateCoverageReport(GOLDEN_CORE_REGISTRY);
+      const fingerprint = computeCoverageReportFingerprint(report);
+      const hardGateCovered = report.hardGateCoverage.filter((c) => c.count > 0).length;
+      const mutationTotalDeclared = report.mutationCoverage.reduce((sum, m) => sum + m.declared, 0);
+      const mutationDetectedAll = report.mutationCoverage.filter((m) => m.fullyDetected).length;
+      const refSolved = report.referenceSolvability.filter((r) => r.solvable).length;
+      if (jsonFlag) {
+        output({
+          event: "golden_core_coverage_report",
+          report,
+          fingerprint,
+        });
+      } else {
+        process.stdout.write(
+          `Golden Core Coverage Report\n` +
+          `  canonical scenarios: ${report.canonicalCount}\n` +
+          `  capability × class cells: ${report.capabilityClassMatrix.length}\n` +
+          `  P0 categories covered: ${report.p0CategoryCoverage.filter((c) => c.covered).length}/${report.p0CategoryCoverage.length}\n` +
+          `  hard gates exercised: ${hardGateCovered}/${report.hardGateCoverage.length}\n` +
+          `  mutation: ${mutationDetectedAll}/${report.mutationCoverage.length} scenarios fully detected (${mutationTotalDeclared} total declared)\n` +
+          `  reference solvability: ${refSolved}/${report.referenceSolvability.length}\n` +
+          `  coverage gaps: ${report.gaps.length}\n` +
+          `  duplicate risks: ${report.duplicateRisks.length}\n` +
+          `  fingerprint: ${fingerprint}\n`,
+        );
+      }
+      process.exit(EXIT.passed);
+      return;
+    }
+    if (subcommand === "list") {
+      const entries = GOLDEN_CORE_REGISTRY.canonical.map((entry) => ({
+        scenarioId: entry.scenarioId,
+        capability: entry.capability,
+        scenarioClass: entry.scenarioClass,
+        priority: entry.priority,
+        p0Categories: entry.p0Categories,
+        variantCount: entry.robustnessVariants.length,
+      }));
+      if (jsonFlag) {
+        output({
+          event: "golden_core_list",
+          registryId: GOLDEN_CORE_REGISTRY.registryId,
+          fingerprint: GOLDEN_CORE_REGISTRY.fingerprint,
+          canonicalCount: entries.length,
+          entries,
+        });
+      } else {
+        process.stdout.write(
+          `Golden Core: ${entries.length} canonical scenarios\n` +
+          `  registry: ${GOLDEN_CORE_REGISTRY.registryId}\n` +
+          `  fingerprint: ${GOLDEN_CORE_REGISTRY.fingerprint}\n`,
+        );
+        for (const entry of entries) {
+          process.stdout.write(
+            `  - ${entry.scenarioId} [${entry.capability}/${entry.scenarioClass}/${entry.priority}]` +
+            `${entry.p0Categories.length > 0 ? ` P0:${entry.p0Categories.join(",")}` : ""}` +
+            `${entry.variantCount > 0 ? ` variants:${entry.variantCount}` : ""}\n`,
+          );
+        }
+      }
+      process.exit(EXIT.passed);
+      return;
+    }
+    if (subcommand === "candidates") {
+      const candidateRegistry = await loadCandidateRegistry(projectRoot);
+      const checkPassCount = (checks: RegressionCandidateVerificationChecks): number => {
+        const values: VerificationCheckResult[] = Object.values(checks);
+        return values.filter((c) => c.status === "passed").length;
+      };
+      const checkTotalCount = (checks: RegressionCandidateVerificationChecks): number => {
+        return Object.keys(checks).length;
+      };
+      if (jsonFlag) {
+        output({
+          event: "golden_core_candidates",
+          registry: candidateRegistry,
+          eligibleForPromotion: candidateRegistry.candidates
+            .filter((c) => isEligibleForPromotion(c))
+            .map((c) => c.candidateId),
+        });
+      } else {
+        process.stdout.write(
+          `Golden Core Candidates: ${candidateRegistry.candidates.length} total\n` +
+          `  fingerprint: ${candidateRegistry.fingerprint}\n`,
+        );
+        for (const candidate of candidateRegistry.candidates) {
+          const eligible = isEligibleForPromotion(candidate);
+          const passed = checkPassCount(candidate.verificationChecks);
+          const total = checkTotalCount(candidate.verificationChecks);
+          process.stdout.write(
+            `  - ${candidate.candidateId} [${candidate.sourceProvenance}]` +
+            ` eligible=${eligible ? "yes" : "no"}` +
+            ` checks=${passed}/${total}\n`,
+          );
+        }
+      }
+      process.exit(EXIT.passed);
+      return;
+    }
+    throw new EvaluationValidationError(
+      `golden-core 未知子命令: ${subcommand}; 支持: freeze | verify | coverage | list | candidates`,
+    );
+  }
+
   if (command !== "run") {
     throw new EvaluationValidationError(`未知命令: ${command}`);
   }
 
   const parsed = parseArgs(args, true);
-  const preset = SLICE_0_PRESETS[parsed.preset]!;
+  const preset = PRESETS_WITH_GOLDEN_CORE[parsed.preset]!;
   const scenarios = selectScenarios(parsed);
+  // T46-6 (Issue #99 §4) — P0 scope filter protection.
+  //
+  // `--scenario`, exclude/filter mechanisms MUST NOT silently remove P0
+  // mandatory scenarios. When the user requests a scope that does not
+  // satisfy the P0 mandatory set, the CLI fails-closed and reports the
+  // mandatory additions rather than fabricating release evidence.
+  if (parsed.preset === "golden-core" && parsed.scenarioId) {
+    const scopeVerification = verifyGoldenCoreScopeFilter(scenarios.map((s) => s.scenarioId));
+    if (!scopeVerification.passed) {
+      output({
+        event: "golden_core_p0_scope_filter_violation",
+        preset: parsed.preset,
+        missingP0ScenarioIds: scopeVerification.missingP0ScenarioIds,
+        missingP0Categories: scopeVerification.missingP0Categories,
+        mandatoryAdditions: scopeVerification.mandatoryAdditions,
+        failureReason: scopeVerification.failureReason,
+        exitCode: EXIT.validation,
+      });
+      process.exit(EXIT.validation);
+    }
+  }
   const validation = await validateEvaluationConfig({
     projectRoot,
     model: parsed.model,

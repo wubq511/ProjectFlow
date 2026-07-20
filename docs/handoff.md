@@ -4,6 +4,38 @@ Status: current as of 2026-07-20.
 
 ## Latest Architecture Handoff
 
+### 2026-07-20 — T46 Issue #99 Slice 4 Golden Core Expansion & Freeze
+
+GitHub Issue #99 was implemented on branch `glm/t46-99-golden-core` (local commit, not pushed/merged/closed). It expands the Evaluation Lab from 16 scenarios into a frozen ProjectFlow Golden Core of 52 canonical scenarios covering 8 capability domains (`clarification-direction`, `stage-planning`, `task-breakdown`, `assignment`, `status-read`, `checkin-risk-replan`, `conversations-project-memory`, `runtime-recovery-security`) × 8 scenario classes (`normal`, `negative`, `boundary`, `insufficient-information`, `conflict`, `goal-switching`, `adversarial`, `multi-turn`). The TS registry (`golden-core-registry.ts`) is the single source of truth; the JSON snapshot produced by `golden-core freeze` is a frozen audit artifact. `GOLDEN_CORE_DEFAULT_FROZEN_AT = "2026-07-20T00:00:00.000Z"` keeps the in-memory registry fingerprint deterministic across builds; `computeRegistryFingerprint` includes `candidates`/`rejected`/`freezeNotes` so tampering with any of those fields is detected.
+
+Every stateful scenario declares 9 trusted entry conditions: `goalProvenance`, `fixtureSeed`+`fixtureFingerprint`, `goldenConstraintsSummary`, `referenceProgramId`, `declaredGraderMutations`, `mutationDetectionEvidence`, `scope` (workspace/project/viewer/adversary), `stateEffectSummary` (required/allowed/forbidden/unchanged), `milestoneDagSummary`. P0 immovable set covers 8 categories: `safety-authority`, `privacy-visibility`, `proposal-confirm`, `idempotency`, `forbidden-side-effects`, `terminal-consistency`, `read-only-purity`, `hidden-field-leakage`. `verifyP0ScopeFilter` blocks `--scenario`/`--exclude` from silently removing P0 scenarios. 6 robustness variant kinds (`semantic-paraphrase`, `distraction-injection`, `description-weakening`, `irrelevant-context`, `order-variation`, `bounded-adversarial-wording`) attach to canonical scenarios without inflating the canonical count. Generated regression candidates live in a candidate-only registry and must pass 8 verification checks (`representativeness`, `redaction`, `hiddenGoalIntegrity`, `nonDuplicationWithCanonical`, `fixtureSolvability`, `graderMutationDeclaration`, `reviewableDiff`, `explicitApprovalRecord`) before `applyPromotionApproval` can run; no Agent or ordinary command can auto-promote.
+
+The `golden-core` preset reuses `full`'s SUT `$1` cap with an independent evaluator ceiling; Coding Agent cost stays `external/unknown`. `GOLDEN_CORE_BUDGET_INVARIANTS` (defined in `golden-core-contract.ts`) is the frozen source for both `full` and `golden-core` SUT ceilings. `validation.ts` now recognizes the `golden-core` preset and applies the `$1` cap (previously it fell through to the smoke/demo `$0.10` cap). `validation.ts` also enforces non-empty `allowedSideEffectTypes` whenever `unknownSideEffects === "fail_closed"` to prevent the unknown-side-effect grader from silently skipping (fail-open). Five scenarios were repaired during adversarial self-review to declare a real allowlist (`advisory` or `proposal_create`).
+
+**Operator/Coding Agent commands:**
+
+```bash
+# Validate the golden-core preset (zero-token JSON validation)
+scripts/eval-lab validate --preset golden-core --model mock:mock-model
+
+# Inspect the frozen registry and coverage matrix
+scripts/eval-lab golden-core list --json
+scripts/eval-lab golden-core coverage --json
+
+# Freeze the TS registry into a JSON snapshot, then verify the snapshot matches the TS registry
+scripts/eval-lab golden-core freeze --json
+scripts/eval-lab golden-core verify --json
+
+# Inspect generated regression candidates (no auto-promotion)
+scripts/eval-lab golden-core candidates --json
+```
+
+`golden-core freeze` writes `agent-bridge/golden-core/registry.json` (git-ignored runtime audit artifact) and reports the previous/new fingerprint and `changed` flag. `golden-core verify` fails-closed when no snapshot exists (bootstrap) or when the snapshot fingerprint does not match the TS registry. `golden-core candidates` returns the candidate registry and a list of candidates eligible for promotion (empty by default).
+
+**Key files:** `agent-bridge/src/evaluation/lab/golden-core-contract.ts` (schema/suite version, capability domains, scenario classes, P0 categories, robustness variant kinds, 9 entry conditions, 8 verification checks, budget invariants, `GOLDEN_CORE_DEFAULT_FROZEN_AT`), `golden-core-registry.ts` (registry build, fingerprint, freeze/verify, P0 scope filter, invariant verification), `golden-core-scenarios.ts` (52 canonical scenario entries wrapping existing `ScenarioContract` with Golden Core metadata), `golden-core-coverage.ts` (8×8 coverage matrix report), `golden-core-candidates.ts` (regression candidate governance, `updateVerificationCheck`/`applyPromotionApproval`), `golden-core-variants.ts` (robustness variant builder, hidden-goal fingerprint preservation), `golden-core-presets.ts` (preset entry + budget invariant verification, breaks the circular import `presets.ts → golden-core-registry.ts → golden-core-scenarios.ts → presets.ts`), plus V6 additive extensions to `validation.ts` (preset-aware cost cap, `hard_grader_allowlist_required` gate) and `cli.ts` (`golden-core` subcommand). Test file: `t46-6-golden-core.test.ts` (79 tests).
+
+**Verification:** 1 t46-6 file with 79 tests covers the registry, coverage, candidates, variants, presets, CLI smoke and adversarial review checks. The light release gate passed Agent Bridge 2239/2249 (the 10 failures are pre-existing Node version mismatches unrelated to #99), typecheck/build, `validate --preset golden-core` (only the pre-existing Node version failure remains), and the full t46-6 test suite. Backend/frontend were not rerun in this gate because #99 changed neither surface; their previously recorded baselines remain unchanged. Cross-slice adversarial review is deferred until all T46 tickets are complete per Robert's instruction.
+
 ### 2026-07-20 — T46 Issue #98 Slice 3 Governed Calibration & Semantic Standards
 
 GitHub Issue #98 was merged into `main` at `14e106e` and closed on 2026-07-20. It is the Slice 3 governed calibration and semantic standards surface: active/candidate standards registries are strictly separated; 6 frozen standard conflict patterns detect and block promotion; criterion-scoped semantic rubrics produce 5 verdicts (`pass | fail | needs_review | infra_error | insufficient_evidence`); blinding + seed-randomized A/B order + reverse repetition + 6 bias metrics (position / verbosity / same-family / disagreement / repeated-run / anchor-ordering); good/boundary/bad anchors with Judge stability testing; 9 fail-safe conditions degrade to `needs_review` by priority; `calibrate` preset with SUT `$3` cap + independent evaluator ceiling + 3 cost provenance classes; immutable calibration artifact enters the SHA-256 result graph; `applyPromotionApproval` is the ONLY active registry mutation path, requiring explicit Robert instruction + reviewable Git diff + matching fingerprints + all conflicts resolved. ProjectFlow deterministic hard gates always take precedence over semantic evidence; `semanticHardGateEligible` defaults to `false` and cannot be raised by a single successful Judge call.
@@ -1507,7 +1539,7 @@ Verification: backend 218/218 tests pass; frontend 24/24 tests pass; frontend li
 
 ## Next Work
 
-T41-T45 and T46 Issues #94-#98 are merged and closed. Work may advance to Issue #99 for the reviewed expansion and freeze of the 50-64-scenario Golden Core. The final cross-slice adversarial review is intentionally deferred until all T46 tickets are implemented. Dashboard remains out of scope until the showcase slice; paid evaluation stays fail-closed until pricing and pre-call bounds are frozen.
+T41-T45 and T46 Issues #94-#98 are merged and closed. Issue #99 (Slice 4 Golden Core Expansion & Freeze) is implemented on branch `glm/t46-99-golden-core` with a local commit (not pushed/merged/closed): 52 canonical scenarios, 8 capability × 8 scenario class coverage, P0 immovable set, 6 robustness variant kinds, candidate governance, `golden-core` CLI. Pending next steps: push the branch, open a PR, close Issue #99, then proceed to Issue #100 (Dashboard/viewer slice). The final cross-slice adversarial review is intentionally deferred until all T46 tickets are implemented. Dashboard remains out of scope until the showcase slice; paid evaluation stays fail-closed until pricing and pre-call bounds are frozen.
 
 The main accepted limitation is free-text member constraints: `constraint_respected` proves that the Agent supplied review evidence, not that the proposed assignment is semantically compliant. A stronger guarantee requires a structured constraint model and deterministic task/constraint matching. A second bounded optimization candidate is a compact workspace read view: one post-fix Pro risk observation still paged a large `get_workspace_state` result, although it remained within the latency gate. Post-MVP backlog also includes auth, deployment, collaboration permissions and broader UI hardening.
 

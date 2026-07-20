@@ -407,12 +407,18 @@ function validateBudget(budget: EvaluationBudget, scenarios: ScenarioContract[],
   //   - calibrate (T46-5, Issue #98): maxSutCostUsd ≤ $3.00. The SUT cap
   //     covers ONLY ProjectFlow Agent cost; evaluator Judge/simulator
   //     cost lives under its OWN ceiling (see validateCalibrateBudget).
+  //   - golden-core (T46-6, Issue #99): maxSutCostUsd ≤ $1.00 (same as
+  //     `full` per §7). The Golden Core suite reuses `full`'s SUT cap
+  //     because it runs the same canonical scenarios that `full`
+  //     observes, plus optional robustness variants. Evaluator
+  //     Judge/simulator cost stays under its own ceiling.
   // The cap is enforced per-preset so `full` can run more scenarios
   // without tripping the smoke budget guard.
   const isFullPreset = preset === "full";
+  const isGoldenCorePreset = preset === "golden-core";
   const isCalibratePreset = preset === "calibrate";
-  const costCap = isCalibratePreset ? 3.00 : isFullPreset ? 1.00 : 0.10;
-  const costCapLabel = isCalibratePreset ? "calibrate" : isFullPreset ? "full" : "smoke/demo";
+  const costCap = isCalibratePreset ? 3.00 : (isFullPreset || isGoldenCorePreset) ? 1.00 : 0.10;
+  const costCapLabel = isCalibratePreset ? "calibrate" : (isFullPreset || isGoldenCorePreset) ? "full/golden-core" : "smoke/demo";
   if (budget.maxSutCostUsd > costCap) {
     add("budget_preset_cost", `${costCapLabel} 的 ProjectFlow Agent 成本上限不得超过 $${costCap.toFixed(2)}`);
   }

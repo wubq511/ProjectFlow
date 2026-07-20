@@ -45,6 +45,10 @@ agent-bridge/scripts/*
 backend/tmp-logs/
 backend/artifacts/
 agent-bridge/artifacts/
+# T46-6 (Issue #99) — Golden Core frozen JSON snapshot is a runtime
+# audit artifact produced by `golden-core freeze`. Not committed; the
+# TS registry (golden-core-registry.ts) is the single source of truth.
+agent-bridge/golden-core/
 backend/ab_sidecar_pilot_*.md
 vendor_imports/tools/
 vendor_imports/research/**/repos/

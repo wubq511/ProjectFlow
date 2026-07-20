@@ -567,6 +567,68 @@ export class EvaluationArtifactStore {
     return { artifactPath: relativePath, sha256: hash };
   }
 
+  // -------------------------------------------------------------------------
+  // T46-6 (Issue #99) — V6 Golden Core artifact publishing.
+  //
+  // All V6 artifacts atomically enter the SHA-256 result graph. They
+  // are published as immutable files under the run directory so the
+  // frozen registry snapshot, coverage report, and regression candidate
+  // registry are tamper-evident.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Publish a V6 Golden Core registry snapshot as an immutable file
+   * under `golden-core-registry.json`. This is the runtime audit
+   * artifact produced when `golden-core verify` is invoked.
+   */
+  async publishGoldenCoreRegistrySnapshot(
+    registry: unknown,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    const relativePath = "golden-core-registry.json";
+    const hash = await this.stageAndPublish(relativePath, registry);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
+  /**
+   * Publish a V6 Golden Core coverage report as an immutable file
+   * under `golden-core-coverage.json`. The report is machine-readable
+   * and contains the full coverage matrix (Issue #99 §2).
+   */
+  async publishGoldenCoreCoverageReport(
+    report: unknown,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    const relativePath = "golden-core-coverage.json";
+    const hash = await this.stageAndPublish(relativePath, report);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
+  /**
+   * Publish a V6 Golden Core regression candidate registry as an
+   * immutable file under `golden-core-candidates.json`. The candidate
+   * registry is separate from the canonical registry and cannot be
+   * auto-promoted (Issue #99 §6).
+   */
+  async publishGoldenCoreCandidateRegistry(
+    registry: unknown,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    const relativePath = "golden-core-candidates.json";
+    const hash = await this.stageAndPublish(relativePath, registry);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
+  /**
+   * Publish a V6 Golden Core scope filter verification record as an
+   * immutable file under `golden-core-scope-filter.json`. Records
+   * whether a scope filter preserves P0 mandatory coverage (Issue #99 §4).
+   */
+  async publishGoldenCoreScopeFilterVerification(
+    verification: unknown,
+  ): Promise<{ artifactPath: string; sha256: string }> {
+    const relativePath = "golden-core-scope-filter.json";
+    const hash = await this.stageAndPublish(relativePath, verification);
+    return { artifactPath: relativePath, sha256: hash };
+  }
+
   /**
    * Read a published repair packet by ID. Verifies the SHA-256 against
    * the integrity index when available.
@@ -647,6 +709,21 @@ export class EvaluationArtifactStore {
       "calibration-artifact.json",
       "candidate-registry.json",
       "standard-conflicts.json",
+    ] as const) {
+      const path = this.finalPath(file);
+      if (await pathExists(path)) {
+        await add(file);
+      }
+    }
+    // V6 Golden Core single-file artifacts at run root.
+    // These enter the SHA-256 result graph so the frozen registry
+    // snapshot, coverage report, and candidate registry are
+    // tamper-evident. Issue #99 §1, §2, §6.
+    for (const file of [
+      "golden-core-registry.json",
+      "golden-core-coverage.json",
+      "golden-core-candidates.json",
+      "golden-core-scope-filter.json",
     ] as const) {
       const path = this.finalPath(file);
       if (await pathExists(path)) {
