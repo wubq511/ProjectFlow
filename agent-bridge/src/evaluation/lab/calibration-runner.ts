@@ -131,6 +131,15 @@ export interface CalibrationRunnerInput {
   judgeManifest: JudgeManifest;
   anchorEvaluations: AnchorEvaluationInput[];
   pairwiseEvaluations: PairwiseEvaluationInput[];
+  /** Evaluator-owned samples for checking whether length alone changes Judge scores. */
+  verbositySamples?: Array<{ outputLength: number; scoreNumeric: number }>;
+  /** Evaluator-owned samples for checking same-family preference. */
+  sameFamilySamples?: Array<{
+    judgeFamily: string;
+    candidateAFamily: string;
+    candidateBFamily: string;
+    preferred: "A" | "B" | "tie";
+  }>;
   standardClaims: StructuredClaim[];
   costLedger: CalibrationCostLedger;
   mutationResults: Array<{ mutationId: string; detected: boolean; expectedDetection: boolean }>;
@@ -286,11 +295,11 @@ export async function runCalibrationPipeline(
   // §5 Compute bias metrics.
   const biasMetrics = computeBiasMetrics({
     pairwiseRecords,
-    verbositySamples: [],
-    sameFamilySamples: [],
+    verbositySamples: input.verbositySamples ?? [],
+    sameFamilySamples: input.sameFamilySamples ?? [],
     repeatedRunTrials: anchorResults.map((r) => r.map((x) => ({ verdict: x.verdict }))),
     anchorOrderingTrials: buildAnchorOrderingTrials(
-      anchorResults,
+      transposeAnchorResultsByRepeat(anchorResults),
       input.anchorSets.flatMap((s) => s.anchors),
     ),
     thresholds: input.thresholds,
@@ -392,10 +401,12 @@ export async function runCalibrationPipeline(
 
   // §11 Determine promotion eligibility.
   const promotionEligibility = {
-    anyEligible: candidateStandards.some((c) => isEligibleForPromotion(c, conflicts)),
+    anyEligible: candidateStandards.some(
+      (c) => isEligibleForPromotion(c, conflicts, failSafeReason, acceptance.passed),
+    ),
     perCandidate: candidateStandards.map((c) => ({
       candidateId: c.candidateId,
-      eligible: isEligibleForPromotion(c, conflicts),
+      eligible: isEligibleForPromotion(c, conflicts, failSafeReason, acceptance.passed),
       failureReasons: getPromotionFailureReasons(c, conflicts, failSafeReason, acceptance.passed),
     })),
   };
@@ -619,6 +630,8 @@ function buildStandardDiff(
 function isEligibleForPromotion(
   candidate: CandidateStandard,
   conflicts: StandardConflict[],
+  failSafeReason: string | null,
+  acceptancePassed: boolean,
 ): boolean {
   // §1 Must be in "candidate" status.
   if (candidate.status !== "candidate") return false;
@@ -630,7 +643,24 @@ function isEligibleForPromotion(
   //    candidate IDs.
   if (hasUnresolvedConflict(conflicts, candidate.candidateId)) return false;
   if (hasUnresolvedConflict(conflicts, candidate.entry.id)) return false;
+  // §3 Calibration evidence itself must be acceptable. A conflict-free
+  // candidate is still ineligible when the Judge failed safe or the
+  // frozen acceptance proposal did not pass.
+  if (failSafeReason !== null || !acceptancePassed) return false;
   return true;
+}
+
+/** Convert per-anchor repeat groups into per-repeat anchor groups. */
+function transposeAnchorResultsByRepeat(
+  perAnchorResults: AnchorEvaluationResult[][],
+): AnchorEvaluationResult[][] {
+  const repeatCount = Math.max(0, ...perAnchorResults.map((results) => results.length));
+  return Array.from({ length: repeatCount }, (_, repeatIndex) =>
+    perAnchorResults.flatMap((results) => {
+      const result = results[repeatIndex];
+      return result ? [result] : [];
+    }),
+  );
 }
 
 function getPromotionFailureReasons(

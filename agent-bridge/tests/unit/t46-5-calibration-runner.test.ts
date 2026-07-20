@@ -141,10 +141,12 @@ function buildAnchorEvaluationInputs(
 function buildHealthyPairwiseInput(
   rubric: SemanticRubric,
   judgeManifest: typeof P0_MOCK_JUDGE_MANIFEST,
+  candidateAId = "cand-a",
+  candidateBId = "cand-b",
 ): PairwiseEvaluationInput {
   return {
-    candidateAId: "cand-a",
-    candidateBId: "cand-b",
+    candidateAId,
+    candidateBId,
     candidateAOutput: "candidate A output",
     candidateBOutput: "candidate B output",
     blinded: true,
@@ -180,7 +182,30 @@ function buildBasicInput(
     anchorSets: [anchorSet],
     judgeManifest: P0_MOCK_JUDGE_MANIFEST,
     anchorEvaluations: buildAnchorEvaluationInputs(anchorSet.anchors, rubric),
-    pairwiseEvaluations: [buildHealthyPairwiseInput(rubric, P0_MOCK_JUDGE_MANIFEST)],
+    pairwiseEvaluations: [
+      buildHealthyPairwiseInput(rubric, P0_MOCK_JUDGE_MANIFEST),
+      buildHealthyPairwiseInput(rubric, P0_MOCK_JUDGE_MANIFEST, "cand-c", "cand-d"),
+    ],
+    verbositySamples: [
+      { outputLength: 10, scoreNumeric: 1 },
+      { outputLength: 20, scoreNumeric: 2 },
+      { outputLength: 30, scoreNumeric: 2 },
+      { outputLength: 40, scoreNumeric: 1 },
+    ],
+    sameFamilySamples: [
+      {
+        judgeFamily: "mock",
+        candidateAFamily: "mock",
+        candidateBFamily: "other",
+        preferred: "A",
+      },
+      {
+        judgeFamily: "mock",
+        candidateAFamily: "mock",
+        candidateBFamily: "other",
+        preferred: "B",
+      },
+    ],
     standardClaims: [],
     costLedger: buildMockCostLedger(),
     mutationResults: [],
@@ -224,6 +249,8 @@ describe("T46-5 calibration runner — pipeline basics", () => {
     expect(result.artifact.failureReasons).toBeDefined();
     expect(result.artifact.integritySha256).toMatch(/^[a-f0-9]+$/);
     expect(result.artifact.exitGateEvidence).toBeDefined();
+    expect(result.artifact.passed).toBe(true);
+    expect(result.artifact.promotionEligibility.anyEligible).toBe(true);
 
     // §3 Published paths must be returned.
     expect(result.published.calibrationArtifactPath).toBe("calibration-artifact.json");
@@ -348,6 +375,8 @@ describe("T46-5 calibration runner — fail-safe", () => {
     });
     const result = await runCalibrationPipeline(store, input);
     expect(result.artifact.failureReasons.some((r) => r.includes("only_same_family_uncalibrated"))).toBe(true);
+    expect(result.artifact.promotionEligibility.anyEligible).toBe(false);
+    expect(result.artifact.promotionEligibility.perCandidate[0]?.eligible).toBe(false);
     expect(result.artifact.exitGateEvidence.noSilentSameFamilyPromotion).toBe(false);
   });
 

@@ -32,7 +32,12 @@ import { buildRepairPrompt } from "./repair-prompt.js";
 import { verifyFaultCatalog } from "./fault-profiles.js";
 import { verifyPacketInvariants } from "./repair-packet.js";
 // T46-5 (Issue #98) — calibration, semantic standards, promotion.
-import { runCalibrationPipeline, buildPromotionApproval } from "./calibration-runner.js";
+import {
+  runCalibrationPipeline,
+  buildPromotionApproval,
+  type AnchorEvaluationInput,
+  type PairwiseEvaluationInput,
+} from "./calibration-runner.js";
 import { loadActiveRegistry, assertActiveRegistryUnchanged } from "./standards-registry.js";
 import { verifyConflictCatalog } from "./standard-conflicts.js";
 import { verifyCalibrationArtifactInvariants } from "./calibration-runner.js";
@@ -597,6 +602,65 @@ async function main(): Promise<void> {
       evaluatorProvenance: "unknown",
       codingAgentProvenance: "unknown",
     };
+    const anchorEvaluations: AnchorEvaluationInput[] = CALIBRATE_PRESET.anchorSets.flatMap(
+      (anchorSet) => {
+        const rubric = CALIBRATE_PRESET.rubrics.find(
+          (candidate) => candidate.criterion === anchorSet.criterion,
+        );
+        if (!rubric) {
+          throw new EvaluationValidationError(
+            `anchor set ${anchorSet.anchorSetId} 缺少 criterion=${anchorSet.criterion} 的 rubric`,
+          );
+        }
+        return anchorSet.anchors.map((anchor) => ({
+          anchor,
+          rubric,
+          judgeInput: {
+            visibleFacts: anchor.visibleFacts,
+            visibleProjectFlowState: "deterministic mock calibration fixture",
+            candidateOutput: anchor.output,
+            deterministicEvidence: [],
+            traceReferences: [],
+            candidateBlinded: true,
+          },
+          mockJudgeResult: {
+            verdict: anchor.expectedVerdict ?? "needs_review",
+            score: anchor.expectedScore ?? "fair",
+            reason: `deterministic mock Judge anchor: ${anchor.anchorId}`,
+            confidence: anchor.kind === "good" ? 0.95 : anchor.kind === "boundary" ? 0.60 : 0.20,
+          },
+        }));
+      },
+    );
+    const primaryRubric = CALIBRATE_PRESET.rubrics[0];
+    if (!primaryRubric) {
+      throw new EvaluationValidationError("CALIBRATE_PRESET 至少需要一个 rubric");
+    }
+    // Two deterministic pairs are deliberately chosen so one preferred
+    // candidate appears first and the other appears second under the
+    // recorded seed. This exercises position and reverse-order checks
+    // without creating a biased mock baseline.
+    const pairwiseEvaluations: PairwiseEvaluationInput[] = [0, 2].map((suffix) => ({
+      candidateAId: `mock-good-${suffix}`,
+      candidateBId: `mock-bad-${suffix}`,
+      candidateAOutput: "具体、可执行且带验收标准的阶段计划",
+      candidateBOutput: "随便做吧",
+      blinded: true,
+      rubric: primaryRubric,
+      judgeManifest: CALIBRATE_PRESET.judgeManifest,
+      mockForwardResult: {
+        kind: "preference",
+        preferred: "A",
+        confidence: 0.95,
+        reason: "deterministic mock Judge prefers the stronger anchor",
+      },
+      mockReverseResult: {
+        kind: "preference",
+        preferred: "A",
+        confidence: 0.95,
+        reason: "deterministic mock Judge remains stable after order reversal",
+      },
+    }));
     // Load active registry before calibration to verify immutability.
     const activeBefore = await loadActiveRegistry(projectRoot);
     // Run the calibration pipeline.
@@ -607,8 +671,28 @@ async function main(): Promise<void> {
       rubrics: CALIBRATE_PRESET.rubrics,
       anchorSets: CALIBRATE_PRESET.anchorSets,
       judgeManifest: CALIBRATE_PRESET.judgeManifest,
-      anchorEvaluations: [],
-      pairwiseEvaluations: [],
+      anchorEvaluations,
+      pairwiseEvaluations,
+      verbositySamples: [
+        { outputLength: 10, scoreNumeric: 1 },
+        { outputLength: 20, scoreNumeric: 2 },
+        { outputLength: 30, scoreNumeric: 2 },
+        { outputLength: 40, scoreNumeric: 1 },
+      ],
+      sameFamilySamples: [
+        {
+          judgeFamily: "mock",
+          candidateAFamily: "mock",
+          candidateBFamily: "other",
+          preferred: "A",
+        },
+        {
+          judgeFamily: "mock",
+          candidateAFamily: "mock",
+          candidateBFamily: "other",
+          preferred: "B",
+        },
+      ],
       standardClaims: [],
       costLedger,
       mutationResults: [],
@@ -655,7 +739,13 @@ async function main(): Promise<void> {
         `  integrity: ${result.artifact.integritySha256}\n`,
       );
     }
-    process.exit(result.artifact.passed ? EXIT.passed : EXIT.partialBudget);
+    process.exit(
+      result.artifact.passed
+        ? EXIT.passed
+        : result.artifact.partial
+          ? EXIT.partialBudget
+          : EXIT.regression,
+    );
     return;
   }
 
