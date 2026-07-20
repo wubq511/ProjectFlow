@@ -6,7 +6,7 @@ The primary Agent path uses the T41 TypeScript Agent Bridge Sidecar with Pi comp
 
 ## Current Status
 
-All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory V1, T43 Agent Harness V2 P0, T44 efficiency/model integrity, and T45 private conversation history are implemented. On 2026-07-17, T46 Evaluation Lab Slice 0 added the minimum trustworthy Agent-evaluation loop. On 2026-07-19, T46 Issue #95 merged the Slice 1 hard-domain foundation into `main`. On 2026-07-20, T46 Issue #96 was independently hardened, merged into `main` at `50c0f77`, and closed: deterministic multi-turn control, simulator integrity, append-only attempts, Skill evaluation across 8 dimensions, 11 Runtime fault classes, `demo`/`smoke`/`smoke-v2`/`full` presets, real isolated candidate/baseline execution, honest reliability statistics, separated operational costs, and a 6-condition fail-closed Slice 1 exit gate are complete. On 2026-07-20, T46 Issue #97 was implemented on branch `glm/t46-97-rca-repair-packets` (not yet merged): evidence-graded diagnoses with 5 frozen causal statuses, evaluator-owned single-variable counterfactuals, 8-category fault profiles, a known-fault RCA benchmark with 5 anti-gaming gates, evidence-bound issue clustering, immutable Repair Packets (`REPAIR_PACKET_SCHEMA_VERSION = 1`) with fix/investigation gate + scrubbing + stale detection + candidate-regression governance, and copy-ready Coding Agent prompts that forbid weakening frozen standards. The accepted mock evidence is `demo` 5/5, `full` 16/16, exit gate 6/6, and RCA benchmark 12 samples with all 5 gates passing. Paid models remain fail-closed until a frozen price table and pre-call worst-case estimate exist.
+All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory V1, T43 Agent Harness V2 P0, T44 efficiency/model integrity, and T45 private conversation history are implemented. T46 Slice 0 and Slice 1 Issues #94-#96 are merged. On 2026-07-20, T46 Issue #97 was merged into `main` at `3e09596` and closed: evidence-graded diagnoses with 5 frozen causal statuses, evaluator-owned single-variable counterfactuals, 8-category fault profiles, a known-fault RCA benchmark with 5 anti-gaming gates, evidence-bound issue clustering, immutable Repair Packets (`REPAIR_PACKET_SCHEMA_VERSION = 1`) with fix/investigation gate + scrubbing + stale detection + candidate-regression governance, and copy-ready Coding Agent prompts are complete. The light release gate passed Agent Bridge 1945/1945, typecheck/build, fault catalog completeness, and the 12-sample RCA benchmark. Issue #98 is next and owns governed calibration and semantic standards. Paid models remain fail-closed until frozen pricing and pre-call worst-case estimates exist.
 
 - Phase 0 / GitHub #2 — Guardrails & Setup
 - Phase 1 / GitHub #3 — Account / Workspace / Member Profile
@@ -43,7 +43,7 @@ All MVP and MVP Usable tasks are complete. T41 Agent Runtime, T42 ProjectMemory 
 - T46 Evaluation Lab Slice 0 / GitHub #94 — evaluator-owned isolation, bounded smoke execution, immutable evidence, machine-readable CLI and Coding Agent Skill (2026-07-17)
 - T46 Evaluation Lab Slice 1 foundation / GitHub #95 — scoped evidence, hard-state/authority oracles, public confirm/reject E2E, hidden-field commitments and `smoke-v2` (merged 2026-07-19)
 - T46 Evaluation Lab Slice 1 multi-turn / Skill / Runtime / Reliability / GitHub #96 — deterministic multi-turn user controller, simulator integrity, attempt ledger, Skill 8 dimensions, Runtime 11 fault classes, demo/smoke/smoke-v2/full presets, isolated candidate/baseline execution, reliability statistics, operational metrics and Slice 1 exit gate (merged and closed 2026-07-20)
-- T46 Evaluation Lab Slice 2 Diagnosis & Repair / GitHub #97 — evidence-graded diagnoses with 5 frozen causal statuses, evaluator-owned counterfactuals, 8-category fault profiles, anti-gaming RCA benchmark, immutable Repair Packets with fix/investigation gate, and Coding Agent prompts that forbid weakening frozen standards (branch `glm/t46-97-rca-repair-packets`, 2026-07-20)
+- T46 Evaluation Lab Slice 2 Diagnosis & Repair / GitHub #97 — evidence-graded diagnoses with 5 frozen causal statuses, evaluator-owned counterfactuals, 8-category fault profiles, anti-gaming RCA benchmark, immutable Repair Packets with fix/investigation gate, and governed Coding Agent prompts (merged and closed 2026-07-20)
 
 Implemented: FastAPI backend with private multi-conversation persistence and service-token-protected internal runtime/tools; T41 typed domain tools and Proposal-Confirm; T42 governed ProjectMemory; T43 durable Agent Harness V2; T44 request/model/prompt/Skill efficiency hardening; the T46 trustworthy evaluation minimum loop; the T46 Slice 1 ProjectFlow-aware deterministic hard graders; and the T46 Slice 1 multi-turn / Skill / Runtime / reliability surface. See [the post-T44 production canary](docs/T44/post-t44-production-canary-2026-07-13.md) for repeated model evidence, [the T46 Slice 0 handoff](docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice0_Handoff.md) for evaluator usage and trust boundaries, and [the T46 Slice 1 handoff](docs/T46/ProjectFlow_Agent_Evaluation_Lab_Slice1_Handoff.md) for hard grader contracts, the #96 module table, adversarial review remediation, and the Slice 1 closure path.
 
@@ -106,7 +106,7 @@ scripts/project-npm --prefix agent-bridge run build
 
 ## Agent Evaluation Lab
 
-Slice 0 runs the bounded local mock smoke; Issue #95 supplies ProjectFlow-aware deterministic hard-domain grading via `smoke-v2`; merged Issue #96 supplies multi-turn, Skill, Runtime, reliability, paired comparison and the Slice 1 exit gate; Issue #97 (branch `glm/t46-97-rca-repair-packets`) adds Slice 2 diagnosis & repair: evidence-graded diagnoses, counterfactuals, fault profiles, an anti-gaming RCA benchmark, immutable Repair Packets, and Coding Agent prompts. The deterministic Slice 1 closure evidence is the mock `full` run plus `verify` and `exit-gate`; paid-model quality/cost calibration is a later optional evidence layer, not a prerequisite. Coding Agent cost is reported separately and never counts against the ProjectFlow Agent cap.
+Slice 0 runs the bounded local mock smoke; Issues #95/#96 supply hard-domain, multi-turn, Skill, Runtime, reliability and paired evaluation; merged Issue #97 adds evidence-graded diagnosis, counterfactuals, fault profiles, RCA benchmark and Repair Packets. Issue #98 is the next slice for governed calibration and semantic standards. Coding Agent cost is reported separately and never counts against the ProjectFlow Agent cap.
 
 ```bash
 # Slice 0 — minimum trustworthy loop
@@ -125,7 +125,7 @@ scripts/eval-lab exit-gate <run-id> --json
 scripts/eval-lab reliability <run-id> --json
 scripts/eval-lab compare --candidate <git-ref> --baseline <git-ref> --preset smoke --model mock:mock-model --json
 
-# Slice 2 Diagnosis & Repair (#97, branch glm/t46-97-rca-repair-packets)
+# Slice 2 Diagnosis & Repair (#97, merged)
 scripts/eval-lab diagnose <run-id> --json
 scripts/eval-lab repair-packet <run-id> --packet-id <optional-id> --json
 scripts/eval-lab rca-benchmark <run-id> --json

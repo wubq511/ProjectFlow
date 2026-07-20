@@ -140,7 +140,7 @@ npm run build
 npm audit --omit=dev
 ```
 
-Expected baseline as of 2026-07-20 (Issue #97 branch `glm/t46-97-rca-repair-packets`):
+Expected baseline as of 2026-07-20 after Issue #97 merged into `main`:
 
 - Backend tests pass: 890 passed, 4 skipped; Ruff passes.
 - Agent bridge tests pass: 1945 tests across 85 unit files; typecheck and build pass.
@@ -231,7 +231,7 @@ scripts/eval-lab compare --candidate <git-ref> --baseline <git-ref> --preset smo
 
 ### T46 Evaluation Lab Slice 2 Diagnosis & Repair (#97)
 
-Issue #97 (branch `glm/t46-97-rca-repair-packets`, 2026-07-20) turns trusted evaluation failures into evidence-graded diagnoses, evaluator-owned counterfactuals, a known-fault RCA benchmark, evidence-bound issue clustering, immutable Repair Packets, and copy-ready Coding Agent prompts. It is wired to the real artifact store and the Slice 1 hard grader surface — no fake completion.
+Issue #97 (merged into `main` at `3e09596` and closed on 2026-07-20) turns trusted evaluation failures into evidence-graded diagnoses, evaluator-owned counterfactuals, a known-fault RCA benchmark, evidence-bound issue clustering, immutable Repair Packets, and copy-ready Coding Agent prompts. Issue #98 is the next slice for governed calibration and semantic standards.
 
 ```bash
 # Diagnose every failed observation in a completed run.
