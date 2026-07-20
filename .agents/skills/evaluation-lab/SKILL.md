@@ -67,7 +67,7 @@ scripts/eval-lab fault-catalog --json
 
 `diagnose` 对全 pass 的 run 返回 `diagnosis_skipped` (exit 0)；`repair-packet` 在没有 diagnosis 时返回 `repair_packets_empty` (exit 0)；`rca-benchmark` 通过 5 个 gate (`top1Accuracy ≥ 0.5`、`falseAttributionRate ≤ 0.3`、`confidenceCalibration ≥ 0.7`、`evidenceCompleteness ≥ 0.7`、`top3Recall - top1Accuracy ≤ 0.4`) 才返回 `passed: true`。Repair Packet 包含 schema version 1、fix/investigation gate、scrub (secrets / temp paths / hidden facts / hidden reasoning)、stale detection 和 candidate regression governance，不可绕过 frozen standards。
 
-Slice 3 (Issue #98, 本地分支 `glm/t46-98-governed-calibration`) 的 governed calibration 与 semantic standards 路径：先 `validate --preset calibrate` 做零 Token JSON 校验；再 `calibrate <run-id>` 运行 15 步 calibration pipeline 产出 immutable calibration artifact（active/candidate registries 严格分离、6 类 standard conflict pattern、5 类 verdict、6 类 bias metric、9 类 fail-safe、三类 cost provenance）；`promote-standard` 是唯一构造 promotion approval record 的命令，必须显式 `--approver-robert`，禁止任何 Agent/Judge/普通命令自动 promotion；`conflict-catalog` 单独校验 6 类 frozen conflict pattern 的完整性。
+Slice 3 (Issue #98，已合并关闭) 的 governed calibration 与 semantic standards 路径：先 `validate --preset calibrate` 做零 Token JSON 校验；再 `calibrate <run-id>` 运行 15 步 calibration pipeline 产出 immutable calibration artifact（active/candidate registries 严格分离、6 类 standard conflict pattern、5 类 verdict、6 类 bias metric、9 类 fail-safe、三类 cost provenance）；`promote-standard` 是唯一构造 promotion approval record 的命令，必须显式 `--approver-robert`，禁止任何 Agent/Judge/普通命令自动 promotion；`conflict-catalog` 单独校验 6 类 frozen conflict pattern 的完整性。
 
 ```bash
 scripts/eval-lab validate --preset calibrate --model mock:mock-model

@@ -2,7 +2,7 @@
 
 > Issue：[#98](https://github.com/wubq511/ProjectFlow/issues/98)
 >
-> 状态：本地分支 `glm/t46-98-governed-calibration` 完成确定性实现与对抗性自审；本地 commit 已创建，未 push、未 merge、未关闭 Issue。
+> 状态：2026-07-20 合并到 `main`（`14e106e`）并关闭 Issue #98；下一项为 Issue #99 Golden Core expansion/freeze。
 >
 > 边界：#98 在 #97 的诊断/修复面之上补齐 Slice 3 受治理的 proxy-expert calibration 与 semantic quality evaluation。ProjectFlow deterministic hard gates 永远优先；Semantic Judge 默认只是 soft evidence；普通 eval 不能修改 active standards；calibration 只能产生 candidate standards；没有可靠独立 Judge 或存在冲突时返回 `needs_review`；所有标准变更都是版本化、可审查、可回滚的 Git diff；未经 Robert 显式批准，任何 Agent、Judge 或普通命令都不能 promotion。本 ticket 验收使用 mock/deterministic Judge，不运行真实付费模型。
 
@@ -213,7 +213,7 @@ scripts/eval-lab conflict-catalog --json
 当前验证基线（仓库锁定工具链）：
 
 - backend：890 passed / 4 skipped；Ruff 全量通过（本 ticket 未改 backend）；
-- agent-bridge：221 个新 t46-5 测试全部通过（8 个新测试文件）；typecheck 与 build 通过；
+- agent-bridge：2170/2170 全量通过（93 个测试文件，其中 8 个 t46-5 文件共 225 tests）；typecheck 与 build 通过；
 - frontend：未改业务代码，全量回归通过；
 - `calibrate` 真实 CLI 路径：mock Judge 下完整 pipeline 跑通；
 - `git diff --check`：通过。
@@ -234,16 +234,27 @@ git diff --check main...HEAD
 
 ## Slice 3 关闭证据
 
-#98 本地分支保留以下确定性证据：
+#98 合并关闭时保留以下确定性证据：
 
-1. 8 个新测试文件 221 个测试全部通过，覆盖 active/candidate registry、standard conflicts、semantic judge、judge bias、calibration runner pipeline、mutation、governance；
+1. 8 个 t46-5 测试文件 225 个测试全部通过，覆盖 active/candidate registry、standard conflicts、semantic judge、judge bias、calibration runner pipeline、mutation、governance；
 2. `verifyCalibrationArtifactInvariants` 检查 5 类 invariant；
 3. `decideJudgeFailSafe` 9 类 fail-safe 条件按优先级降级；
 4. `applyPromotionApproval` 是唯一 active mutation path，7 类 reject 条件全部覆盖；
 5. `FROZEN_HARD_GATES` 8 类 gate 与 `FROZEN_CONFLICT_PATTERNS` 6 类 pattern 全部覆盖；
 6. active registry 在所有 fail-safe / conflict / unapproved 路径下保持 byte-identical；
 7. mock Judge 完整 pipeline 真实 CLI 路径跑通；
-8. 三端 lint/typecheck/build 通过。
+8. 轻量关闭门禁通过 Agent Bridge 2170/2170、typecheck/build、preset validation、conflict catalog 与真实 deterministic mock calibration；backend/frontend 未在关闭门禁重复运行，因为本 issue 未修改这两个 surface。
+
+## 合并前轻量发布门禁修复
+
+按 Robert 的节奏要求，本次没有做跨 Slice 全面审查；只修复真实入口暴露的 4 个阻塞问题：
+
+1. `calibrate` CLI 原先没有向 runner 传入 deterministic mock Judge anchor/pairwise evidence，导致文档声称可跑通但实际 fail-safe；
+2. runner 把“每个 anchor 的重复结果”直接当成“同一轮的多个 anchors”计算 ordering，导致 ordering violation 恒为 1；
+3. fail-safe 或 acceptance 未通过时，artifact 仍可能同时报告 candidate `eligible: true`；
+4. 所有 calibration failure 都误用 exit `4`，混淆普通回归与真正的 budget exhaustion。
+
+修复后真实命令 `scripts/eval-lab calibrate review98_calibrate_gate2 --json` 返回 `passed: true` / exit `0`，position、verbosity、same-family、disagreement、repeated-run、anchor-ordering 六类 metric 均有非零样本且未超过冻结阈值；active registry fingerprint 保持不变。全面对抗审查与跨切片修复继续留到全部 T46 tickets 完成后统一进行。
 
 真实付费模型 canary 不属于本 ticket 关闭条件。在冻结价格表与调用前最坏成本上限前，付费 calibration 继续 fail-closed。Slice 3 后续可能工作（不属于 #98）：付费模型真实校准、跨模型 Judge 横评、Dashboard 自动化、semantic hard-gate promotion 评估。全面对抗审查按用户要求留到全部 T46 tickets 完成后统一进行。
 

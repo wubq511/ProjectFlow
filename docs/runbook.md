@@ -140,10 +140,10 @@ npm run build
 npm audit --omit=dev
 ```
 
-Expected baseline as of 2026-07-20 after Issue #97 merged into `main` (Issue #98 on local branch `glm/t46-98-governed-calibration` adds 221 tests in 8 new t46-5 files; not yet merged):
+Expected baseline as of 2026-07-20 after Issue #98 merged into `main` at `14e106e`:
 
 - Backend tests pass: 890 passed, 4 skipped; Ruff passes.
-- Agent bridge tests pass: 1945 tests across 85 unit files; typecheck and build pass. (On the #98 branch: 2166 tests across 93 files, +221 t46-5 tests.)
+- Agent bridge tests pass: 2170 tests across 93 unit files; typecheck and build pass. The 8 t46-5 files contain 225 tests.
 - Frontend tests pass: 333 passed, 6 skipped across 26 files.
 - Frontend lint passes.
 - Frontend production build passes.
@@ -206,7 +206,7 @@ Issue #95 is the foundation; merged Issue #96 adds the multi-turn controller, fu
 
 ### T46 Evaluation Lab Slice 1 Multi-Turn / Skill / Runtime / Reliability (#96)
 
-Issue #96 was merged into `main` at `50c0f77` and closed on 2026-07-20. It adds the deterministic multi-turn user controller, simulator integrity (simulator_error excluded from the score denominator, `SIMULATOR_RETRY_BUDGET=2` frozen), append-only attempt ledger, Skill evaluation across 8 dimensions, Runtime fault matrix with 11 fault classes, `demo`/`smoke`/`smoke-v2`/`full` presets with `T46_3_P0_SCENARIO_IDS` and budget caps (smoke $0.10 / full $1 / calibrate $3), a candidate/baseline paired runner with separate detached worktrees and isolated runtime/state/artifact resources, reliability statistics that require explicit repeat groups before repeat-run claims, operational metrics with SUT/evaluator/coding-agent cost separation, and a 6-condition fail-closed Slice 1 exit gate. Issue #97 is the next slice and owns evidence-graded RCA and Repair Packets.
+Issue #96 was merged into `main` at `50c0f77` and closed on 2026-07-20. It adds the deterministic multi-turn user controller, simulator integrity (simulator_error excluded from the score denominator, `SIMULATOR_RETRY_BUDGET=2` frozen), append-only attempt ledger, Skill evaluation across 8 dimensions, Runtime fault matrix with 11 fault classes, `demo`/`smoke`/`smoke-v2`/`full` presets with `T46_3_P0_SCENARIO_IDS` and budget caps (smoke $0.10 / full $1 / calibrate $3), a candidate/baseline paired runner with separate detached worktrees and isolated runtime/state/artifact resources, reliability statistics that require explicit repeat groups before repeat-run claims, operational metrics with SUT/evaluator/coding-agent cost separation, and a 6-condition fail-closed Slice 1 exit gate. Issue #97 later added evidence-graded RCA and Repair Packets.
 
 ```bash
 # Preset matrix
@@ -231,7 +231,7 @@ scripts/eval-lab compare --candidate <git-ref> --baseline <git-ref> --preset smo
 
 ### T46 Evaluation Lab Slice 2 Diagnosis & Repair (#97)
 
-Issue #97 (merged into `main` at `3e09596` and closed on 2026-07-20) turns trusted evaluation failures into evidence-graded diagnoses, evaluator-owned counterfactuals, a known-fault RCA benchmark, evidence-bound issue clustering, immutable Repair Packets, and copy-ready Coding Agent prompts. Issue #98 is the next slice for governed calibration and semantic standards.
+Issue #97 (merged into `main` at `3e09596` and closed on 2026-07-20) turns trusted evaluation failures into evidence-graded diagnoses, evaluator-owned counterfactuals, a known-fault RCA benchmark, evidence-bound issue clustering, immutable Repair Packets, and copy-ready Coding Agent prompts. Issue #98 subsequently added governed calibration and semantic standards.
 
 ```bash
 # Diagnose every failed observation in a completed run.
@@ -256,7 +256,7 @@ Key files: `agent-bridge/src/evaluation/lab/diagnosis-contract.ts`, `agent-bridg
 
 ### T46 Evaluation Lab Slice 3 Governed Calibration & Semantic Standards (#98)
 
-Issue #98 (implemented on local branch `glm/t46-98-governed-calibration`; local commit created; not pushed, merged, or closed) adds governed calibration and semantic quality evaluation on top of #97. ProjectFlow deterministic hard gates always take precedence; Semantic Judge is soft evidence by default; normal eval cannot modify active standards; calibration only produces candidate standards; `needs_review` is returned when no reliable independent Judge is available or conflicts exist; all standard changes are versioned, reviewable, rollback-able Git diffs; no Agent, Judge or ordinary command can auto-promote without explicit Robert instruction.
+Issue #98 (merged into `main` at `14e106e` and closed on 2026-07-20) adds governed calibration and semantic quality evaluation on top of #97. ProjectFlow deterministic hard gates always take precedence; Semantic Judge is soft evidence by default; normal eval cannot modify active standards; calibration only produces candidate standards; `needs_review` is returned when no reliable independent Judge is available or conflicts exist; all standard changes are versioned, reviewable, rollback-able Git diffs; no Agent, Judge or ordinary command can auto-promote without explicit Robert instruction. Issue #99 is next and owns the reviewed expansion and freeze of the 50-64-scenario Golden Core.
 
 ```bash
 # Validate the calibrate preset (zero-token JSON validation)
@@ -280,7 +280,7 @@ scripts/eval-lab promote-standard \
 scripts/eval-lab conflict-catalog --json
 ```
 
-`calibrate` exits `0` when the pipeline produces a valid calibration artifact (the artifact is produced even when fail-safe triggers, so partial evidence is preserved); `1` on invariant violation or calibration failure; `2` infrastructure; `3` validation; `4` budget exhausted. `promote-standard` exits `0` when the approval record is built and the candidate is `approved`; `1` when the candidate is not approved, fingerprints do not match, or unresolved conflicts remain; `3` validation.
+`calibrate` exits `0` only when the calibration exit gate passes; fail-safe or acceptance failure still publishes the immutable evidence artifact but exits `1`. Infrastructure exits `2`, validation exits `3`, and only budget exhaustion with partial evidence exits `4`. `promote-standard` exits `0` when the approval record is built and the candidate is `approved`; `1` when the candidate is not approved, fingerprints do not match, or unresolved conflicts remain; `3` validation.
 
 Registry paths are fixed: `agent-bridge/standards/active/registry.json` is read-only for normal eval / diagnose / repair-packet / Judge paths; `agent-bridge/standards/candidate/` is the calibration-only namespace. `loadActiveRegistry` returns a stable bootstrap registry (fixed timestamp `1970-01-01T00:00:00.000Z`) on ENOENT, so `assertActiveRegistryUnchanged` holds even on the bootstrap path. Failed / fail-safe / conflict-blocked / unapproved calibration all leave the active registry byte-identical.
 
