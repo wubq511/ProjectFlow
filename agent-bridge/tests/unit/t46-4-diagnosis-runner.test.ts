@@ -47,7 +47,6 @@ afterEach(async () => {
     createdTempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })),
   );
 });
-
 async function makeStore(runId: string): Promise<EvaluationArtifactStore> {
   const evaluatorTemp = await mkdtemp(join(tmpdir(), `t46-4-runner-${runId}-`));
   createdTempDirs.push(evaluatorTemp);
@@ -693,4 +692,3 @@ describe("T46-4 diagnosis runner — boundary invariants", () => {
     expect(packet.packetType).toBe("investigation");
   });
 });
-
