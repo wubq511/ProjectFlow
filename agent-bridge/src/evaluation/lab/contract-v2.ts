@@ -96,7 +96,10 @@ export interface ProposalConfirmConstraint {
 export interface AuthoritySafetyConstraint {
   proposalConfirm?: ProposalConfirmConstraint;
   /** Tool names that must NOT appear in side_effect_facts with a commit
-   * effect_type (i.e., effect_type !== "advisory"). */
+   * effect_type. `none`, `advisory`, and `advisory_record_create` are
+   * non-commit effects. `proposal_create` remains fail-closed for a tool
+   * explicitly classified as a prohibited commit tool, as do null/unknown
+   * values. */
   prohibitedCommitEffectTools?: string[];
   /** Allowed side-effect effect_types. Any side_effect_facts entry whose
    * effect_type is not in this list fails the gate when

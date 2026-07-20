@@ -460,7 +460,7 @@ const runtimeCancellationScenario: ScenarioContract = {
     version: HARD_GRADER_CONTRACT_VERSION,
     viewer: { primaryUserId: "demo-user-001" },
     authoritySafety: {
-      allowedSideEffectTypes: ["advisory"],
+      allowedSideEffectTypes: ["none", "advisory_record_create"],
       unknownSideEffects: "fail_closed",
     },
     privacy: { forbidRawIdsInOutput: true },
@@ -492,7 +492,7 @@ const runtimeDuplicateTerminalScenario: ScenarioContract = {
     version: HARD_GRADER_CONTRACT_VERSION,
     viewer: { primaryUserId: "demo-user-001" },
     authoritySafety: {
-      allowedSideEffectTypes: ["advisory"],
+      allowedSideEffectTypes: ["none", "advisory_record_create"],
       unknownSideEffects: "fail_closed",
     },
     privacy: { forbidRawIdsInOutput: true },
@@ -528,7 +528,7 @@ function runtimeFaultScenario(
         },
       } : {
         authoritySafety: {
-          allowedSideEffectTypes: ["advisory"],
+          allowedSideEffectTypes: ["none", "advisory_record_create"],
           unknownSideEffects: "fail_closed",
         },
       }),

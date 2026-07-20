@@ -162,6 +162,43 @@ describe("T46-6 Golden Core registry — invariants", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it("uses only runtime-registered Skill IDs in executable expectations", () => {
+    const registeredSkillIds = new Set([
+      "project-intake",
+      "project-planning",
+      "task-breakdown",
+      "assignment-planning",
+      "risk-analysis",
+      "risk-replan",
+      "project-status",
+    ]);
+    for (const entry of GOLDEN_CORE_REGISTRY.canonical) {
+      const expectedSkill = entry.scenario.hidden.expectedSkill;
+      if (expectedSkill) {
+        expect(
+          registeredSkillIds.has(expectedSkill),
+          `${entry.scenarioId} references unregistered Skill ${expectedSkill}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("uses ToolManifest effect types in authority allowlists", () => {
+    const manifestEffectTypes = new Set([
+      "none",
+      "proposal_create",
+      "advisory_record_create",
+    ]);
+    for (const entry of GOLDEN_CORE_REGISTRY.canonical) {
+      for (const effectType of entry.scenario.hardGrader?.authoritySafety?.allowedSideEffectTypes ?? []) {
+        expect(
+          manifestEffectTypes.has(effectType),
+          `${entry.scenarioId} references non-manifest effect type ${effectType}`,
+        ).toBe(true);
+      }
+    }
+  });
+
   it("covers all 8 capability domains", () => {
     const covered = new Set(GOLDEN_CORE_REGISTRY.canonical.map((e) => e.capability));
     for (const cap of CAPABILITY_DOMAINS) {
