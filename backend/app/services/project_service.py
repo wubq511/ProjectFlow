@@ -28,6 +28,7 @@ def create_project(session: Session, data: ProjectCreate) -> Project:
         idea=data.idea,
         deadline=data.deadline,
         deliverables=data.deliverables,
+        project_template=data.project_template.value,
         created_by=data.created_by,
     )
     session.add(project)

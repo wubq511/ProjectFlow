@@ -17,6 +17,8 @@ class WorkspaceRead(BaseModel):
     name: str
     owner_user_id: str
     description: str | None
+    team_size: int | None
+    use_case: str | None
     created_at: datetime
     updated_at: datetime
 

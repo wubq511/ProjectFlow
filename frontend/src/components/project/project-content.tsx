@@ -41,10 +41,17 @@ import { TaskStatusUpdateList } from "@/components/task/task-status-update";
 import { WorkspaceContent } from "./workspace-content";
 import { MyTasksView, TeamTasksView } from "./project-task-views";
 import { ProjectMemoryPanel } from "./project-memory-panel";
-import type { AddResourceRequest, ProjectState, ThinkingLevel } from "@/lib/types";
+import type { AddResourceRequest, ProjectState, ProjectTemplate, ThinkingLevel } from "@/lib/types";
 import { ACTION_LABELS, inferRecommendedAction } from "./project-actions";
 import type { AgentAction } from "./project-actions";
 import type { ProjectView } from "./project-sidebar";
+
+const PROJECT_TEMPLATE_LABELS: Partial<Record<ProjectTemplate, string>> = {
+  coursework: "课程作业",
+  competition: "比赛",
+  startup: "创业",
+  research: "研究",
+};
 
 const VIEW_META: Record<
   ProjectView,
@@ -287,6 +294,11 @@ function ViewRenderer({
                   {project.name}
                 </h1>
                 <div className="mt-2 flex flex-wrap items-center gap-3">
+                  {project.project_template && PROJECT_TEMPLATE_LABELS[project.project_template] && (
+                    <Badge className="bg-primary/10 text-primary">
+                      {PROJECT_TEMPLATE_LABELS[project.project_template]}
+                    </Badge>
+                  )}
                   <Badge
                     className={cn(
                       "transition-colors",

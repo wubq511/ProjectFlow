@@ -80,6 +80,7 @@ def _project_to_read(project: Project) -> ProjectRead:
         idea=project.idea,
         deadline=project.deadline,
         deliverables=project.deliverables,
+        project_template=project.project_template,
         status=project.status,
         current_stage_id=project.current_stage_id,
         direction_card=normalize_direction_card(project.direction_card),

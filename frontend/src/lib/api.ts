@@ -372,8 +372,13 @@ export async function createProject(
   return request<Project>("/projects", {
     method: "POST",
     body: JSON.stringify({
-      ...data,
       workspace_id: workspaceId,
+      name: data.name,
+      idea: data.idea,
+      deadline: data.deadline,
+      deliverables: data.deliverables,
+      project_template: data.project_template,
+      created_by: data.created_by,
     }),
   });
 }

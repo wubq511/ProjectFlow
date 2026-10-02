@@ -20,6 +20,8 @@ export type Workspace = {
   name: string;
   owner_user_id: string;
   description?: string | null;
+  team_size?: number | null;
+  use_case?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -87,6 +89,8 @@ export type UpsertMemberProfileRequest = {
 };
 
 // --- Project ---
+export type ProjectTemplate = "general" | "coursework" | "competition" | "startup" | "research";
+
 export type Project = {
   id: string;
   workspace_id: string;
@@ -94,6 +98,7 @@ export type Project = {
   idea: string;
   deadline: string;
   deliverables: string;
+  project_template?: ProjectTemplate;
   status: "draft" | "active" | "at_risk" | "completed";
   current_stage_id?: string | null;
   direction_card?: DirectionCard | null;
@@ -107,6 +112,7 @@ export type CreateProjectRequest = {
   idea: string;
   deadline: string;
   deliverables: string;
+  project_template: ProjectTemplate;
   created_by: string;
 };
 

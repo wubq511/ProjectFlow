@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { createProject, addResource } from "@/lib/api"
-import type { Project, AddResourceRequest } from "@/lib/types"
+import type { Project, ProjectTemplate, AddResourceRequest } from "@/lib/types"
 import { ResourceInputPanel } from "./resource-input-panel"
 import { FormSection } from "@/components/ui/form-section"
 import { FormField } from "@/components/ui/form-field"
@@ -40,14 +40,13 @@ const PROJECT_TYPES = [
   { id: "research", label: "研究", icon: FlaskConical },
 ] as const
 
-type ProjectType = (typeof PROJECT_TYPES)[number]["id"]
+type ProjectType = Exclude<ProjectTemplate, "general">
 
 interface DraftData {
   name: string
   idea: string
   deadline: string
   projectType: ProjectType | ""
-  teamSize: string
   deliverables: string[]
   createdBy: string
 }
@@ -112,16 +111,6 @@ export function ProjectIntakeForm({
     } catch { /* ignore */ }
     return ""
   })
-  const [teamSize, setTeamSize] = React.useState(() => {
-    try {
-      const draft = localStorage.getItem(DRAFT_KEY)
-      if (draft) {
-        const data: DraftData = JSON.parse(draft)
-        return data.teamSize || ""
-      }
-    } catch { /* ignore */ }
-    return ""
-  })
   const [deliverableTags, setDeliverableTags] = React.useState<string[]>(() => {
     try {
       const draft = localStorage.getItem(DRAFT_KEY)
@@ -150,12 +139,11 @@ export function ProjectIntakeForm({
       idea,
       deadline,
       projectType,
-      teamSize,
       deliverables: deliverableTags,
       createdBy,
     }
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
-  }, [name, idea, deadline, projectType, teamSize, deliverableTags, createdBy])
+  }, [name, idea, deadline, projectType, deliverableTags, createdBy])
 
   const validate = React.useCallback((): boolean => {
     const newErrors: Record<string, string> = {}
@@ -250,7 +238,6 @@ export function ProjectIntakeForm({
     setIdea("");
     setDeadline("");
     setProjectType("");
-    setTeamSize("");
     setDeliverableTags([]);
     setCreatedBy(defaultCreatedBy || "");
     setErrors({});
@@ -283,6 +270,7 @@ export function ProjectIntakeForm({
         idea: idea.trim(),
         deadline,
         deliverables: deliverablesStr,
+        project_template: projectType || "general",
         created_by: createdBy.trim(),
       })
       // Add resources if any
@@ -429,27 +417,14 @@ export function ProjectIntakeForm({
             </div>
           </FormField>
 
-          <div className="grid gap-4">
-            <FormField label="团队规模" hint="预计参与人数">
-              <Input
-                type="number"
-                min={1}
-                max={50}
-                value={teamSize}
-                onChange={(e) => setTeamSize(e.target.value)}
-                placeholder="例如：5"
-                className="h-10"
-              />
-            </FormField>
-            <FormField label="预期交付物" hint="项目最终要产出什么">
-              <TagInput
-                tags={deliverableTags}
-                onTagsChange={setDeliverableTags}
-                placeholder="输入后按回车添加"
-                maxTags={8}
-              />
-            </FormField>
-          </div>
+          <FormField label="预期交付物" hint="项目最终要产出什么">
+            <TagInput
+              tags={deliverableTags}
+              onTagsChange={setDeliverableTags}
+              placeholder="输入后按回车添加"
+              maxTags={8}
+            />
+          </FormField>
         </FormSection>
 
         <FormSection title="资源与约束" collapsible defaultOpen={false}>

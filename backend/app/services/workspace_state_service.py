@@ -229,6 +229,7 @@ def get_workspace_state(
             id=project_row.id, name=project_row.name, idea=project_row.idea,
             deadline=project_row.deadline,
             deliverables=project_row.deliverables,
+            project_template=project_row.project_template,
             direction_card=_json_object(project_row.direction_card),
             status=project_row.status if isinstance(project_row.status, str) else project_row.status.value,
             current_stage_id=project_row.current_stage_id,
