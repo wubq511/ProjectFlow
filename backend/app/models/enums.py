@@ -19,6 +19,14 @@ class ProjectStatus(str, Enum):
     completed = "completed"
 
 
+class ProjectTemplate(str, Enum):
+    general = "general"
+    coursework = "coursework"
+    competition = "competition"
+    startup = "startup"
+    research = "research"
+
+
 class ResourceType(str, Enum):
     text_note = "text_note"
     file_stub = "file_stub"

@@ -1,5 +1,7 @@
 // Domain types synced with backend schemas
 
+export type ProjectTemplate = "general" | "coursework" | "competition" | "startup" | "research";
+
 // --- User / Account ---
 export type User = {
   user_id: string;
@@ -20,6 +22,8 @@ export type Workspace = {
   name: string;
   owner_user_id: string;
   description?: string | null;
+  team_size?: number | null;
+  project_template?: ProjectTemplate;
   created_at: string;
   updated_at: string;
 };
@@ -29,7 +33,7 @@ export type CreateWorkspaceRequest = {
   owner_user_id: string;
   description?: string | null;
   team_size?: number;
-  use_case?: string;
+  project_template: ProjectTemplate;
 };
 
 export type WorkspaceMembership = {
@@ -94,6 +98,7 @@ export type Project = {
   idea: string;
   deadline: string;
   deliverables: string;
+  project_template?: ProjectTemplate;
   status: "draft" | "active" | "at_risk" | "completed";
   current_stage_id?: string | null;
   direction_card?: DirectionCard | null;
@@ -107,6 +112,7 @@ export type CreateProjectRequest = {
   idea: string;
   deadline: string;
   deliverables: string;
+  project_template: ProjectTemplate;
   created_by: string;
 };
 

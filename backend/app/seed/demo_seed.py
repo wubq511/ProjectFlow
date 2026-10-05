@@ -60,6 +60,7 @@ def reset_demo_data(session: Session) -> DemoResetRead:
         name="ProjectFlow Demo Team",
         owner_user_id=users[0].id,
         description="A student team preparing a project demo.",
+        project_template="coursework",
     )
     session.add(workspace)
     session.commit()
@@ -130,6 +131,7 @@ def reset_demo_data(session: Session) -> DemoResetRead:
         idea="Help student project teams turn messy status into the next concrete action.",
         deadline=date(2026, 6, 7),
         deliverables="Clickable MVP demo, review summary, and 5-minute presentation path",
+        project_template="coursework",
         status=ProjectStatus.active,
         direction_card={
             "problem": "Student teams lose time deciding what to do next.",

@@ -76,6 +76,7 @@ class TestSeedEndpoint:
         assert response.status_code == 200
         ws = response.json()
         assert ws["name"] == "ProjectFlow 团队"
+        assert ws["project_template"] == "competition"
 
     def test_seed_project_direction_card_uses_current_shape(self, client: TestClient):
         client.post("/api/seed/demo")
@@ -83,6 +84,7 @@ class TestSeedEndpoint:
         response = client.get("/api/projects/demo-project-001")
 
         assert response.status_code == 200
+        assert response.json()["project_template"] == "competition"
         direction_card = response.json()["direction_card"]
         assert direction_card["users"] == "大学生项目小队（3-8人）"
         assert "AI Agent 主动推进项目" in direction_card["value"]

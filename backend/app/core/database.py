@@ -68,9 +68,36 @@ def _migrate_workspaces() -> None:
         columns = _get_sqlite_columns("workspaces")
         if "team_size" not in columns:
             conn.execute(text("ALTER TABLE workspaces ADD COLUMN team_size INTEGER"))
-        if "use_case" not in columns:
-            conn.execute(text("ALTER TABLE workspaces ADD COLUMN use_case TEXT"))
+        if "project_template" not in columns:
+            conn.execute(text(
+                "ALTER TABLE workspaces ADD COLUMN project_template TEXT NOT NULL DEFAULT 'general'"
+            ))
+            if "use_case" in columns:
+                conn.execute(text("""
+                    UPDATE workspaces
+                    SET project_template = CASE use_case
+                        WHEN 'course' THEN 'coursework'
+                        WHEN 'coursework' THEN 'coursework'
+                        WHEN 'competition' THEN 'competition'
+                        WHEN 'startup' THEN 'startup'
+                        WHEN 'research' THEN 'research'
+                        ELSE 'general'
+                    END
+                """))
         conn.commit()
+
+
+def _migrate_projects() -> None:
+    """Keep existing SQLite projects readable after adding project_template."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    with engine.connect() as conn:
+        columns = _get_sqlite_columns("projects")
+        if "project_template" not in columns:
+            conn.execute(text(
+                "ALTER TABLE projects ADD COLUMN project_template TEXT NOT NULL DEFAULT 'general'"
+            ))
+            conn.commit()
 
 
 def _migrate_agent_runs_v2() -> None:
@@ -210,6 +237,7 @@ def create_db_and_tables() -> None:
     _migrate_agent_proposals()
     _migrate_tasks_order_index()
     _migrate_workspaces()
+    _migrate_projects()
     _migrate_agent_runs_v2()
     _migrate_agent_runs_v2_attribution()
     _migrate_agent_conversations_multi()

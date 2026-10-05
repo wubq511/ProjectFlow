@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from pydantic import BaseModel, model_validator
 
-from app.models.enums import ProjectStatus
+from app.models.enums import ProjectStatus, ProjectTemplate
 from app.schemas.common import NonEmptyStr, reject_past_date
 
 
@@ -12,6 +12,7 @@ class ProjectCreate(BaseModel):
     deadline: date
     deliverables: NonEmptyStr
     created_by: NonEmptyStr
+    project_template: ProjectTemplate = ProjectTemplate.general
 
     @model_validator(mode="after")
     def validate_deadline(self) -> "ProjectCreate":
@@ -41,6 +42,7 @@ class ProjectRead(BaseModel):
     idea: str
     deadline: date
     deliverables: str
+    project_template: ProjectTemplate
     status: ProjectStatus
     current_stage_id: str | None
     direction_card: dict | None

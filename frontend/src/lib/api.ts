@@ -260,7 +260,7 @@ export async function createWorkspace(data: CreateWorkspaceRequest): Promise<Wor
         name: data.name,
         description: data.description ?? null,
         team_size: data.team_size,
-        use_case: data.use_case,
+        project_template: data.project_template,
       }),
     }
   );
@@ -372,8 +372,13 @@ export async function createProject(
   return request<Project>("/projects", {
     method: "POST",
     body: JSON.stringify({
-      ...data,
       workspace_id: workspaceId,
+      name: data.name,
+      idea: data.idea,
+      deadline: data.deadline,
+      deliverables: data.deliverables,
+      project_template: data.project_template,
+      created_by: data.created_by,
     }),
   });
 }

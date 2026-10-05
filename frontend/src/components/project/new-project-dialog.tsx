@@ -9,11 +9,12 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { ProjectIntakeForm } from "./project-intake-form";
-import type { Project } from "@/lib/types";
+import type { Project, ProjectTemplate } from "@/lib/types";
 
 interface NewProjectDialogProps {
   workspaceId: string;
   createdBy: string;
+  defaultProjectTemplate?: ProjectTemplate;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated?: (project: Project) => void;
@@ -22,6 +23,7 @@ interface NewProjectDialogProps {
 export function NewProjectDialog({
   workspaceId,
   createdBy,
+  defaultProjectTemplate,
   open,
   onOpenChange,
   onCreated,
@@ -57,6 +59,7 @@ export function NewProjectDialog({
         <ProjectIntakeForm
           workspaceId={workspaceId}
           defaultCreatedBy={createdBy}
+          defaultProjectTemplate={defaultProjectTemplate}
           onCreated={handleCreated}
         />
       </DialogContent>

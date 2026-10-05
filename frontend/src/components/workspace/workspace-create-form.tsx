@@ -7,10 +7,6 @@ import {
   Loader2,
   FolderOpen,
   AlertCircle,
-  Users,
-  Briefcase,
-  GraduationCap,
-  Lightbulb,
   ArrowLeft,
   ArrowRight,
 } from "lucide-react"
@@ -18,16 +14,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { createWorkspace } from "@/lib/api"
-import type { Workspace } from "@/lib/types"
+import type { ProjectTemplate, Workspace } from "@/lib/types"
 import { FormField } from "@/components/ui/form-field"
 import { cn } from "@/lib/utils"
-
-const USE_CASES = [
-  { id: "course", label: "课程", icon: GraduationCap },
-  { id: "competition", label: "比赛", icon: Briefcase },
-  { id: "startup", label: "创业", icon: Lightbulb },
-  { id: "other", label: "其他", icon: Users },
-] as const
+import { PROJECT_TEMPLATE_OPTIONS } from "@/components/project/project-template-options"
 
 const TEAM_SIZES = [
   { id: "1-2", label: "1-2 人" },
@@ -51,8 +41,7 @@ export function WorkspaceCreateForm({
   const [ownerId, setOwnerId] = React.useState(ownerUserId ?? "")
   const [step, setStep] = React.useState(0)
   const [teamSize, setTeamSize] = React.useState("")
-  const [useCase, setUseCase] = React.useState("")
-  const [customUseCase, setCustomUseCase] = React.useState("")
+  const [projectTemplate, setProjectTemplate] = React.useState<ProjectTemplate>("general")
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
@@ -60,7 +49,7 @@ export function WorkspaceCreateForm({
 
   const steps = [
     { label: "基本信息", description: "工作区名称和描述" },
-    { label: "团队上下文", description: "规模和场景" },
+    { label: "团队上下文", description: "规模和项目类型" },
   ]
 
   const validateStep = React.useCallback((s: number): boolean => {
@@ -71,11 +60,11 @@ export function WorkspaceCreateForm({
     }
     if (s === 1) {
       if (!teamSize) newErrors.teamSize = "请选择团队规模"
-      if (!useCase) newErrors.useCase = "请选择主要场景"
+      if (!projectTemplate) newErrors.projectTemplate = "请选择项目类型"
     }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
-  }, [name, teamSize, useCase])
+  }, [name, teamSize, projectTemplate])
 
   const validateField = React.useCallback((field: string, value: string) => {
     const newErrors: Record<string, string> = {}
@@ -89,8 +78,8 @@ export function WorkspaceCreateForm({
     if (field === "teamSize" && !value) {
       newErrors.teamSize = "请选择团队规模"
     }
-    if (field === "useCase" && !value) {
-      newErrors.useCase = "请选择主要场景"
+    if (field === "projectTemplate" && !value) {
+      newErrors.projectTemplate = "请选择项目类型"
     }
     setErrors((prev) => ({ ...prev, ...newErrors }))
   }, [])
@@ -117,7 +106,7 @@ export function WorkspaceCreateForm({
         owner_user_id: ownerId.trim(),
         description: description.trim() || null,
         team_size: parsedTeamSize,
-        use_case: useCase === "other" ? customUseCase.trim() : useCase,
+        project_template: projectTemplate,
       })
       onCreated?.(ws)
       router.push(`/onboarding/profile?userId=${ownerId.trim()}&workspaceId=${ws.workspace_id}`)
@@ -219,50 +208,31 @@ export function WorkspaceCreateForm({
               </div>
             </FormField>
 
-            <FormField label="主要场景" hint="你们主要做什么类型的项目" error={errors.useCase}>
-              <div className="grid grid-cols-2 gap-3">
-                {USE_CASES.map((uc) => {
-                  const Icon = uc.icon
+            <FormField label="项目类型" hint="新项目将默认使用此类型" error={errors.projectTemplate}>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {PROJECT_TEMPLATE_OPTIONS.map((option) => {
+                  const Icon = option.icon
                   return (
                     <button
-                      key={uc.id}
+                      key={option.id}
                       type="button"
                       onClick={() => {
-                        setUseCase(uc.id)
-                        validateField("useCase", uc.id)
+                        setProjectTemplate(option.id)
+                        validateField("projectTemplate", option.id)
                       }}
                       className={cn(
                         "flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-sm font-medium transition-colors",
-                        useCase === uc.id
+                        projectTemplate === option.id
                           ? "border-primary bg-primary/5 text-primary"
                           : "border-muted hover:border-muted-foreground/30"
                       )}
                     >
                       <Icon className="h-4 w-4" />
-                      {uc.label}
+                      {option.label}
                     </button>
                   )
                 })}
               </div>
-              {useCase === "other" && (
-                <div className="mt-4">
-                  <FormField label="具体场景" error={errors.customUseCase}>
-                    <Input
-                      value={customUseCase}
-                      onChange={(e) => {
-                        setCustomUseCase(e.target.value)
-                        if (touched.customUseCase) validateField("customUseCase", e.target.value)
-                      }}
-                      onBlur={() => {
-                        setTouched((prev) => ({ ...prev, customUseCase: true }))
-                        validateField("customUseCase", customUseCase)
-                      }}
-                      placeholder="例如：毕业设计、社团活动"
-                      className={cn("h-10", errors.customUseCase && "border-destructive")}
-                    />
-                  </FormField>
-                </div>
-              )}
             </FormField>
           </div>
         )}

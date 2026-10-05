@@ -1,7 +1,7 @@
 from datetime import datetime
 from pydantic import BaseModel
 
-from app.models.enums import WorkspaceRole
+from app.models.enums import ProjectTemplate, WorkspaceRole
 from app.schemas.common import NonEmptyStr
 
 
@@ -9,7 +9,7 @@ class WorkspaceCreate(BaseModel):
     name: NonEmptyStr
     description: str | None = None
     team_size: int | None = None
-    use_case: str | None = None
+    project_template: ProjectTemplate = ProjectTemplate.general
 
 
 class WorkspaceRead(BaseModel):
@@ -17,6 +17,8 @@ class WorkspaceRead(BaseModel):
     name: str
     owner_user_id: str
     description: str | None
+    team_size: int | None
+    project_template: ProjectTemplate
     created_at: datetime
     updated_at: datetime
 

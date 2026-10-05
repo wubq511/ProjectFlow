@@ -8,10 +8,6 @@ import {
   FolderOpen,
   CheckCircle2,
   AlertCircle,
-  Users,
-  Briefcase,
-  GraduationCap,
-  Lightbulb,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,14 +24,8 @@ import { createWorkspace } from "@/lib/api";
 import { StepIndicator } from "@/components/ui/step-indicator";
 import { FormField } from "@/components/ui/form-field";
 import { cn } from "@/lib/utils";
-import type { Workspace } from "@/lib/types";
-
-const USE_CASES = [
-  { id: "course", label: "课程", icon: GraduationCap },
-  { id: "competition", label: "比赛", icon: Briefcase },
-  { id: "startup", label: "创业", icon: Lightbulb },
-  { id: "other", label: "其他", icon: Users },
-] as const;
+import type { ProjectTemplate, Workspace } from "@/lib/types";
+import { PROJECT_TEMPLATE_OPTIONS } from "@/components/project/project-template-options";
 
 const TEAM_SIZES = [
   { id: "1-2", label: "1-2 人" },
@@ -61,7 +51,7 @@ export function NewWorkspaceDialog({
   const [ownerId, setOwnerId] = useState("");
   const [step, setStep] = useState(0);
   const [teamSize, setTeamSize] = useState("");
-  const [useCase, setUseCase] = useState("");
+  const [projectTemplate, setProjectTemplate] = useState<ProjectTemplate>("general");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<Workspace | null>(null);
@@ -69,7 +59,7 @@ export function NewWorkspaceDialog({
 
   const steps = [
     { label: "基本信息", description: "工作区名称和描述" },
-    { label: "团队上下文", description: "规模和场景" },
+    { label: "团队上下文", description: "规模和项目类型" },
   ];
 
   const validateStep = (s: number): boolean => {
@@ -81,7 +71,7 @@ export function NewWorkspaceDialog({
     }
     if (s === 1) {
       if (!teamSize) newErrors.teamSize = "请选择团队规模";
-      if (!useCase) newErrors.useCase = "请选择主要场景";
+      if (!projectTemplate) newErrors.projectTemplate = "请选择项目类型";
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -93,10 +83,13 @@ export function NewWorkspaceDialog({
     setSubmitting(true);
     setError(null);
     try {
+      const parsedTeamSize = teamSize === "10+" ? 10 : parseInt(teamSize.split("-")[0]);
       const ws = await createWorkspace({
         name: name.trim(),
         owner_user_id: ownerId.trim(),
         description: description.trim() || null,
+        team_size: parsedTeamSize,
+        project_template: projectTemplate,
       });
       setCreated(ws);
       onCreated?.(ws);
@@ -117,7 +110,7 @@ export function NewWorkspaceDialog({
     setOwnerId("");
     setStep(0);
     setTeamSize("");
-    setUseCase("");
+    setProjectTemplate("general");
     setError(null);
     setCreated(null);
     setErrors({});
@@ -253,28 +246,28 @@ export function NewWorkspaceDialog({
                       </div>
                     </FormField>
 
-                    <FormField label="主要场景" hint="你们主要做什么类型的项目" error={errors.useCase}>
-                      <div className="grid grid-cols-2 gap-2">
-                        {USE_CASES.map((uc) => {
-                          const Icon = uc.icon;
+                    <FormField label="项目类型" hint="新项目将默认使用此类型" error={errors.projectTemplate}>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {PROJECT_TEMPLATE_OPTIONS.map((option) => {
+                          const Icon = option.icon;
                           return (
                             <button
-                              key={uc.id}
+                              key={option.id}
                               type="button"
                               onClick={() => {
-                                setUseCase(uc.id);
-                                if (errors.useCase)
-                                  setErrors((prev) => ({ ...prev, useCase: "" }));
+                                setProjectTemplate(option.id);
+                                if (errors.projectTemplate)
+                                  setErrors((prev) => ({ ...prev, projectTemplate: "" }));
                               }}
                               className={cn(
                                 "flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-sm font-medium transition-colors",
-                                useCase === uc.id
+                                projectTemplate === option.id
                                   ? "border-primary bg-primary/5 text-primary"
                                   : "border-muted hover:border-muted-foreground/30"
                               )}
                             >
                               <Icon className="h-4 w-4 shrink-0" />
-                              {uc.label}
+                              {option.label}
                             </button>
                           );
                         })}
@@ -312,7 +305,7 @@ export function NewWorkspaceDialog({
                   ) : (
                     <Button
                       type="submit"
-                      disabled={submitting || !name.trim() || !ownerId.trim() || !teamSize || !useCase}
+                      disabled={submitting || !name.trim() || !ownerId.trim() || !teamSize || !projectTemplate}
                     >
                       {submitting ? (
                         <>

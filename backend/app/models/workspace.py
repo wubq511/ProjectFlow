@@ -12,7 +12,7 @@ class Workspace(SQLModel, table=True):
     owner_user_id: str = Field(foreign_key="users.id", index=True)
     description: str | None = Field(default=None)
     team_size: int | None = Field(default=None)
-    use_case: str | None = Field(default=None)
+    project_template: str = Field(default="general")
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
