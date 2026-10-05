@@ -317,6 +317,24 @@ describe("projectflow-tools", () => {
       expect(schema.required).toContain("reason");
     });
 
+    it("accepts optional structured evidence references in the FastAPI wire format", () => {
+      const schema = m.inputSchema as {
+        properties: {
+          evidence_refs: {
+            type: string;
+            items: { required: string[]; properties: Record<string, unknown> };
+          };
+        };
+      };
+      expect(schema.properties.evidence_refs.type).toBe("array");
+      expect(schema.properties.evidence_refs.items.required).toEqual([
+        "entity_type",
+        "field",
+        "value",
+      ]);
+      expect(schema.properties.evidence_refs.items.properties).toHaveProperty("entity_id");
+    });
+
     it("has outputSchema", () => {
       expect(m.outputSchema).toBeDefined();
     });
@@ -844,6 +862,24 @@ describe("projectflow-tools", () => {
       expect(schema.required).toContain("description");
       expect(schema.required).toContain("evidence");
       expect(schema.required).toContain("recommendation");
+    });
+
+    it("accepts optional structured evidence references in the FastAPI wire format", () => {
+      const schema = m.inputSchema as {
+        properties: {
+          evidence_refs: {
+            type: string;
+            items: { required: string[]; properties: Record<string, unknown> };
+          };
+        };
+      };
+      expect(schema.properties.evidence_refs.type).toBe("array");
+      expect(schema.properties.evidence_refs.items.required).toEqual([
+        "entity_type",
+        "field",
+        "value",
+      ]);
+      expect(schema.properties.evidence_refs.items.properties).toHaveProperty("entity_id");
     });
 
     it("matches backend RiskSeverity enum", () => {

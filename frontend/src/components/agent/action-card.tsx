@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MultilineText } from "@/components/ui/multiline-text";
 import type { ActionCard } from "@/lib/types";
+import { EvidenceRefList } from "@/components/ui/evidence-ref-list";
 
 type ActionCardItemProps = {
   card: ActionCard;
@@ -120,6 +121,7 @@ export function ActionCardItem({ card, onDismiss, onComplete, pending, canOperat
               <MultilineText text={card.reason} className="mt-0.5" />
             </div>
           )}
+          <EvidenceRefList refs={card.evidence_refs} />
           {card.due_date && (
             <p className="mt-1 text-xs text-ink/50">
               截止：{new Date(card.due_date).toLocaleDateString("zh-CN")}

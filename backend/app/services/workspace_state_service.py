@@ -31,6 +31,7 @@ from app.schemas.workspace_state import (
     ProjectState,
     WorkspaceStateResponse,
 )
+from app.services.project_service import normalize_direction_card
 
 
 def _json_list(value: str | None) -> list:
@@ -192,6 +193,7 @@ def get_workspace_state(
             task_id=p.task_id,
             recommended_owner_user_id=p.recommended_owner_user_id,
             backup_owner_user_id=p.backup_owner_user_id,
+            evidence_refs=p.evidence_refs,
             status=p.status.value if isinstance(p.status, Enum) else p.status,
         ) for p in assignment_proposal_rows]
         assignment_responses = [AssignmentResponseState(
@@ -229,6 +231,7 @@ def get_workspace_state(
             id=project_row.id, name=project_row.name, idea=project_row.idea,
             deadline=project_row.deadline,
             deliverables=project_row.deliverables,
+            project_template=project_row.project_template,
             direction_card=_json_object(project_row.direction_card),
             status=project_row.status if isinstance(project_row.status, str) else project_row.status.value,
             current_stage_id=project_row.current_stage_id,

@@ -21,6 +21,7 @@ def create_action_card(session: Session, data: ActionCardCreate, *, auto_commit:
         start_suggestion=data.start_suggestion,
         completion_standard=data.completion_standard,
         due_date=data.due_date,
+        evidence_refs=[ref.model_dump(mode="json") for ref in data.evidence_refs],
         created_by_agent=data.created_by_agent,
     )
     session.add(card)

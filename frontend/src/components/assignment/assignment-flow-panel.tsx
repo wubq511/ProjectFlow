@@ -24,6 +24,7 @@ import type {
 } from "@/lib/types";
 import { cleanJsonString } from "@/lib/utils";
 import { MatchText } from "@/components/ui/match-text";
+import { EvidenceRefList } from "@/components/ui/evidence-ref-list";
 
 type AssignmentFlowPanelProps = {
   proposals: AssignmentProposal[];
@@ -285,6 +286,7 @@ export function AssignmentFlowPanel({
                             <MultilineText text={proposal.risk_note} />
                           </div>
                         )}
+                        <EvidenceRefList refs={proposal.evidence_refs} />
                       </div>
 
                       {/* Negotiation Block */}

@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import Column, JSON
 from sqlmodel import SQLModel, Field
 
 
@@ -19,6 +20,10 @@ class AssignmentProposal(SQLModel, table=True):
     preference_match: str | None = Field(default=None)
     constraint_respected: str | None = Field(default=None)
     risk_note: str | None = Field(default=None)
+    evidence_refs: list[dict] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
     status: str = Field(default="proposed", index=True)  # "proposed" | "owner_confirmed" | "owner_rejected" | "negotiating" | "finalized"
     created_by_agent: bool = Field(default=False)
     created_at: datetime = Field(

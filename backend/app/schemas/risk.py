@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.models.enums import RiskSeverity, RiskStatus, RiskType
 from app.schemas.common import NonEmptyStr
+from app.schemas.evidence import EvidenceRef
 
 
 class RiskCreate(BaseModel):
@@ -15,6 +16,7 @@ class RiskCreate(BaseModel):
     title: NonEmptyStr
     description: NonEmptyStr
     evidence: list[str | dict] = Field(min_length=1)
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     recommendation: NonEmptyStr
     created_by_agent: bool = False
 
@@ -29,6 +31,7 @@ class RiskRead(BaseModel):
     title: str
     description: str
     evidence: list[str | dict]
+    evidence_refs: list[EvidenceRef]
     recommendation: str
     status: RiskStatus
     created_by_agent: bool

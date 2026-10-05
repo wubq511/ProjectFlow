@@ -505,6 +505,7 @@ def _persist_replan(session: Session, proposal: AgentProposal) -> list[str]:
             start_suggestion=card.start_suggestion,
             completion_standard=card.completion_standard,
             due_date=card.due_date,
+            evidence_refs=card.evidence_refs,
             created_by_agent=True,
         )
         for card in output.action_cards

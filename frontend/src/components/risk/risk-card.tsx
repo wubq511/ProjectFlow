@@ -8,6 +8,7 @@ import { useInlineConfirm } from "@/lib/use-inline-confirm";
 import type { Risk } from "@/lib/types";
 import { MultilineText } from "@/components/ui/multiline-text";
 import { translateStatus } from "@/lib/utils";
+import { EvidenceRefList } from "@/components/ui/evidence-ref-list";
 
 type RiskCardProps = {
   risk: Risk;
@@ -144,6 +145,8 @@ export function RiskCard({ risk, onAccept, onIgnore, onResolve, pending }: RiskC
               </ul>
             </div>
           )}
+
+          <EvidenceRefList refs={risk.evidence_refs} />
 
           {risk.recommendation && (
             <div className="mt-3 rounded-md bg-white px-3 py-2 text-sm text-ink/75">

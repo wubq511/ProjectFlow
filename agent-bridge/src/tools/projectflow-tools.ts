@@ -503,13 +503,27 @@ const recommendAssignmentManifest: ProjectFlowToolManifest = {
         description: "限制条件检查证据；推荐负责人或备选负责人存在已记录约束时必填。仅用于证明已检查，不代表系统已完成语义合规判断。",
       },
       risk_note: { type: "string", description: "风险提示（可选）" },
+      evidence_refs: {
+        type: "array",
+        description: "支持推荐结论的结构化事实引用（可选）",
+        items: {
+          type: "object",
+          required: ["entity_type", "field", "value"],
+          properties: {
+            entity_type: { type: "string" },
+            entity_id: { type: "string" },
+            field: { type: "string" },
+            value: { type: "string" },
+          },
+        },
+      },
     },
     required: ["stage_id", "task_id", "recommended_owner_user_id", "reason"],
   },
   outputSchema: {
     type: "object",
     description:
-      "ProjectFlowToolResult — status=success, data=AssignmentProposalRead (id, project_id, stage_id, task_id, recommended_owner_user_id, backup_owner_user_id, reason, status, created_at), side_effect_status=proposal_persisted, links.proposal_id, links.created_ids",
+      "ProjectFlowToolResult — status=success, data=AssignmentProposalRead（含 evidence_refs）, side_effect_status=proposal_persisted, links.proposal_id, links.created_ids",
   },
   backend: {
     owner: "fastapi",
@@ -574,12 +588,26 @@ const createRiskManifest: ProjectFlowToolManifest = {
       recommendation: { type: "string", minLength: 1, maxLength: 1000 },
       stage_id: { type: "string" },
       task_id: { type: "string" },
+      evidence_refs: {
+        type: "array",
+        description: "触发该风险的结构化事实引用（可选）",
+        items: {
+          type: "object",
+          required: ["entity_type", "field", "value"],
+          properties: {
+            entity_type: { type: "string" },
+            entity_id: { type: "string" },
+            field: { type: "string" },
+            value: { type: "string" },
+          },
+        },
+      },
     },
   },
   outputSchema: {
     type: "object",
     description:
-      "ProjectFlowToolResult — status=success, data=RiskRead (id, project_id, type, severity, title, description, evidence, recommendation, status), side_effect_status=advisory_record_persisted, links.created_ids",
+      "ProjectFlowToolResult — status=success, data=RiskRead（含 evidence_refs）, side_effect_status=advisory_record_persisted, links.created_ids",
   },
   backend: {
     owner: "fastapi",

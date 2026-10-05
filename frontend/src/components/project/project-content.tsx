@@ -45,6 +45,7 @@ import type { AddResourceRequest, ProjectState, ThinkingLevel } from "@/lib/type
 import { ACTION_LABELS, inferRecommendedAction } from "./project-actions";
 import type { AgentAction } from "./project-actions";
 import type { ProjectView } from "./project-sidebar";
+import { PROJECT_TEMPLATE_LABELS } from "./project-template-options";
 
 const VIEW_META: Record<
   ProjectView,
@@ -287,6 +288,11 @@ function ViewRenderer({
                   {project.name}
                 </h1>
                 <div className="mt-2 flex flex-wrap items-center gap-3">
+                  {project.project_template && (
+                    <Badge className="bg-primary/10 text-primary">
+                      {PROJECT_TEMPLATE_LABELS[project.project_template]}
+                    </Badge>
+                  )}
                   <Badge
                     className={cn(
                       "transition-colors",

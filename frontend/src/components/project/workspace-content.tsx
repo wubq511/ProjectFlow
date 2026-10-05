@@ -479,6 +479,7 @@ export function WorkspaceContent({ state, currentUserId, onNavigateToProject, on
       <NewProjectDialog
         workspaceId={workspace.workspace_id}
         createdBy={workspace.owner_user_id}
+        defaultProjectTemplate={workspace.project_template}
         open={newProjectOpen}
         onOpenChange={setNewProjectOpen}
         onCreated={(project) => {

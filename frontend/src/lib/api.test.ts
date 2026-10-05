@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createConversation,
   exportProjectMemoriesMarkdown,
+  exportReviewSummary,
   getAgentConversation,
   getConversationDetail,
   getConversationMessages,
@@ -27,6 +28,20 @@ afterEach(() => {
 });
 
 describe("frontend API layer", () => {
+  it("uses the single public review-summary export endpoint", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toMatch(/\/projects\/project-1\/export\/review-summary$/);
+      expect(init?.method).toBe("POST");
+      return jsonResponse({ markdown: "# ProjectFlow 评审摘要" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(exportReviewSummary("project-1")).resolves.toEqual({
+      markdown: "# ProjectFlow 评审摘要",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("loads the active project agent conversation", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

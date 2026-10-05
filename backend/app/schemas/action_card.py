@@ -1,9 +1,10 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.enums import ActionCardStatus, ActionCardType
 from app.schemas.common import NonEmptyStr
+from app.schemas.evidence import EvidenceRef
 
 
 class ActionCardCreate(BaseModel):
@@ -19,6 +20,7 @@ class ActionCardCreate(BaseModel):
     start_suggestion: NonEmptyStr | None = None
     completion_standard: NonEmptyStr | None = None
     due_date: date | None = None
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     created_by_agent: bool = False
 
 
@@ -36,6 +38,7 @@ class ActionCardRead(BaseModel):
     start_suggestion: str | None
     completion_standard: str | None
     due_date: date | None
+    evidence_refs: list[EvidenceRef]
     status: ActionCardStatus
     created_by_agent: bool
     created_at: datetime

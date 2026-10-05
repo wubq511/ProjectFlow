@@ -2,6 +2,8 @@ from datetime import date
 
 from pydantic import BaseModel, Field
 
+from app.models.enums import ProjectTemplate
+
 
 class MemberState(BaseModel):
     user_id: str
@@ -68,6 +70,7 @@ class AssignmentProposalState(BaseModel):
     task_id: str
     recommended_owner_user_id: str
     backup_owner_user_id: str | None = None
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     status: str
 
 
@@ -105,6 +108,7 @@ class ProjectState(BaseModel):
     idea: str
     deadline: date
     deliverables: str = ""
+    project_template: ProjectTemplate = ProjectTemplate.general
     direction_card: dict | None = None
     status: str
     current_stage_id: str | None

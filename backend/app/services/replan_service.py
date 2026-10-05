@@ -82,6 +82,7 @@ def confirm_replan(
             start_suggestion=card_data.start_suggestion,
             completion_standard=card_data.completion_standard,
             due_date=card_data.due_date,
+            evidence_refs=[ref.model_dump(mode="json") for ref in card_data.evidence_refs],
             created_by_agent=card_data.created_by_agent,
         )
         session.add(card)

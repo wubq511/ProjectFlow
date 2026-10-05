@@ -12,6 +12,7 @@ from app.models.enums import (
     TaskPriority,
     TaskStatus,
 )
+from app.schemas.evidence import EvidenceRef
 from app.agent.modules.common import (
     SKILL_NAME_CN_MAP,
     active_stage_id as resolve_active_stage_id,
@@ -23,19 +24,6 @@ from app.schemas.workspace_state import WorkspaceStateResponse
 
 class AgentOutputValidationError(ValueError):
     """Raised when an agent payload cannot be trusted as structured output."""
-
-
-class EvidenceRef(BaseModel):
-    entity_type: str = Field(
-        min_length=1,
-        description="Type of referenced entity: member, task, stage, checkin, project",
-    )
-    entity_id: str | None = Field(
-        default=None,
-        description="ID of the referenced entity; omit for project-level refs",
-    )
-    field: str = Field(min_length=1, description="Which field was used as evidence")
-    value: str = Field(min_length=1, description="The concrete value observed")
 
 
 class AgentOutputBase(BaseModel):

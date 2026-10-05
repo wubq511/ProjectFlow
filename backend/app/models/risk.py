@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import Column, JSON
 from sqlmodel import SQLModel, Field
 
 
@@ -16,6 +17,10 @@ class Risk(SQLModel, table=True):
     title: str
     description: str
     evidence: str = Field(default="[]")  # JSON string: ["evidence1", ...]
+    evidence_refs: list[dict] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
     recommendation: str
     status: str = Field(default="open", index=True)  # "open" | "accepted" | "ignored" | "resolved"
     created_by_agent: bool = Field(default=False)

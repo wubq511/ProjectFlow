@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.enums import (
     AssignmentProposalStatus,
@@ -8,6 +8,7 @@ from app.models.enums import (
     NegotiationStatus,
 )
 from app.schemas.common import NonEmptyStr
+from app.schemas.evidence import EvidenceRef
 
 
 class AssignmentProposalCreate(BaseModel):
@@ -22,6 +23,7 @@ class AssignmentProposalCreate(BaseModel):
     preference_match: NonEmptyStr | None = None
     constraint_respected: NonEmptyStr | None = None
     risk_note: NonEmptyStr | None = None
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     created_by_agent: bool = False
 
 
@@ -38,6 +40,7 @@ class AssignmentProposalRead(BaseModel):
     preference_match: str | None
     constraint_respected: str | None
     risk_note: str | None
+    evidence_refs: list[EvidenceRef]
     status: AssignmentProposalStatus
     created_by_agent: bool
     created_at: datetime

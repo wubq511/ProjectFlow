@@ -13,6 +13,7 @@ class Project(SQLModel, table=True):
     idea: str
     deadline: str  # ISO date string
     deliverables: str
+    project_template: str = Field(default="general")
     status: str = Field(default="draft", index=True)  # "draft" | "active" | "at_risk" | "completed"
     current_stage_id: str | None = Field(default=None, foreign_key="stages.id", index=True)
     direction_card: str | None = Field(default=None)  # JSON string

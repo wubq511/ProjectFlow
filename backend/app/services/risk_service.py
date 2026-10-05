@@ -39,6 +39,7 @@ def create_risk(session: Session, data: RiskCreate, *, auto_commit: bool = True)
         title=data.title,
         description=data.description,
         evidence=json.dumps(data.evidence, ensure_ascii=False),
+        evidence_refs=[ref.model_dump(mode="json") for ref in data.evidence_refs],
         recommendation=data.recommendation,
         created_by_agent=data.created_by_agent,
     )

@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import Column, JSON
 from sqlmodel import SQLModel, Field
 
 
@@ -20,6 +21,10 @@ class ActionCard(SQLModel, table=True):
     start_suggestion: str | None = Field(default=None)
     completion_standard: str | None = Field(default=None)
     due_date: str | None = Field(default=None)  # ISO date string
+    evidence_refs: list[dict] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
     status: str = Field(default="active", index=True)  # "active" | "done" | "dismissed"
     created_by_agent: bool = Field(default=False)
     created_at: datetime = Field(

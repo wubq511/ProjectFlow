@@ -204,6 +204,7 @@ def create_assignment_proposal(session: Session, data: AssignmentProposalCreate,
         preference_match=data.preference_match,
         constraint_respected=data.constraint_respected,
         risk_note=data.risk_note,
+        evidence_refs=[ref.model_dump(mode="json") for ref in data.evidence_refs],
         created_by_agent=data.created_by_agent,
     )
     session.add(proposal)

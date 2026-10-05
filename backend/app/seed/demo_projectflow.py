@@ -133,6 +133,7 @@ def seed_demo_data(session: Session) -> dict:
         name="ProjectFlow 团队",
         owner_user_id=USER_IDS["xiaolin"],
         description="AI Agent 工程训练营项目小队",
+        project_template="competition",
         created_at=T_START,
         updated_at=T_START,
     )
@@ -306,6 +307,7 @@ def seed_demo_data(session: Session) -> dict:
         idea="帮助大学生项目小队推进项目的 AI Agent，不只是记录任务，而是持续回答：项目该往哪走？下一步做什么？谁适合做什么？哪些有风险？",
         deadline="2026-07-17",
         deliverables="MVP demo, README, demo video, review summary",
+        project_template="competition",
         status="active",
         current_stage_id=None,
         direction_card=direction_card,

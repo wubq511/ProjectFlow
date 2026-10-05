@@ -858,6 +858,7 @@ def _persist_advisory_risks(
                 title=risk.title,
                 description=risk.description,
                 evidence=risk.evidence,
+                evidence_refs=risk.evidence_refs,
                 recommendation=risk.recommendation,
                 created_by_agent=True,
             ),
@@ -930,6 +931,7 @@ def _persist_advisory_action_cards(
                 start_suggestion=card.start_suggestion,
                 completion_standard=card.completion_standard,
                 due_date=card.due_date,
+                evidence_refs=card.evidence_refs,
                 created_by_agent=True,
             ),
             auto_commit=False,
@@ -1070,6 +1072,7 @@ def execute_assignment_recommendation(session: Session, request: ToolExecutionRe
             preference_match=args.get("preference_match"),
             constraint_respected=args.get("constraint_respected"),
             risk_note=args.get("risk_note"),
+            evidence_refs=args.get("evidence_refs", []),
             created_by_agent=True,
         )
         proposal = create_assignment_proposal(session, create_data, auto_commit=False)
@@ -1250,6 +1253,7 @@ def execute_create_risk(session: Session, request: ToolExecutionRequest) -> Proj
             title=args["title"],
             description=args["description"],
             evidence=args["evidence"],
+            evidence_refs=args.get("evidence_refs", []),
             recommendation=args["recommendation"],
             created_by_agent=True,
         )
